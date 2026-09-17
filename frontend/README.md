@@ -1,6 +1,6 @@
 # ConnectSphere Event Planner — Frontend
 
-React 19 + Vite (JavaScript).
+React 19 + Vite (TypeScript).
 
 ## Prerequisites
 
@@ -10,7 +10,7 @@ React 19 + Vite (JavaScript).
 
 ```bash
 npm install
-cp .env.example .env   # set VITE_API_BASE_URL if the backend isn't on localhost:8080
+cp .env.example .env   # set VITE_API_BASE_URL if the backend isn't on localhost:8000
 ```
 
 ## Run the app
@@ -20,7 +20,7 @@ npm run dev
 ```
 
 Opens on `http://localhost:5173`. The home page calls the backend's
-`/api/events/health` endpoint (see `src/features/event/EventHealthCheck.jsx`)
+`/api/events/health` endpoint (see `src/features/event/EventHealthCheck.tsx`)
 to confirm the frontend/backend connection is working.
 
 ## Build
@@ -28,6 +28,8 @@ to confirm the frontend/backend connection is working.
 ```bash
 npm run build
 ```
+
+Type-checks with `tsc -b` before building with Vite.
 
 ## Lint
 
@@ -40,4 +42,4 @@ npm run lint
 - `src/features/<domain>/` — feature-scoped components, one folder per backend domain
   (event, venue, equipment, registration, notification)
 - `src/components/` — shared UI components
-- `src/api/` — API client (`client.js` wraps `fetch`, base URL from `VITE_API_BASE_URL`)
+- `src/api/` — API client (`client.ts` wraps `fetch`, base URL from `VITE_API_BASE_URL`)

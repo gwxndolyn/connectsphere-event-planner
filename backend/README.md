@@ -1,37 +1,44 @@
 # ConnectSphere Event Planner — Backend
 
-Spring Boot 3 (Java 17) REST API, built with Maven. Uses Spring Web and Spring Data JPA,
-backed by H2 in-memory for local development (swap the `spring.datasource` block in
-`application.yml` for MySQL/Postgres when deploying).
+FastAPI (Python 3.12+) REST API, backed by PostgreSQL 16.
 
 ## Prerequisites
 
-- Java 17
-- Maven (or use the included wrapper if one is added later)
+- Python 3.12+
+- PostgreSQL 16 (running locally, or via the `docker-compose.yml` in the repo root)
+
+## Setup
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+cp .env.example .env   # adjust DATABASE_URL if needed
+```
 
 ## Run the app
 
 ```bash
-mvn spring-boot:run
+uvicorn app.main:app --reload
 ```
 
-The app starts on `http://localhost:8080`. Health check:
+The app starts on `http://localhost:8000`. Health check:
 
 ```bash
-curl http://localhost:8080/api/events/health
+curl http://localhost:8000/api/events/health
 ```
 
-The H2 console is available at `http://localhost:8080/h2-console` (JDBC URL: `jdbc:h2:mem:connectsphere`).
+Interactive API docs: `http://localhost:8000/docs`.
 
 ## Run tests
 
 ```bash
-mvn test
+pytest
 ```
 
 ## Package layout
 
-Feature-based packages under `com.connectsphere`:
+Feature-based packages under `app/`:
 
 - `event` — event request, review, status management
 - `venue` — venue catalogue, booking, conflict detection
@@ -39,4 +46,4 @@ Feature-based packages under `com.connectsphere`:
 - `registration` — attendee registration, waitlist
 - `notification` — cross-cutting notification service
 - `user` — auth, roles
-- `common` — shared config, exceptions, DTOs
+- `core` — shared config, database session, exceptions
