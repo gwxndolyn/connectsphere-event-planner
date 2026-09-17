@@ -1,0 +1,290 @@
+.board {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 56px 24px 80px;
+}
+
+.board__header {
+  text-align: center;
+  margin-bottom: 48px;
+}
+
+.board__title {
+  font-size: 44px;
+  letter-spacing: -0.3px;
+}
+
+.board__subtitle {
+  margin-top: 10px;
+  font-size: 17px;
+}
+
+.board__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 20px;
+  text-align: left;
+}
+
+/* --- Event card --- */
+
+.event-card {
+  background: var(--paper-card);
+  border: 1px solid var(--rule);
+  border-left: 4px solid var(--pin);
+  padding: 20px 22px 18px;
+  display: flex;
+  flex-direction: column;
+}
+
+.event-card--social {
+  border-left-color: #6d7a3f;
+}
+.event-card--career {
+  border-left-color: #3f6b7a;
+}
+.event-card--performance {
+  border-left-color: #7a3f6d;
+}
+
+.event-card__category {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--pin-dark);
+  margin-bottom: 10px;
+}
+
+.event-card__title {
+  font-size: 21px;
+  margin-bottom: 8px;
+}
+
+.event-card__description {
+  font-size: 15px;
+  line-height: 1.5;
+  flex-grow: 1;
+}
+
+.event-card__rule {
+  border-top: 1px dashed var(--rule);
+  margin: 16px 0 12px;
+}
+
+.event-card__meta {
+  font-size: 14px;
+  margin-bottom: 2px;
+}
+
+.event-card__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.event-card__seats {
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.event-card__seats--full {
+  color: var(--stamp-wait);
+}
+
+/* --- Buttons --- */
+
+.button {
+  border: none;
+  cursor: pointer;
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.button--reserve {
+  background: var(--pin);
+  color: var(--paper-card);
+}
+
+.button--reserve:hover {
+  background: var(--pin-dark);
+}
+
+.button--waitlist {
+  background: transparent;
+  border: 1px solid var(--stamp-wait);
+  color: var(--stamp-wait);
+}
+
+.button--secondary {
+  background: transparent;
+  border: 1px solid var(--rule);
+  color: var(--ink-soft);
+}
+
+/* --- Dialog --- */
+
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 18, 10, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 10;
+}
+
+.dialog {
+  background: var(--paper-card);
+  max-width: 420px;
+  width: 100%;
+  padding: 28px 26px 26px;
+  position: relative;
+  text-align: left;
+}
+
+.dialog__close {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  background: none;
+  border: none;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+/* --- Registration form --- */
+
+.reg-form__title {
+  font-size: 22px;
+  padding-right: 24px;
+}
+
+.reg-form__meta {
+  font-size: 14px;
+  margin-top: 6px;
+  margin-bottom: 20px;
+}
+
+.reg-form__notice {
+  font-size: 14px;
+  color: var(--stamp-wait);
+  border: 1px dashed var(--stamp-wait);
+  padding: 10px 12px;
+  margin-bottom: 18px;
+}
+
+.reg-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--ink-soft);
+  margin-bottom: 16px;
+}
+
+.reg-form__field input {
+  font: inherit;
+  font-size: 15px;
+  padding: 9px 10px;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.reg-form__field input:focus-visible {
+  outline: 2px solid var(--pin);
+  outline-offset: 1px;
+}
+
+.reg-form__error {
+  font-size: 13px;
+  color: var(--stamp-wait);
+  margin-bottom: 14px;
+}
+
+.reg-form__submit {
+  width: 100%;
+}
+
+/* --- Ticket --- */
+
+.ticket {
+  text-align: left;
+}
+
+.ticket__main {
+  padding-bottom: 18px;
+}
+
+.ticket__stamp {
+  display: inline-block;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 4px 10px;
+  border: 1.5px solid currentColor;
+  transform: rotate(-3deg);
+  margin-bottom: 14px;
+}
+
+.ticket__stamp--registered {
+  color: var(--stamp-open);
+}
+
+.ticket__stamp--waitlisted {
+  color: var(--stamp-wait);
+}
+
+.ticket__title {
+  font-size: 24px;
+  margin-bottom: 4px;
+}
+
+.ticket__attendee {
+  font-size: 14px;
+  color: var(--ink-soft);
+  margin-bottom: 14px;
+}
+
+.ticket__details p {
+  font-size: 14px;
+  margin-bottom: 2px;
+}
+
+.ticket__message {
+  font-size: 14px;
+  margin-top: 14px;
+  line-height: 1.5;
+}
+
+.ticket__stub {
+  border-top: 1px dashed var(--rule);
+  padding-top: 16px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.ticket__stub-label {
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.ticket__code {
+  font-family: var(--mono);
+  font-size: 16px;
+  color: var(--ink);
+  letter-spacing: 0.5px;
+}
+
+.ticket__done {
+  margin-top: 22px;
+  width: 100%;
+}
