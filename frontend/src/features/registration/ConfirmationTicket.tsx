@@ -21,29 +21,53 @@ export function ConfirmationTicket({
 
   return (
     <div className="ticket">
-      <div className="ticket__main">
-        <p className={`ticket__stamp ticket__stamp--${variant}`}>
-          {isRegistered ? "Confirmed" : "Waitlisted"}
-        </p>
-        <h3 className="ticket__title">{event.title}</h3>
-        {attendeeName && <p className="ticket__attendee">{attendeeName}</p>}
-
-        <div className="ticket__details">
-          <p>{event.date}, {event.time}</p>
-          <p>{event.venue}</p>
-        </div>
-
-        <p className="ticket__message">
-          {isRegistered
-            ? "You're on the list — show this confirmation at the door."
-            : `The event is full. We'll email ${email} the moment a seat opens up.`}
-        </p>
+      <div className={`ticket__icon ticket__icon--${variant}`} aria-hidden="true">
+        {isRegistered ? (
+          <svg viewBox="0 0 24 24" width="26" height="26">
+            <path
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M5 13l4 4L19 7"
+            />
+          </svg>
+        ) : (
+          <svg viewBox="0 0 24 24" width="24" height="24">
+            <path
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              d="M12 7v6l4 2"
+            />
+            <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="2.5" />
+          </svg>
+        )}
       </div>
 
-      {isRegistered && (
-        <div className="ticket__stub">
-          <p className="ticket__stub-label">Confirmation</p>
-          <p className="ticket__code">{confirmationCode}</p>
+      <h3 className="ticket__title">
+        {isRegistered ? "You're going!" : "You're on the waitlist"}
+      </h3>
+      <p className="ticket__event">{event.title}</p>
+      {attendeeName && <p className="ticket__attendee">{attendeeName}</p>}
+
+      <div className="ticket__details">
+        <p>{event.date}, {event.time}</p>
+        <p>{event.venue}</p>
+      </div>
+
+      <p className="ticket__message">
+        {isRegistered
+          ? "Show this confirmation at the door."
+          : `The event is full. We'll email ${email} the moment a seat opens up.`}
+      </p>
+
+      {isRegistered && confirmationCode && (
+        <div className="ticket__code-row">
+          <span>Confirmation code</span>
+          <span className="ticket__code">{confirmationCode}</span>
         </div>
       )}
 
