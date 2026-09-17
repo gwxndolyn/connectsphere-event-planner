@@ -1,9 +1,11 @@
 import { useId, useState, type FormEvent } from "react";
 import { ConfirmationTicket } from "./ConfirmationTicket";
-import type { CampusEvent, RegistrationResult } from "./types";
+import { formatEventDate, formatEventTimeRange } from "./datetime";
+import type { Attendee, EventAvailability, RegistrationResult } from "./types";
 
 interface RegistrationDialogProps {
-  event: CampusEvent;
+  event: EventAvailability;
+  currentAttendee: Attendee | null;
   onRegister: (name: string, email: string) => RegistrationResult;
   onJoinWaitlist: (email: string) => RegistrationResult;
   onClose: () => void;
@@ -11,6 +13,7 @@ interface RegistrationDialogProps {
 
 export function RegistrationDialog({
   event,
+  currentAttendee,
   onRegister,
   onJoinWaitlist,
   onClose,
@@ -18,8 +21,8 @@ export function RegistrationDialog({
   const titleId = useId();
   const isFull = event.registeredCount >= event.capacity;
 
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
+  const [name, setName] = useState(currentAttendee?.name ?? "");
+  const [email, setEmail] = useState(currentAttendee?.email ?? "");
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<RegistrationResult | null>(null);
 
@@ -68,7 +71,8 @@ export function RegistrationDialog({
               {event.title}
             </h3>
             <p className="reg-form__meta">
-              {event.date}, {event.time} · {event.venue}
+              {formatEventDate(event)}, {formatEventTimeRange(event)} ·{" "}
+              {event.format === "online" ? "Online" : event.venue}
             </p>
 
             {isFull && (

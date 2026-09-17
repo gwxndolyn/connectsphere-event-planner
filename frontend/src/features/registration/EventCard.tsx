@@ -1,13 +1,14 @@
-import type { CampusEvent } from "./types";
+import { formatEventDate, formatEventTime } from "./datetime";
+import type { EventAvailability } from "./types";
 
-const CATEGORY_LABEL: Record<CampusEvent["category"], string> = {
+const CATEGORY_LABEL: Record<EventAvailability["category"], string> = {
   workshop: "Workshop",
   social: "Social",
   career: "Career",
   performance: "Performance",
 };
 
-const CATEGORY_ICON: Record<CampusEvent["category"], string> = {
+const CATEGORY_ICON: Record<EventAvailability["category"], string> = {
   workshop: "🛠️",
   social: "🎉",
   career: "💼",
@@ -15,11 +16,11 @@ const CATEGORY_ICON: Record<CampusEvent["category"], string> = {
 };
 
 interface EventCardProps {
-  event: CampusEvent;
-  onReserve: (event: CampusEvent) => void;
+  event: EventAvailability;
+  onReserve: (event: EventAvailability) => void;
 }
 
-function badgeFor(event: CampusEvent) {
+function badgeFor(event: EventAvailability) {
   const ratio = event.registeredCount / event.capacity;
   if (ratio >= 1) return { label: "Waitlist only", variant: "soon" as const };
   if (ratio >= 0.85) return { label: "Almost full", variant: "hot" as const };
@@ -49,9 +50,11 @@ export function EventCard({ event, onReserve }: EventCardProps) {
         <p className="event-card__category">{CATEGORY_LABEL[event.category]}</p>
         <h3 className="event-card__title">{event.title}</h3>
         <p className="event-card__date">
-          {event.date}, {event.time}
+          {formatEventDate(event)}, {formatEventTime(event)}
         </p>
-        <p className="event-card__venue">{event.venue}</p>
+        <p className="event-card__venue">
+          {event.format === "online" ? "Online" : event.venue}
+        </p>
         <p className={`event-card__seats${isFull ? " event-card__seats--full" : ""}`}>
           {isFull ? "Waitlist only" : `${seatsLeft} seats left`}
         </p>

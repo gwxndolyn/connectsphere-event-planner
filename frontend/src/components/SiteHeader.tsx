@@ -3,16 +3,22 @@ import "./SiteHeader.css";
 interface SiteHeaderProps {
   search: string;
   onSearchChange: (value: string) => void;
+  view: "discovery" | "my-events";
+  onNavigate: (view: "discovery" | "my-events") => void;
 }
 
-export function SiteHeader({ search, onSearchChange }: SiteHeaderProps) {
+export function SiteHeader({ search, onSearchChange, view, onNavigate }: SiteHeaderProps) {
   return (
     <header className="site-header">
       <div className="site-header__bar">
-        <a href="/" className="site-header__logo">
+        <button
+          type="button"
+          className="site-header__logo"
+          onClick={() => onNavigate("discovery")}
+        >
           <span className="site-header__logo-mark" aria-hidden="true" />
           ConnectSphere
-        </a>
+        </button>
 
         <div className="site-header__search">
           <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
@@ -39,6 +45,14 @@ export function SiteHeader({ search, onSearchChange }: SiteHeaderProps) {
           </svg>
           Main Campus
         </div>
+
+        <button
+          type="button"
+          className="site-header__nav-link"
+          onClick={() => onNavigate(view === "my-events" ? "discovery" : "my-events")}
+        >
+          {view === "my-events" ? "Browse events" : "My events"}
+        </button>
       </div>
     </header>
   );
