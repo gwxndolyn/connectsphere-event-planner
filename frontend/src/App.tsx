@@ -1,10 +1,13 @@
 import { EventHealthCheck } from "./features/event/EventHealthCheck";
+import { EventsBoard } from "./features/registration/EventsBoard";
 
 function App() {
   return (
     <div>
-      <h1>ConnectSphere Event Planner</h1>
-      <EventHealthCheck />
+      <EventsBoard />
+      <footer className="app-footer">
+        <EventHealthCheck />
+      </footer>
     </div>
   );
 }
