@@ -1,3 +1,4 @@
+import { formatEventDate, formatEventTimeRange } from "./datetime";
 import type { CampusEvent } from "./types";
 
 interface ConfirmationTicketProps {
@@ -54,8 +55,8 @@ export function ConfirmationTicket({
       {attendeeName && <p className="ticket__attendee">{attendeeName}</p>}
 
       <div className="ticket__details">
-        <p>{event.date}, {event.time}</p>
-        <p>{event.venue}</p>
+        <p>{formatEventDate(event)}, {formatEventTimeRange(event)}</p>
+        <p>{event.format === "online" ? "Online" : event.venue}</p>
       </div>
 
       <p className="ticket__message">
