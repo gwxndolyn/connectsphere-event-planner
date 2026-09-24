@@ -7,31 +7,7 @@ on:
     branches: ["**"]
 
 jobs:
-  detect-changes:
-    runs-on: ubuntu-latest
-    outputs:
-      changed: ${{ steps.filter.outputs.changed }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - id: filter
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            git fetch --no-tags --prune --depth=1 origin ${{ github.base_ref }}
-            changed=$(git diff --name-only --diff-filter=AM HEAD origin/${{ github.base_ref }} -- frontend/ | wc -l)
-          else
-            changed=1
-          fi
-          if [ "$changed" -gt 0 ]; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          fi
-
   build:
-    needs: detect-changes
-    if: needs.detect-changes.outputs.changed == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
