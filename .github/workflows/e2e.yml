@@ -1,8 +1,6 @@
 name: E2E
 
-# Runs on every push/PR (matching this repo's branch model) plus manual dispatch. On PRs it's
-# skipped (not failed) when the diff doesn't touch backend/frontend/e2e, so it never blocks
-# unrelated changes (e.g. docs-only PRs).
+# Runs on every push/PR (matching this repo's branch model) plus manual dispatch.
 on:
   push:
     branches: ["**"]
@@ -11,28 +9,7 @@ on:
   workflow_dispatch: {}
 
 jobs:
-  detect-changes:
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    outputs:
-      changed: ${{ steps.filter.outputs.changed }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - id: filter
-        run: |
-          git fetch --no-tags --prune --depth=1 origin ${{ github.base_ref }}
-          changed=$(git diff --name-only --diff-filter=AM HEAD origin/${{ github.base_ref }} -- e2e/ frontend/ backend/ | wc -l)
-          if [ "$changed" -gt 0 ]; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          fi
-
   e2e:
-    needs: [detect-changes]
-    if: always() && (github.event_name != 'pull_request' || needs.detect-changes.outputs.changed == 'true')
     runs-on: ubuntu-latest
     services:
       postgres:
