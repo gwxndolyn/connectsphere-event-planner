@@ -9,7 +9,7 @@ from app.core.exceptions import DomainError
 from app.event.models import Event
 from app.notification.service import Notifier
 from app.registration.models import AttendanceLog, Registration, RegistrationStatus
-from app.registration.schemas import WithdrawResponse
+from app.registration.schemas import OfferReleaseResponse, WithdrawResponse
 from app.user.models import Attendee
 
 logger = logging.getLogger(__name__)
@@ -108,6 +108,84 @@ class RegistrationService:
             logger.exception("could not notify %s of a waitlist offer", next_in_line.attendee_email)
 
         return next_in_line
+
+    def _release_offer(
+        self,
+        db: Session,
+        registration_id: uuid.UUID,
+        new_status: RegistrationStatus,
+        action: str,
+        now: datetime,
+        notifier: Notifier,
+        attendee: Attendee | None = None,
+    ) -> OfferReleaseResponse:
+        """Shared by expiry and decline: end an outstanding offer, then pass the seat on."""
+        registration = db.get(Registration, registration_id)
+        if registration is None or (attendee is not None and registration.attendee_id != attendee.id):
+            raise DomainError(404, "NOT_FOUND")
+
+        event = db.scalars(select(Event).where(Event.id == registration.event_id).with_for_update()).one()
+        db.refresh(registration, with_for_update=True)
+
+        if registration.status != RegistrationStatus.OFFERED:
+            raise DomainError(409, "NO_ACTIVE_OFFER")
+
+        registration.status = new_status
+        registration.updated_at = now
+        db.add(
+            AttendanceLog(
+                registration_id=registration.id,
+                event_id=event.id,
+                attendee_id=registration.attendee_id,
+                action=action,
+                occurred_at=now,
+            )
+        )
+        db.flush()
+
+        # The seat is free again: straight to the next person, no waiting (TC-US7-10, 11).
+        passed_on = self.offer_freed_seat(db, event, now, notifier) is not None
+
+        response = OfferReleaseResponse(
+            status=registration.status,
+            event_name=event.name,
+            seats_remaining=self.seats_remaining(db, event, now),
+            offer_passed_on=passed_on,
+        )
+        db.commit()
+        return response
+
+    def expire_offer(
+        self, db: Session, registration_id: uuid.UUID, now: datetime, notifier: Notifier
+    ) -> OfferReleaseResponse:
+        """SCRUM-37, manual stub for the scheduled sweep the team hasn't specified yet.
+
+        # DECISION-PENDING: D2 — replace with a scheduled sweep once the team agrees on the
+        # offer window. It deliberately does not check that offer_expires_at has passed, and
+        # it isn't restricted to the offer holder, because it stands in for a system job.
+        """
+        return self._release_offer(
+            db, registration_id, RegistrationStatus.EXPIRED, "offer_expired", now, notifier
+        )
+
+    def decline_offer(
+        self,
+        db: Session,
+        registration_id: uuid.UUID,
+        attendee: Attendee,
+        now: datetime,
+        notifier: Notifier,
+    ) -> OfferReleaseResponse:
+        """The offer holder turns the seat down, so it moves on immediately (TC-US7-11)."""
+        return self._release_offer(
+            db,
+            registration_id,
+            RegistrationStatus.DECLINED,
+            "declined",
+            now,
+            notifier,
+            attendee=attendee,
+        )
 
     def withdraw(
         self,
