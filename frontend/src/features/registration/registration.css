@@ -438,3 +438,34 @@
   margin-top: 22px;
   width: 100%;
 }
+
+/* --- Withdraw dialog (SCRUM-38) --- */
+
+.button--danger {
+  background: var(--badge-bg);
+  color: var(--badge-text);
+  border: 1px solid transparent;
+}
+
+.button--danger:hover {
+  border-color: var(--badge-text);
+}
+
+.withdraw__hint {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 14px;
+}
+
+.withdraw__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 22px;
+}
+
+.ticket__icon--withdrawn {
+  background: var(--badge-bg);
+  color: var(--badge-text);
+}
