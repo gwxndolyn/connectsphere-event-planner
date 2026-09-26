@@ -54,9 +54,12 @@ Read this with §5; the subtask tables below are still the definition of done. T
  
 `attendees` is **not in §2**. The spec references `attendees(id)` without defining the table, so SCRUM-24 added the minimal version (`id`, `email`, `created_at`). Revisit when Supabase Auth lands.
  
-### This branch — SCRUM-25, 26, 27 (backend complete)
+### This branch — SCRUM-25, 26, 27, 30, 31 (backend complete)
  
-`feat(SCRUM-25-27)-event-listing-and-registration`, built on `main` (which already had SCRUM-6/23/24 merged).
+Built on `main` (which already had SCRUM-6/23/24 merged). Landed as two commits: SCRUM-25/26/27
+first, fast-forwarded onto `feature(SCRUM-2)Register-for-an-Event` and pushed there; SCRUM-30/31
+after, fast-forwarded onto `feature(SCRUM-5)View-attendees'-upcoming-registered-events` — the
+work matches those stories more directly than a dedicated branch name would.
  
 New tables (migration `69572c138625`): `event_registration_fields`, `registration_answers` — the §2 tables SCRUM-24 didn't include, needed for TC-US3-06's required-field guard.
  
@@ -65,16 +68,21 @@ New tables (migration `69572c138625`): `event_registration_fields`, `registratio
 | `GET /api/v1/events/available` | Lists confirmed + registration-open + unended events, with `seats_remaining`, `is_full`, `already_registered` (for the caller) and that event's `registration_fields` | SCRUM-25 |
 | `POST /api/v1/events/{event_id}/registrations` | Guards (enabled → window → required fields → duplicate → capacity), then confirms | SCRUM-26 |
 | `POST /api/v1/events/{event_id}/waitlist` | Explicit follow-up to an `EVENT_FULL` offer; derives position | SCRUM-27 |
+| `GET /api/v1/me/registrations` | Caller's own confirmed + waitlisted registrations, split into headed sections, sorted ascending by start (name tiebreak), filtered on `end_at` | SCRUM-30, 31 |
  
-Both new routers use `/api/v1` per §3's rule. The pre-existing `/api/events/health` is untouched (predates the spec, load-bearing for the e2e `wait-on` check).
+All new routers use `/api/v1` per §3's rule. The pre-existing `/api/events/health` is untouched (predates the spec, load-bearing for the e2e `wait-on` check).
  
 | Subtask | State |
 |---|---|
 | SCRUM-25 `GET /events/available` | Done — TC-US3-01 |
 | SCRUM-26 register guards | Done — TC-US3-02 … 10, 15 |
 | SCRUM-27 waitlist branch | Done — TC-US3-11 … 14 |
+| SCRUM-30 query by attendee, split confirmed/waitlisted | Done — TC-US11-01, 06, 07, 08, 11 |
+| SCRUM-31 sort ascending by start | Done — TC-US11-04, 05 |
  
-**TC-US3 coverage: 15 of 15**, in 26 new backend tests (56 total in the suite). SCRUM-25 landing also unblocked the one outstanding SCRUM-6 test — **TC-US7-13 is now covered too** (added to `test_withdraw.py`), so **TC-US7 is 15 of 15**.
+**TC-US3 coverage: 15 of 15.** **TC-US11 coverage: 11 of 11**, in 38 new backend tests total (69 in the suite). SCRUM-25 landing also unblocked the one outstanding SCRUM-6 test — **TC-US7-13 is now covered too** (added to `test_withdraw.py`), so **TC-US7 is 15 of 15**.
+ 
+`GET /me/registrations` is the first endpoint to render wall-clock `date`/`start_time`/`end_time` strings rather than an ISO instant with offset; it converts to Asia/Singapore (`EVENT_TIMEZONE` in `registration/service.py`) per TC-X-01 before formatting — every other endpoint so far returns a full ISO timestamp and leaves that choice to the caller.
  
 Deviation to confirm: `POST /events/{id}/waitlist` does **not** require `X-Attendee-Id`, despite §3's "every endpoint depends on it." Its own contract is body-only (`{"email": ...}`), matching the AC's "offered ... using their email" and D3's email-only case. `attendee_id` is still attached when the email matches an existing `Attendee` row. Marked `# DECISION-PENDING: D7` at the code site — raise at standup alongside D3.
  
@@ -114,11 +122,10 @@ Open decisions in play: **D1** (24h window, one constant), **D2** (what expires 
  
 ### Next steps
  
-1. **Review and merge this branch** (SCRUM-25/26/27).
-2. **SCRUM-30/31 — `GET /me/registrations`**: now unblocked, since registrations exist to query. Build order per §5: SCRUM-27 → SCRUM-30 → SCRUM-31.
-3. **SCRUM-38 — finish the mockup**: confirm dialog before withdrawing, post-withdrawal confirmation. Mockup-only; §7 still forbids wiring React to FastAPI.
-4. **Seed Supabase** with `python -m app.seed --yes` — the tables are still empty there, which blocks manual testing for everyone.
-5. **Wire the frontend mockups to the real API** — SCRUM-28/29 are mock-data-backed today; the shapes already match §3, so this should be a small, contained change once the team is ready to drop the "mockup only" constraint.
+1. **Review and merge these branches** — SCRUM-25/26/27 on `feature(SCRUM-2)Register-for-an-Event`, SCRUM-30/31 on `feature(SCRUM-5)View-attendees'-upcoming-registered-events`.
+2. **SCRUM-38 — finish the mockup**: confirm dialog before withdrawing, post-withdrawal confirmation. Mockup-only; §7 still forbids wiring React to FastAPI.
+3. **Seed Supabase** with `python -m app.seed --yes` — the tables are still empty there, which blocks manual testing for everyone.
+4. **Wire the frontend mockups to the real API** — SCRUM-28, 29, 32, 33 are mock-data-backed today; the shapes already match §3, so this should be a small, contained change once the team is ready to drop the "mockup only" constraint.
  
 ### Environment notes
  

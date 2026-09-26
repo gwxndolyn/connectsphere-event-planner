@@ -8,6 +8,7 @@ from app.core.clock import get_now
 from app.core.database import get_db
 from app.notification.service import Notifier, get_notifier
 from app.registration.schemas import (
+    MyRegistrationsResponse,
     OfferReleaseResponse,
     RegisterRequest,
     RegisterResponse,
@@ -24,6 +25,17 @@ router = APIRouter(prefix="/api/v1/registrations", tags=["registrations"])
 # Nested under /events, per spec §3, since the resource in the URL is the event being
 # registered for or waitlisted for — even though the state that changes is a Registration.
 events_router = APIRouter(prefix="/api/v1/events", tags=["registrations"])
+
+me_router = APIRouter(prefix="/api/v1/me", tags=["registrations"])
+
+
+@me_router.get("/registrations")
+def list_my_registrations(
+    attendee: Attendee = Depends(get_current_attendee),
+    db: Session = Depends(get_db),
+    now: datetime = Depends(get_now),
+) -> MyRegistrationsResponse:
+    return registration_service.list_my_registrations(db, attendee, now)
 
 
 @events_router.post("/{event_id}/registrations", status_code=201)

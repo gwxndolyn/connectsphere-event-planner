@@ -1,13 +1,14 @@
 import logging
 import uuid
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, func, or_, select, tuple_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import DomainError
-from app.event.models import Event, EventRegistrationField, EventStatus
+from app.event.models import DeliveryMode, Event, EventRegistrationField, EventStatus
 from app.notification.service import Notifier
 from app.registration.models import (
     ACTIVE_STATUSES,
@@ -18,6 +19,9 @@ from app.registration.models import (
 )
 from app.registration.schemas import (
     EventConfirmationOut,
+    MyRegistrationOut,
+    MyRegistrationsResponse,
+    MyWaitlistedRegistrationOut,
     OfferReleaseResponse,
     RegisterResponse,
     WaitlistJoinResponse,
@@ -28,6 +32,11 @@ from app.user.models import Attendee
 logger = logging.getLogger(__name__)
 
 WITHDRAWABLE_STATUSES = (RegistrationStatus.CONFIRMED, RegistrationStatus.WAITLISTED)
+
+# TC-X-01: timestamps are stored UTC; the team and every event are Asia/Singapore. "My
+# Registrations" is the first endpoint that renders wall-clock date/time strings rather than
+# an ISO instant, so it's the one place that has to pick a display timezone.
+EVENT_TIMEZONE = ZoneInfo("Asia/Singapore")
 
 # DECISION-PENDING: D1 — SCRUM-6 says "a fixed window to accept" and names no duration.
 # One constant, one edit when the team decides.
@@ -410,6 +419,57 @@ class RegistrationService:
             status=registration.status,
             position=self.waitlist_position(db, registration),
         )
+
+    def _my_registration_fields(self, registration: Registration, event: Event) -> dict[str, object]:
+        local_start = event.start_at.astimezone(EVENT_TIMEZONE)
+        local_end = event.end_at.astimezone(EVENT_TIMEZONE)
+        joining_info = event.join_link if event.delivery_mode == DeliveryMode.ONLINE else event.room_number
+        return {
+            "registration_id": registration.id,
+            "event_name": event.name,
+            "date": local_start.date().isoformat(),
+            "start_time": local_start.strftime("%H:%M"),
+            "end_time": local_end.strftime("%H:%M"),
+            "venue_name": event.venue_name,
+            "joining_info": joining_info or "",
+            "delivery_mode": event.delivery_mode,
+        }
+
+    def list_my_registrations(
+        self, db: Session, attendee: Attendee, now: datetime
+    ) -> MyRegistrationsResponse:
+        """SCRUM-30 (query by attendee, split confirmed/waitlisted), SCRUM-31 (sort ascending
+        by start, alphabetical tiebreak). TC-US11-01 … 11.
+
+        Filtered on `end_at`, not `start_at` (TC-US11-09) — an in-progress event still shows.
+        Only `confirmed` and `waitlisted` rows: `offered`/`withdrawn`/`declined`/`expired` aren't
+        "registered for" in the AC's sense, and withdrawing already drops a row from here for
+        free (TC-US11-08) since `withdrawn` isn't in that set.
+        """
+        rows = db.execute(
+            select(Registration, Event)
+            .join(Event, Event.id == Registration.event_id)
+            .where(
+                Registration.attendee_id == attendee.id,
+                Registration.status.in_((RegistrationStatus.CONFIRMED, RegistrationStatus.WAITLISTED)),
+                Event.end_at > now,
+            )
+            .order_by(Event.start_at, Event.name)
+        ).all()
+
+        confirmed: list[MyRegistrationOut] = []
+        waitlisted: list[MyWaitlistedRegistrationOut] = []
+        for registration, event in rows:
+            fields = self._my_registration_fields(registration, event)
+            if registration.status == RegistrationStatus.CONFIRMED:
+                confirmed.append(MyRegistrationOut(**fields))
+            else:
+                waitlisted.append(
+                    MyWaitlistedRegistrationOut(
+                        **fields, waitlist_position=self.waitlist_position(db, registration)
+                    )
+                )
+        return MyRegistrationsResponse(confirmed=confirmed, waitlisted=waitlisted)
 
 
 registration_service = RegistrationService()
