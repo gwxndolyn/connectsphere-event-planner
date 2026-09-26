@@ -17,6 +17,8 @@ This is a **test-case-driven** spec. Every behaviour below traces back to an acc
 5. §6 lists real ambiguities in the acceptance criteria. **Do not silently invent an answer.** Use the stated Sprint 1 default and leave a `# DECISION-PENDING: <id>` comment at the code site.
 Anything not in §4 is out of scope for Sprint 1. See §7.
  
+Before writing code, read **§1a** — the rules we've had to learn the hard way, the places the code already departs from §2/§3, and the questions still waiting on an answer. It holds no ticket status: Jira and the PR list own that.
+ 
 ---
  
 ## 1. Sprint 1 scope
@@ -35,101 +37,59 @@ Everything in Epic 1 (Event Management) and Epic 2 (Venue & Resources) is out of
  
 ---
  
-## 1a. Progress — updated 26 Sep 2026
+## 1a. Working agreements
  
-Read this with §5; the subtask tables below are still the definition of done. This section records what is actually built. Update it when something merges.
+**Status does not live here.** Jira owns ticket state; git and the PR list own what merged. This section holds the things neither can: where the code knowingly departs from the contract below, which product questions are still unanswered, and the environment rules that are easy to get wrong.
  
-### Merged to `main`
+**Edit this section only in the PR that changes the code it describes.** Two people editing it on separate branches merged cleanly once and produced a file that contradicted itself.
  
-| Ticket | What landed | Where |
+### Rules that keep us out of trouble
+ 
+- **One shared Supabase.** Branch work points `DATABASE_URL` at local Docker Postgres. Only `main` is applied to Supabase, by one named person, right after the merge. Running `alembic upgrade head` from a branch changes the schema for the whole team before review.
+- **Every schema change is a migration in the repo.** Nothing is created by clicking in the Supabase dashboard, or the next person's `alembic upgrade` fails on a table that already exists.
+- **One migration head.** If two branches each add a migration, Alembic ends up with two heads on merge. Rebase on `main` and regenerate rather than merging heads.
+- **Tests never touch Supabase.** They build a separate `connectsphere_test` database from the migrations and refuse to run against a non-local host. Keep that guard.
+- **Deviating from §2/§3 is allowed; doing it silently is not.** Add a `# DECISION-PENDING: <id>` at the code site and a line under "Deviations awaiting a decision" below.
+- **Mockups stay mockups this sprint** (§7). No React code calls FastAPI until the team agrees to drop that constraint.
+ 
+### Deviations awaiting a decision
+ 
+Each is implemented and defensible; each departs from the contract in §2/§3 and needs the team to either bless it or change the code.
+ 
+| # | Deviation | Where |
 |---|---|---|
-| SCRUM-24 | `registrations`, `attendees`, `attendance_log` and the §2 `events` schema, with the partial unique index | PR #13 |
-| SCRUM-23 | Seed script (`python -m app.seed`), idempotent, all seven SCRUM-23 states | PR #17 |
-| SCRUM-34, 35, 36, 37, 39 | Withdrawal backend (SCRUM-6) — endpoint + guards, capacity release, waitlist offer, offer expiry/decline, audit log | PR #16 |
-| SCRUM-28, 29, 32, 33 | Frontend mockups: events board, event card, registration dialog, confirmation ticket, My Events | PRs #11, #10 |
-| — | CI: split workflows, Dependabot, markdown lint, PR title check | PRs #1, #12 |
-| — | E2E fix: `wait-on` probed with HEAD against a GET-only route and hung until the 6-hour limit; now `http-get://` with timeouts. `health.spec.ts` also asserts the backend's real response | PR #14 |
-| — | CORS middleware, so the frontend origin can call the API at all | — |
-| — | Python pinned to 3.12, `.env.example` restored | PR #15 |
+| 1 | `attendees` table isn't in §2 at all. §2 references `attendees(id)` without defining it, so SCRUM-24 added the minimal version (`id`, `email`, `created_at`) | `app/user/models.py` |
+| 2 | Withdrawing an `offered` registration returns `409 REGISTRATION_NOT_ACTIVE`, a code not in §3's table. Releasing an offer is a decline, not a withdrawal | `app/registration/service.py` |
+| 3 | `POST /registrations/{id}/decline` isn't in §3's endpoint list. TC-US7-11 needs declining to be distinct from letting the window lapse | `app/registration/router.py` |
+| 4 | `expire-offer` doesn't check that `offer_expires_at` has passed, and isn't restricted to the offer holder — it stands in for a system job | `app/registration/service.py` |
+| 5 | Offer-release responses say *whether* the seat was passed on, never to whom, because TC-X-04 forbids revealing another attendee | `app/registration/schemas.py` |
+| 6 | `POST /events/{id}/waitlist` doesn't require `X-Attendee-Id`, against §3's "every endpoint depends on it". Its contract is body-only (`{"email": ...}`), matching D3's email-only case | `app/registration/router.py` |
  
-`attendees` is **not in §2**. The spec references `attendees(id)` without defining the table, so SCRUM-24 added the minimal version (`id`, `email`, `created_at`). Revisit when Supabase Auth lands.
+### Open decisions still unanswered
  
-### This branch — SCRUM-25, 26, 27 (backend complete)
+§6 defines D1–D6 and a Sprint 1 default for each. All six are coded to their defaults and marked in the code; **none has been confirmed by the team**. D7 is new and not in §6.
  
-`feat(SCRUM-25-27)-event-listing-and-registration`, built on `main` (which already had SCRUM-6/23/24 merged).
- 
-New tables (migration `69572c138625`): `event_registration_fields`, `registration_answers` — the §2 tables SCRUM-24 didn't include, needed for TC-US3-06's required-field guard.
- 
-| Endpoint | Does | Ticket |
+| id | Question | What we assumed |
 |---|---|---|
-| `GET /api/v1/events/available` | Lists confirmed + registration-open + unended events, with `seats_remaining`, `is_full`, `already_registered` (for the caller) and that event's `registration_fields` | SCRUM-25 |
-| `POST /api/v1/events/{event_id}/registrations` | Guards (enabled → window → required fields → duplicate → capacity), then confirms | SCRUM-26 |
-| `POST /api/v1/events/{event_id}/waitlist` | Explicit follow-up to an `EVENT_FULL` offer; derives position | SCRUM-27 |
+| D1 | How long is a waitlist offer valid? | 24 hours, one constant `WAITLIST_OFFER_WINDOW` |
+| D2 | What expires an offer? | A manual endpoint. No scheduler this sprint |
+| D3 | Is a waitlisted person an attendee or just an email? | Store both; `attendee_id` when we have one |
+| D4 | Are "cancel" and "withdraw" the same action? | Yes, one action |
+| D5 | Does withdrawal notify by email or on screen? | On screen only |
+| D6 | May a waitlisted person leave the queue? | Yes, via the same withdraw endpoint |
+| D7 | Must you be identified to join a waitlist? | No — email is enough. Settle with D3 |
  
-Both new routers use `/api/v1` per §3's rule. The pre-existing `/api/events/health` is untouched (predates the spec, load-bearing for the e2e `wait-on` check).
+### Environment
  
-| Subtask | State |
-|---|---|
-| SCRUM-25 `GET /events/available` | Done — TC-US3-01 |
-| SCRUM-26 register guards | Done — TC-US3-02 … 10, 15 |
-| SCRUM-27 waitlist branch | Done — TC-US3-11 … 14 |
- 
-**TC-US3 coverage: 15 of 15**, in 26 new backend tests (56 total in the suite). SCRUM-25 landing also unblocked the one outstanding SCRUM-6 test — **TC-US7-13 is now covered too** (added to `test_withdraw.py`), so **TC-US7 is 15 of 15**.
- 
-Deviation to confirm: `POST /events/{id}/waitlist` does **not** require `X-Attendee-Id`, despite §3's "every endpoint depends on it." Its own contract is body-only (`{"email": ...}`), matching the AC's "offered ... using their email" and D3's email-only case. `attendee_id` is still attached when the email matches an existing `Attendee` row. Marked `# DECISION-PENDING: D7` at the code site — raise at standup alongside D3.
- 
-### SCRUM-6 (Calvin) — backend complete
- 
-Endpoints, all under `/api/v1/registrations/{id}`:
- 
-| Endpoint | Does | Ticket |
-|---|---|---|
-| `POST .../withdraw` | Flips to `withdrawn`, stamps `withdrawn_at`, logs it, and passes a freed confirmed seat to the head of the waitlist | SCRUM-34, 35, 39 |
-| `POST .../expire-offer` | Ends an outstanding offer (`expired`) and offers the seat on. Manual stub, no scheduler | SCRUM-37 |
-| `POST .../decline` | The offer holder turns the seat down (`declined`); it moves on immediately | SCRUM-37 |
- 
-Supporting pieces: `core/exceptions.py` (machine-readable `code`), `core/clock.py` (injectable `now`), `user/dependencies.py` (`X-Attendee-Id` stub), `notification/service.py` (a `Notifier` protocol, logged not sent).
- 
-| Subtask | State |
-|---|---|
-| SCRUM-34 endpoint + guards | Done |
-| SCRUM-35 capacity release | Done — TC-US7-13 now covered (SCRUM-25 landed) |
-| SCRUM-36 waitlist offer trigger | Done |
-| SCRUM-37 offer expiry / decline | Done, as the manual stub the ticket asks for |
-| SCRUM-39 record the withdrawal | Done |
-| SCRUM-38 frontend withdraw | Partly — My Events has "Cancel registration" and "Leave waitlist" buttons, but no confirm dialog and no post-withdrawal confirmation |
- 
-**TC-US7 coverage: 15 of 15** (TC-US7-13 added once SCRUM-25 landed).
- 
-The waitlist is FIFO but **derived**: the head is the oldest `waitlist_joined_at`, with `id` breaking ties, locked `FOR UPDATE` alongside the event. No position is ever stored.
- 
-### Deviations to confirm at standup
- 
-1. Withdrawing an `offered` registration returns `409 REGISTRATION_NOT_ACTIVE`, a code **not in the §3 table**. Releasing an offer is a decline, not a withdrawal.
-2. `POST .../decline` is **not in §3's endpoint list**. TC-US7-11 needs declining to be distinct from letting the window lapse.
-3. `expire-offer` deliberately does **not** check that `offer_expires_at` has passed, and isn't restricted to the offer holder — it stands in for a system job (`DECISION-PENDING: D2`).
-4. Offer-release responses say *whether* the seat was passed on, never to whom (TC-X-04).
- 
-Open decisions in play: **D1** (24h window, one constant), **D2** (what expires an offer), **D5** (on-screen confirmation only), **D6** (a waitlisted person may leave — implemented, TC-US7-14).
- 
-### Next steps
- 
-1. **Review and merge this branch** (SCRUM-25/26/27).
-2. **SCRUM-30/31 — `GET /me/registrations`**: now unblocked, since registrations exist to query. Build order per §5: SCRUM-27 → SCRUM-30 → SCRUM-31.
-3. **SCRUM-38 — finish the mockup**: confirm dialog before withdrawing, post-withdrawal confirmation. Mockup-only; §7 still forbids wiring React to FastAPI.
-4. **Seed Supabase** with `python -m app.seed --yes` — the tables are still empty there, which blocks manual testing for everyone.
-5. **Wire the frontend mockups to the real API** — SCRUM-28/29 are mock-data-backed today; the shapes already match §3, so this should be a small, contained change once the team is ready to drop the "mockup only" constraint.
- 
-### Environment notes
- 
-- **Supabase was migrated to `dcc645f2c595`** (SCRUM-6/23/24's tables). This branch adds `69572c138625` (`event_registration_fields`, `registration_answers`) — **not yet applied to Supabase**, only verified locally against `docker compose up -d postgres`. Run `alembic upgrade head` against Supabase as part of merging this branch.
-- **RLS is off on every table.** Safe only while the Data API stays disabled. Enable RLS before anyone turns that API back on.
-- **Backend tests need a local Postgres**: `docker compose up -d postgres`. They build a separate `connectsphere_test` database from the migrations and refuse to run against Supabase.
-- **Python 3.12** — pinned in `backend/.python-version`, matching CI. A 3.13 virtualenv can pass locally and fail in CI.
-- **No dependency lock on the backend.** `pyproject.toml` uses open ranges (`fastapi>=0.115`), so two machines can resolve different versions. The frontend has `package-lock.json`; the backend has nothing equivalent.
- 
+- **Supabase can lag `main`.** Check before blaming the code: `alembic current` against Supabase versus `alembic heads` in the repo. A missing table usually means an unapplied migration, not a bug.
+- **Row Level Security is off on every table, with no policies.** Safe only while the Data API stays disabled in Project Settings — that is the only thing standing between the public key and every row. Enable RLS before anyone turns that API on, and certainly before the browser talks to Supabase directly (§9).
+- **Backend tests need Postgres running**: `docker compose up -d postgres`. Without it every database test errors on connection, which looks alarming and isn't.
+- **Python 3.12**, pinned in `backend/.python-version` and matched by CI. A 3.13 virtualenv can pass locally and fail in CI.
+- **No dependency lock on the backend.** `pyproject.toml` uses open ranges, so two machines can resolve different versions. The frontend has `package-lock.json`; the backend has nothing equivalent. Suspect this when something works for one person only.
+- **Frontend and API don't share vocabulary yet.** The mockup says `title`, `format`, `startsAt`; §3 says `name`, `delivery_mode`, `start_at`. Wiring them is Sprint 2 work, and generating TypeScript types from `/openapi.json` would turn a rename into a build error instead of a runtime one.
+
 ---
- 
+
 ## 2. Data model (Supabase / Postgres)
  
 Sprint 1 owns `registrations`, `registration_answers`, `attendance_log` and the seed data. `events` and `venues` are placeholders standing in for Epic 1 and Epic 2 output — keep the columns other epics will need, but do not build write paths for them.
@@ -505,6 +465,56 @@ Say so and stop if the work drifts into any of these:
 - **Structure:** routes stay thin. Guard logic and state transitions live in a service layer so they can be tested without HTTP.
 - **Errors:** every 4xx returns a machine-readable `code`, exactly as spelled in §3. The mockup keys off `code`, not off message text.
 - **Migrations:** every schema change is a migration file in the repo. No changes made only in the Supabase dashboard.
+---
+ 
+## 9. Supabase Auth — plan for a later sprint
+ 
+Out of scope for Sprint 1 (§7); written down so the `X-Attendee-Id` stub can be replaced without re-deciding any of it. Sequence it **after** the API wiring: wiring against the stub proves the endpoints, then only the identity mechanism changes. Doing both at once means a failure could be in either half.
+ 
+Supabase Auth supplies **identity only**. FastAPI stays the only thing that touches the database, so no service or router changes — §3 already promises the change lands in one place:
+ 
+> "When auth lands, one function changes. Do not scatter attendee lookups through route bodies."
+ 
+That function is `get_current_attendee` in `app/user/dependencies.py`.
+ 
+### Dashboard
+ 
+Enable a provider under **Authentication → Providers**. Email/password is simplest; Google fits SMU accounts. With Google, **restrict the domain in our own code** — check the `email` claim ends in `@smu.edu.sg`; Supabase won't enforce it.
+ 
+Keys come from **Project Settings → API**. Current naming: **publishable** (`sb_publishable_…`, safe in the frontend) and **secret** (`sb_secret_…`, backend only, probably not needed). The old `anon` / `service_role` keys still work but are deprecated by the end of 2026.
+ 
+### Frontend
+ 
+`@supabase/supabase-js`, created with `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`. Every request in `api/client.ts` carries `Authorization: Bearer <session.access_token>` in place of `X-Attendee-Id`. Read the session per request — tokens last an hour and supabase-js refreshes them, which a value cached at startup would miss. `VITE_*` values are compiled into the bundle and readable by anyone: the publishable key only.
+ 
+### Backend
+ 
+Supabase signs access tokens with **asymmetric keys** (RS256/ES256), so the backend holds no secret. Public keys come from:
+ 
+```
+https://<project-ref>.supabase.co/auth/v1/.well-known/jwks.json
+```
+ 
+Verify with `pyjwt[crypto]` and a cached `PyJWKClient`, checking `audience="authenticated"` and `issuer=<url>/auth/v1`. The claims we need are `sub` (stable Supabase user id) and `email`.
+ 
+### Linking to `attendees`
+ 
+Our rows have their own UUIDs, and seeded ones come from `uuid5`, so no Supabase user sits behind them. Add a column rather than repurposing the primary key:
+ 
+```sql
+alter table attendees add column auth_user_id uuid unique;
+```
+ 
+`get_current_attendee` then: verify token → look up by `auth_user_id` → else **look up by email and link it** → else create. Matching on email first keeps the seeded demo accounts working the moment the real person signs in, instead of creating duplicates.
+ 
+### Consequences to keep in mind
+ 
+- **Tests must not reach the network.** Keep the dependency overridable, or inject the verifier so tests supply claims directly. The existing suite should need nothing beyond the fixture.
+- **RLS matters as soon as the browser talks to Supabase directly.** While only FastAPI touches the database, RLS being off is survivable. With the publishable key in the browser it is not: policies keyed on `auth.uid()` become the only thing stopping one student reading another's registrations.
+- **CORS already allows `Authorization`** (`allow_headers=["*"]`). Cookie-based sessions would instead need `allow_credentials=True` and specific origins.
+ 
+Sources: [Supabase JWTs](https://supabase.com/docs/guides/auth/jwts), [API keys](https://supabase.com/docs/guides/api/api-keys).
+ 
 ---
  
 ## Traceability
