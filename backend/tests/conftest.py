@@ -1,5 +1,6 @@
 import os
 from collections.abc import AsyncGenerator, Generator
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.core.clock import get_now
 from app.core.database import get_db
 from app.main import app
+from app.notification.service import get_notifier
 from tests.factories import NOW
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -70,10 +72,29 @@ def anyio_backend() -> str:
     return "asyncio"
 
 
+class FakeNotifier:
+    """Records calls instead of sending. `fail = True` makes every call raise (TC-US7-15)."""
+
+    def __init__(self) -> None:
+        self.offers: list[dict[str, object]] = []
+        self.fail = False
+
+    def waitlist_offer(self, *, email: str, event_name: str, expires_at: datetime) -> None:
+        if self.fail:
+            raise RuntimeError("mail server unavailable")
+        self.offers.append({"email": email, "event_name": event_name, "expires_at": expires_at})
+
+
 @pytest.fixture
-async def client(db: Session) -> AsyncGenerator[AsyncClient, None]:
+def notifier() -> FakeNotifier:
+    return FakeNotifier()
+
+
+@pytest.fixture
+async def client(db: Session, notifier: FakeNotifier) -> AsyncGenerator[AsyncClient, None]:
     app.dependency_overrides[get_db] = lambda: db
     app.dependency_overrides[get_now] = lambda: NOW
+    app.dependency_overrides[get_notifier] = lambda: notifier
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         yield client
     app.dependency_overrides.clear()
