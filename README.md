@@ -12,7 +12,7 @@ Monorepo layout:
 
 ## Prerequisites
 
-- Python 3.12+
+- Python 3.12 (pinned in `backend/.python-version`; CI runs the same)
 - Node 20+
 - PostgreSQL 16 (or Docker, via `docker-compose.yml`)
 
@@ -26,7 +26,7 @@ docker compose up -d postgres
 
 ```bash
 cd backend
-python -m venv .venv && source .venv/bin/activate
+python3.12 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 cp .env.example .env
 uvicorn app.main:app --reload
