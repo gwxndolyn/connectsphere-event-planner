@@ -3,13 +3,26 @@ import uuid
 from datetime import datetime, timedelta
 
 from sqlalchemy import and_, func, or_, select, tuple_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import DomainError
-from app.event.models import Event
+from app.event.models import Event, EventRegistrationField, EventStatus
 from app.notification.service import Notifier
-from app.registration.models import AttendanceLog, Registration, RegistrationStatus
-from app.registration.schemas import OfferReleaseResponse, WithdrawResponse
+from app.registration.models import (
+    ACTIVE_STATUSES,
+    AttendanceLog,
+    Registration,
+    RegistrationAnswer,
+    RegistrationStatus,
+)
+from app.registration.schemas import (
+    EventConfirmationOut,
+    OfferReleaseResponse,
+    RegisterResponse,
+    WaitlistJoinResponse,
+    WithdrawResponse,
+)
 from app.user.models import Attendee
 
 logger = logging.getLogger(__name__)
@@ -244,6 +257,159 @@ class RegistrationService:
         )
         db.commit()
         return response
+
+    def register(
+        self,
+        db: Session,
+        event_id: uuid.UUID,
+        attendee: Attendee,
+        answers: dict[str, str],
+        now: datetime,
+    ) -> RegisterResponse:
+        """SCRUM-26: TC-US3-02 … TC-US3-10, TC-US3-15."""
+        # Lock the event row for the rest of the transaction so two attendees racing for the
+        # last seat can't both read the same occupancy (spec §2 Concurrency, TC-US3-10).
+        event = db.scalars(select(Event).where(Event.id == event_id).with_for_update()).one_or_none()
+        if event is None:
+            raise DomainError(404, "NOT_FOUND")
+
+        if event.status != EventStatus.CONFIRMED or not event.registration_enabled:
+            raise DomainError(403, "REGISTRATION_NOT_ENABLED")
+        if event.registration_opens_at is not None and now < event.registration_opens_at:
+            raise DomainError(403, "REGISTRATION_CLOSED")
+        if event.registration_closes_at is not None and now >= event.registration_closes_at:
+            raise DomainError(403, "REGISTRATION_CLOSED")
+
+        fields = db.scalars(
+            select(EventRegistrationField).where(EventRegistrationField.event_id == event_id)
+        ).all()
+        missing = [f.field_key for f in fields if f.required and not answers.get(f.field_key)]
+        if missing:
+            raise DomainError(422, "MISSING_REQUIRED_FIELD", fields=missing)
+
+        already = db.scalars(
+            select(Registration).where(
+                Registration.event_id == event_id,
+                Registration.attendee_id == attendee.id,
+                Registration.status.in_(ACTIVE_STATUSES),
+            )
+        ).first()
+        if already is not None:
+            raise DomainError(409, "ALREADY_REGISTERED")
+
+        if self.seats_remaining(db, event, now) <= 0:
+            # AC: the attendee is *offered* a waitlist place, not silently joined to it — a
+            # second, explicit POST /waitlist call is required.
+            raise DomainError(
+                409,
+                "EVENT_FULL",
+                waitlist_available=True,
+                message="This event is full. You may join the waitlist.",
+            )
+
+        registration = Registration(
+            event_id=event.id,
+            attendee_id=attendee.id,
+            attendee_email=attendee.email,
+            status=RegistrationStatus.CONFIRMED,
+            registered_at=now,
+            updated_at=now,
+        )
+        db.add(registration)
+        try:
+            db.flush()
+        except IntegrityError:
+            # Belt-and-braces for TC-US3-09: the partial unique index catches a duplicate
+            # even if two identical requests raced past the check above.
+            db.rollback()
+            raise DomainError(409, "ALREADY_REGISTERED") from None
+
+        for field_key, value in answers.items():
+            db.add(RegistrationAnswer(registration_id=registration.id, field_key=field_key, value=value))
+        db.add(
+            AttendanceLog(
+                registration_id=registration.id,
+                event_id=event.id,
+                attendee_id=attendee.id,
+                action="registered",
+                occurred_at=now,
+            )
+        )
+        db.commit()
+
+        return RegisterResponse(
+            registration_id=registration.id,
+            status=registration.status,
+            event=EventConfirmationOut(
+                name=event.name,
+                start_at=event.start_at,
+                end_at=event.end_at,
+                venue_name=event.venue_name,
+                join_link=event.join_link,
+            ),
+        )
+
+    def join_waitlist(
+        self, db: Session, event_id: uuid.UUID, email: str, now: datetime
+    ) -> WaitlistJoinResponse:
+        """SCRUM-27: TC-US3-11 … TC-US3-14. The explicit follow-up to an `EVENT_FULL` offer.
+
+        # DECISION-PENDING: D7 — §3's identity paragraph says every endpoint depends on
+        # get_current_attendee, but this endpoint's own contract is body-only (`{"email": ...}`),
+        # matching SCRUM-2's AC ("offered to be put on a waitlist using their email") and D3's
+        # email-only case. Sprint 1 default: no X-Attendee-Id required here; `attendee_id` is
+        # still attached below when an Attendee row matches the email, so it still surfaces in
+        # "My Events" (SCRUM-5) once that attendee does authenticate elsewhere.
+        """
+        event = db.scalars(select(Event).where(Event.id == event_id).with_for_update()).one_or_none()
+        if event is None:
+            raise DomainError(404, "NOT_FOUND")
+
+        already = db.scalars(
+            select(Registration).where(
+                Registration.event_id == event_id,
+                Registration.attendee_email == email,
+                Registration.status.in_(ACTIVE_STATUSES),
+            )
+        ).first()
+        if already is not None:
+            raise DomainError(409, "ALREADY_REGISTERED")
+
+        # D3: store both when we can. `attendee_id` links the row to "My Events" (SCRUM-5);
+        # `attendee_email` is always set, since the AC only promises an email for the waitlist.
+        attendee = db.scalars(select(Attendee).where(Attendee.email == email)).first()
+
+        registration = Registration(
+            event_id=event.id,
+            attendee_id=attendee.id if attendee else None,
+            attendee_email=email,
+            status=RegistrationStatus.WAITLISTED,
+            waitlist_joined_at=now,
+            updated_at=now,
+        )
+        db.add(registration)
+        try:
+            db.flush()
+        except IntegrityError:
+            db.rollback()
+            raise DomainError(409, "ALREADY_REGISTERED") from None
+
+        db.add(
+            AttendanceLog(
+                registration_id=registration.id,
+                event_id=event.id,
+                attendee_id=registration.attendee_id,
+                action="waitlisted",
+                occurred_at=now,
+            )
+        )
+        db.commit()
+
+        return WaitlistJoinResponse(
+            registration_id=registration.id,
+            status=registration.status,
+            position=self.waitlist_position(db, registration),
+        )
 
 
 registration_service = RegistrationService()

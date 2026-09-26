@@ -51,6 +51,18 @@ class Registration(Base):
     event: Mapped[Event] = relationship()
 
 
+class RegistrationAnswer(Base):
+    """One answer to one `EventRegistrationField`, keyed by the registration it belongs to."""
+
+    __tablename__ = "registration_answers"
+
+    registration_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("registrations.id", ondelete="CASCADE"), primary_key=True
+    )
+    field_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    value: Mapped[str | None] = mapped_column(Text)
+
+
 class AttendanceLog(Base):
     """Append-only audit trail. Never update or delete a row."""
 

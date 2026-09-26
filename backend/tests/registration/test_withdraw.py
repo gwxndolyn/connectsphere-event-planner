@@ -183,6 +183,27 @@ async def test_tc_us7_14_waitlisted_attendee_leaves_and_the_queue_moves_up(
     assert response.json()["seats_remaining"] == 0
 
 
+async def test_tc_us7_13_a_withdrawal_is_reflected_in_the_next_available_events_read(
+    client: AsyncClient, db: Session
+) -> None:
+    """Was blocked on SCRUM-25 (`GET /events/available` didn't exist yet); now that it does,
+    this proves seats_remaining has no cache or delayed job between the two calls."""
+    event = make_event(db, capacity=1)
+    attendee = make_attendee(db)
+    other = make_attendee(db)
+    registration = make_registration(db, event, attendee)
+
+    before = await client.get("/api/v1/events/available", headers=auth(other))
+    assert before.json()["events"][0]["seats_remaining"] == 0
+    assert before.json()["events"][0]["is_full"] is True
+
+    await client.post(withdraw_url(registration), headers=auth(attendee))
+
+    after = await client.get("/api/v1/events/available", headers=auth(other))
+    assert after.json()["events"][0]["seats_remaining"] == 1
+    assert after.json()["events"][0]["is_full"] is False
+
+
 async def test_withdraw_requires_an_attendee_header(client: AsyncClient, db: Session) -> None:
     attendee = make_attendee(db)
     event = make_event(db)
