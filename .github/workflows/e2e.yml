@@ -1,9 +1,10 @@
 name: E2E
 
-# Runs on every push/PR (matching this repo's branch model) plus manual dispatch.
+# Pull requests cover feature branches; the push trigger is limited to main so a PR branch
+# doesn't run this expensive job twice for the same commit.
 on:
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
     branches: ["**"]
   workflow_dispatch: {}
@@ -11,6 +12,7 @@ on:
 jobs:
   e2e:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:16
@@ -42,7 +44,8 @@ jobs:
 
       - name: Start backend
         working-directory: backend
-        run: uvicorn app.main:app --port 8000 &
+        # nohup + log file: a bare "&" dies with the step's shell and leaves nothing to debug.
+        run: nohup uvicorn app.main:app --port 8000 > /tmp/uvicorn.log 2>&1 &
 
       - uses: actions/setup-node@v4
         with:
@@ -61,7 +64,14 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Wait for backend
-        run: npx --yes wait-on http://localhost:8000/api/events/health
+        # http-get:// (not http://) because wait-on probes with HEAD by default, which this
+        # GET-only route answers with 405 — so it waited forever. The timeout is a backstop:
+        # without it the job burns the full 6-hour limit instead of failing.
+        run: npx --yes wait-on --timeout 60000 http-get://localhost:8000/api/events/health
+
+      - name: Backend log
+        if: failure()
+        run: cat /tmp/uvicorn.log
 
       - name: Run e2e tests
         working-directory: e2e
