@@ -1,8 +1,40 @@
+import uuid
 from datetime import datetime
 
 from pydantic import BaseModel
 
 from app.registration.models import RegistrationStatus
+
+
+class RegisterRequest(BaseModel):
+    answers: dict[str, str] = {}
+
+
+class EventConfirmationOut(BaseModel):
+    """The AC requires date, time and venue in the confirmation. For an online event,
+    `join_link` stands in for venue (spec §3)."""
+
+    name: str
+    start_at: datetime
+    end_at: datetime
+    venue_name: str | None = None
+    join_link: str | None = None
+
+
+class RegisterResponse(BaseModel):
+    registration_id: uuid.UUID
+    status: RegistrationStatus
+    event: EventConfirmationOut
+
+
+class WaitlistJoinRequest(BaseModel):
+    email: str
+
+
+class WaitlistJoinResponse(BaseModel):
+    registration_id: uuid.UUID
+    status: RegistrationStatus
+    position: int
 
 
 class WithdrawResponse(BaseModel):

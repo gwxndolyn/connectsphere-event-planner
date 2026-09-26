@@ -7,12 +7,44 @@ from sqlalchemy.orm import Session
 from app.core.clock import get_now
 from app.core.database import get_db
 from app.notification.service import Notifier, get_notifier
-from app.registration.schemas import OfferReleaseResponse, WithdrawResponse
+from app.registration.schemas import (
+    OfferReleaseResponse,
+    RegisterRequest,
+    RegisterResponse,
+    WaitlistJoinRequest,
+    WaitlistJoinResponse,
+    WithdrawResponse,
+)
 from app.registration.service import registration_service
 from app.user.dependencies import get_current_attendee
 from app.user.models import Attendee
 
 router = APIRouter(prefix="/api/v1/registrations", tags=["registrations"])
+
+# Nested under /events, per spec §3, since the resource in the URL is the event being
+# registered for or waitlisted for — even though the state that changes is a Registration.
+events_router = APIRouter(prefix="/api/v1/events", tags=["registrations"])
+
+
+@events_router.post("/{event_id}/registrations", status_code=201)
+def register(
+    event_id: uuid.UUID,
+    body: RegisterRequest,
+    attendee: Attendee = Depends(get_current_attendee),
+    db: Session = Depends(get_db),
+    now: datetime = Depends(get_now),
+) -> RegisterResponse:
+    return registration_service.register(db, event_id, attendee, body.answers, now)
+
+
+@events_router.post("/{event_id}/waitlist", status_code=201)
+def join_waitlist(
+    event_id: uuid.UUID,
+    body: WaitlistJoinRequest,
+    db: Session = Depends(get_db),
+    now: datetime = Depends(get_now),
+) -> WaitlistJoinResponse:
+    return registration_service.join_waitlist(db, event_id, body.email, now)
 
 
 @router.post("/{registration_id}/withdraw")

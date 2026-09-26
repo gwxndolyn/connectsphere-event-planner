@@ -44,20 +44,39 @@ Read this with §5; the subtask tables below are still the definition of done. T
 | Ticket | What landed | Where |
 |---|---|---|
 | SCRUM-24 | `registrations`, `attendees`, `attendance_log` and the §2 `events` schema, with the partial unique index | PR #13 |
-| SCRUM-28, 29, 32, 33 | Frontend mockups: events board, event card, registration dialog, confirmation ticket, My Events | PRs #11, and SCRUM-5 branch |
+| SCRUM-23 | Seed script (`python -m app.seed`), idempotent, all seven SCRUM-23 states | PR #17 |
+| SCRUM-34, 35, 36, 37, 39 | Withdrawal backend (SCRUM-6) — endpoint + guards, capacity release, waitlist offer, offer expiry/decline, audit log | PR #16 |
+| SCRUM-28, 29, 32, 33 | Frontend mockups: events board, event card, registration dialog, confirmation ticket, My Events | PRs #11, #10 |
 | — | CI: split workflows, Dependabot, markdown lint, PR title check | PRs #1, #12 |
 | — | E2E fix: `wait-on` probed with HEAD against a GET-only route and hung until the 6-hour limit; now `http-get://` with timeouts. `health.spec.ts` also asserts the backend's real response | PR #14 |
 | — | CORS middleware, so the frontend origin can call the API at all | — |
+| — | Python pinned to 3.12, `.env.example` restored | PR #15 |
  
 `attendees` is **not in §2**. The spec references `attendees(id)` without defining the table, so SCRUM-24 added the minimal version (`id`, `email`, `created_at`). Revisit when Supabase Auth lands.
  
-### Open branches, awaiting review
+### This branch — SCRUM-25, 26, 27 (backend complete)
  
-| Branch | Ticket | Contents |
+`feat(SCRUM-25-27)-event-listing-and-registration`, built on `main` (which already had SCRUM-6/23/24 merged).
+ 
+New tables (migration `69572c138625`): `event_registration_fields`, `registration_answers` — the §2 tables SCRUM-24 didn't include, needed for TC-US3-06's required-field guard.
+ 
+| Endpoint | Does | Ticket |
 |---|---|---|
-| `feat(SCRUM-6)Withdrawal-from-an-Event-Registration` | SCRUM-34, 36, 37, 39 | The whole withdrawal backend and 30 tests |
-| `feat(SCRUM-23)-seed-mock-events` | SCRUM-23 | `python -m app.seed`, idempotent |
-| `chore(backend)pin-python-and-restore-env-example` | — | Pins Python 3.12, restores `.env.example` |
+| `GET /api/v1/events/available` | Lists confirmed + registration-open + unended events, with `seats_remaining`, `is_full`, `already_registered` (for the caller) and that event's `registration_fields` | SCRUM-25 |
+| `POST /api/v1/events/{event_id}/registrations` | Guards (enabled → window → required fields → duplicate → capacity), then confirms | SCRUM-26 |
+| `POST /api/v1/events/{event_id}/waitlist` | Explicit follow-up to an `EVENT_FULL` offer; derives position | SCRUM-27 |
+ 
+Both new routers use `/api/v1` per §3's rule. The pre-existing `/api/events/health` is untouched (predates the spec, load-bearing for the e2e `wait-on` check).
+ 
+| Subtask | State |
+|---|---|
+| SCRUM-25 `GET /events/available` | Done — TC-US3-01 |
+| SCRUM-26 register guards | Done — TC-US3-02 … 10, 15 |
+| SCRUM-27 waitlist branch | Done — TC-US3-11 … 14 |
+ 
+**TC-US3 coverage: 15 of 15**, in 26 new backend tests (56 total in the suite). SCRUM-25 landing also unblocked the one outstanding SCRUM-6 test — **TC-US7-13 is now covered too** (added to `test_withdraw.py`), so **TC-US7 is 15 of 15**.
+ 
+Deviation to confirm: `POST /events/{id}/waitlist` does **not** require `X-Attendee-Id`, despite §3's "every endpoint depends on it." Its own contract is body-only (`{"email": ...}`), matching the AC's "offered ... using their email" and D3's email-only case. `attendee_id` is still attached when the email matches an existing `Attendee` row. Marked `# DECISION-PENDING: D7` at the code site — raise at standup alongside D3.
  
 ### SCRUM-6 (Calvin) — backend complete
  
@@ -74,13 +93,13 @@ Supporting pieces: `core/exceptions.py` (machine-readable `code`), `core/clock.p
 | Subtask | State |
 |---|---|
 | SCRUM-34 endpoint + guards | Done |
-| SCRUM-35 capacity release | Done — TC-US7-13 can't be *observed* until `GET /events/available` (SCRUM-25) exists |
+| SCRUM-35 capacity release | Done — TC-US7-13 now covered (SCRUM-25 landed) |
 | SCRUM-36 waitlist offer trigger | Done |
 | SCRUM-37 offer expiry / decline | Done, as the manual stub the ticket asks for |
 | SCRUM-39 record the withdrawal | Done |
 | SCRUM-38 frontend withdraw | Partly — My Events has "Cancel registration" and "Leave waitlist" buttons, but no confirm dialog and no post-withdrawal confirmation |
  
-**TC-US7 coverage: 14 of 15**, in 30 backend tests. Only **TC-US7-13** is outstanding, and it is blocked on SCRUM-25.
+**TC-US7 coverage: 15 of 15** (TC-US7-13 added once SCRUM-25 landed).
  
 The waitlist is FIFO but **derived**: the head is the oldest `waitlist_joined_at`, with `id` breaking ties, locked `FOR UPDATE` alongside the event. No position is ever stored.
  
@@ -95,16 +114,16 @@ Open decisions in play: **D1** (24h window, one constant), **D2** (what expires 
  
 ### Next steps
  
-1. **Review and merge the three open branches**, schema-adjacent ones first.
-2. **SCRUM-38 — finish the mockup**: confirm dialog before withdrawing, post-withdrawal confirmation. Mockup-only; §7 still forbids wiring React to FastAPI.
-3. **Seed Supabase** with `python -m app.seed --yes` once SCRUM-23 merges — the tables are still empty, which blocks manual testing for everyone.
-4. **TC-US7-13 stays blocked** until SCRUM-25 exists.
-5. **Notification logging**: `LoggingNotifier` writes to its own logger, which uvicorn's default config doesn't display, so an offer is invisible in the server log during a demo.
+1. **Review and merge this branch** (SCRUM-25/26/27).
+2. **SCRUM-30/31 — `GET /me/registrations`**: now unblocked, since registrations exist to query. Build order per §5: SCRUM-27 → SCRUM-30 → SCRUM-31.
+3. **SCRUM-38 — finish the mockup**: confirm dialog before withdrawing, post-withdrawal confirmation. Mockup-only; §7 still forbids wiring React to FastAPI.
+4. **Seed Supabase** with `python -m app.seed --yes` — the tables are still empty there, which blocks manual testing for everyone.
+5. **Wire the frontend mockups to the real API** — SCRUM-28/29 are mock-data-backed today; the shapes already match §3, so this should be a small, contained change once the team is ready to drop the "mockup only" constraint.
  
 ### Environment notes
  
-- **Supabase is migrated** to revision `dcc645f2c595`; all four tables exist, all **empty** until the seed script merges and runs.
-- **RLS is off on all four tables.** Safe only while the Data API stays disabled. Enable RLS before anyone turns that API back on.
+- **Supabase was migrated to `dcc645f2c595`** (SCRUM-6/23/24's tables). This branch adds `69572c138625` (`event_registration_fields`, `registration_answers`) — **not yet applied to Supabase**, only verified locally against `docker compose up -d postgres`. Run `alembic upgrade head` against Supabase as part of merging this branch.
+- **RLS is off on every table.** Safe only while the Data API stays disabled. Enable RLS before anyone turns that API back on.
 - **Backend tests need a local Postgres**: `docker compose up -d postgres`. They build a separate `connectsphere_test` database from the migrations and refuse to run against Supabase.
 - **Python 3.12** — pinned in `backend/.python-version`, matching CI. A 3.13 virtualenv can pass locally and fail in CI.
 - **No dependency lock on the backend.** `pyproject.toml` uses open ranges (`fastapi>=0.115`), so two machines can resolve different versions. The frontend has `package-lock.json`; the backend has nothing equivalent.
