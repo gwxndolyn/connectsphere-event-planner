@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { compareEventStart, formatEventDate, formatEventTimeRange, isEventExpired } from "./datetime";
 import type { EventAvailability, Registration } from "./types";
 import type { useEventRegistry } from "./useEventRegistry";
+import { WithdrawDialog } from "./WithdrawDialog";
 
 interface MyEventsViewProps {
   registry: ReturnType<typeof useEventRegistry>;
@@ -14,6 +16,9 @@ interface Entry {
 
 export function MyEventsView({ registry, onBrowse }: MyEventsViewProps) {
   const { events, registrations, currentAttendee, cancelRegistration, waitlistPosition } = registry;
+  // Held separately from the registry: the row is gone once the withdrawal goes through,
+  // but the confirmation still needs the event and registration to describe what happened.
+  const [pending, setPending] = useState<Entry | null>(null);
 
   const myEntries: Entry[] = currentAttendee
     ? registrations
@@ -49,7 +54,7 @@ export function MyEventsView({ registry, onBrowse }: MyEventsViewProps) {
             <MyEventsSection
               heading="Confirmed"
               entries={confirmed}
-              onCancel={(id) => cancelRegistration(id)}
+              onCancel={setPending}
               cancelLabel="Cancel registration"
             />
           )}
@@ -58,12 +63,26 @@ export function MyEventsView({ registry, onBrowse }: MyEventsViewProps) {
             <MyEventsSection
               heading="Waitlisted"
               entries={waitlisted}
-              onCancel={(id) => cancelRegistration(id)}
+              onCancel={setPending}
               cancelLabel="Leave waitlist"
               waitlistPosition={waitlistPosition}
             />
           )}
         </>
+      )}
+
+      {pending && (
+        <WithdrawDialog
+          event={pending.event}
+          registration={pending.registration}
+          waitlistPosition={
+            pending.registration.status === "waitlisted"
+              ? waitlistPosition(pending.registration)
+              : undefined
+          }
+          onConfirm={() => cancelRegistration(pending.registration.id)}
+          onClose={() => setPending(null)}
+        />
       )}
     </section>
   );
@@ -72,7 +91,7 @@ export function MyEventsView({ registry, onBrowse }: MyEventsViewProps) {
 interface MyEventsSectionProps {
   heading: string;
   entries: Entry[];
-  onCancel: (registrationId: string) => void;
+  onCancel: (entry: Entry) => void;
   cancelLabel: string;
   waitlistPosition?: (registration: Registration) => number;
 }
@@ -113,7 +132,7 @@ function MyEventsSection({
             <button
               type="button"
               className="button button--secondary"
-              onClick={() => onCancel(registration.id)}
+              onClick={() => onCancel({ registration, event })}
             >
               {cancelLabel}
             </button>
