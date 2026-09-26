@@ -4,13 +4,14 @@ FastAPI (Python 3.12+) REST API, backed by PostgreSQL 16.
 
 ## Prerequisites
 
-- Python 3.12+
+- **Python 3.12** — pinned in `.python-version`, and what CI runs. Newer versions may pass
+  locally and fail in CI, so build the virtualenv with 3.12 explicitly.
 - PostgreSQL 16 (running locally, or via the `docker-compose.yml` in the repo root)
 
 ## Setup
 
 ```bash
-python -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 cp .env.example .env   # adjust DATABASE_URL if needed
