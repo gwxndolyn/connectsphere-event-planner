@@ -82,7 +82,7 @@ Each is implemented and defensible; each departs from the contract in §2/§3 an
 ### Environment
  
 - **Supabase can lag `main`.** Check before blaming the code: `alembic current` against Supabase versus `alembic heads` in the repo. A missing table usually means an unapplied migration, not a bug.
-- **Row Level Security is off on every table, with no policies.** Safe only while the Data API stays disabled in Project Settings — that is the only thing standing between the public key and every row. Enable RLS before anyone turns that API on, and certainly before the browser talks to Supabase directly (§9).
+- **Row Level Security is on for every application table, with no policies** (migration `5733a3c705f7`). RLS on plus no policies means Supabase's anon and authenticated roles can read nothing; the backend is unaffected because it connects as the tables' owner, and owners bypass RLS. Keep the Data API disabled anyway — belt and braces. **Adding a table means enabling RLS on it in the same migration.** Policies come with Supabase Auth (§9), when the browser needs its own access.
 - **Backend tests need Postgres running**: `docker compose up -d postgres`. Without it every database test errors on connection, which looks alarming and isn't.
 - **Python 3.12**, pinned in `backend/.python-version` and matched by CI. A 3.13 virtualenv can pass locally and fail in CI.
 - **No dependency lock on the backend.** `pyproject.toml` uses open ranges, so two machines can resolve different versions. The frontend has `package-lock.json`; the backend has nothing equivalent. Suspect this when something works for one person only.
@@ -510,7 +510,7 @@ alter table attendees add column auth_user_id uuid unique;
 ### Consequences to keep in mind
  
 - **Tests must not reach the network.** Keep the dependency overridable, or inject the verifier so tests supply claims directly. The existing suite should need nothing beyond the fixture.
-- **RLS matters as soon as the browser talks to Supabase directly.** While only FastAPI touches the database, RLS being off is survivable. With the publishable key in the browser it is not: policies keyed on `auth.uid()` become the only thing stopping one student reading another's registrations.
+- **RLS is already on, but policy-less — that becomes a blocker here.** Today nothing can read these tables except the owner, which is fine while FastAPI is the only client. The moment the browser holds a publishable key, it needs policies keyed on `auth.uid()`, and those policies are the only thing stopping one student reading another's registrations. Write them alongside the auth work, not after it.
 - **CORS already allows `Authorization`** (`allow_headers=["*"]`). Cookie-based sessions would instead need `allow_credentials=True` and specific origins.
  
 Sources: [Supabase JWTs](https://supabase.com/docs/guides/auth/jwts), [API keys](https://supabase.com/docs/guides/api/api-keys).
