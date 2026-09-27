@@ -17,7 +17,7 @@ This is a **test-case-driven** spec. Every behaviour below traces back to an acc
 5. §6 lists real ambiguities in the acceptance criteria. **Do not silently invent an answer.** Use the stated Sprint 1 default and leave a `# DECISION-PENDING: <id>` comment at the code site.
 Anything not in §4 is out of scope for Sprint 1. See §7.
  
-Before writing code, read **§1a** — the rules we've had to learn the hard way, the places the code already departs from §2/§3, and the questions still waiting on an answer. It holds no ticket status: Jira and the PR list own that.
+**New to the project, or coming back after a break? Start at §1a.** It covers where things stand, how to get everything running, the rules we've learned the hard way, where the code already departs from §2/§3, and the questions still waiting on an answer. Per-ticket status isn't there: Jira and the PR list own that.
  
 ---
  
@@ -37,11 +37,51 @@ Everything in Epic 1 (Event Management) and Epic 2 (Venue & Resources) is out of
  
 ---
  
-## 1a. Working agreements
+## 1a. Start here
  
-**Status does not live here.** Jira owns ticket state; git and the PR list own what merged. This section holds the things neither can: where the code knowingly departs from the contract below, which product questions are still unanswered, and the environment rules that are easy to get wrong.
+Read this before writing code. It holds what the rest of the document can't: how to get the thing running, the rules we've had to learn, where the code knowingly departs from the contract, and what's still undecided.
  
-**Edit this section only in the PR that changes the code it describes.** Two people editing it on separate branches merged cleanly once and produced a file that contradicted itself.
+**Per-ticket status does not live here.** Jira owns ticket state; git and the PR list own what merged. Duplicating either goes stale within hours — it already did once, when two of us edited this section on separate branches and produced a file that contradicted itself. Hence: **edit this section only in the PR that changes the code it describes**, and at sprint boundaries for the two summaries below.
+ 
+### Where things stand — end of Sprint 1
+ 
+All three Sprint 1 stories have working backends, tested against a real Postgres and applied to the shared Supabase. **No React screen calls the API yet**, which is what §7 asked for; connecting them is Sprint 2's first job.
+ 
+| Story | Backend | Mockup | Test cases |
+|---|---|---|---|
+| SCRUM-2 — register for an event | Done | Done | TC-US3 15/15 |
+| SCRUM-5 — view my upcoming events | Done | Done | TC-US11 11/11 |
+| SCRUM-6 — withdraw from a registration | Done | Done | TC-US7 15/15 |
+ 
+Every endpoint in §3 exists, plus `POST /registrations/{id}/decline` (deviation 3 below). Identity is still the `X-Attendee-Id` stub. The database is the six tables in §2 plus `attendees`; Supabase matches `main` and is seeded.
+ 
+### Get it running
+ 
+```bash
+docker compose up -d postgres          # tests and local work need this
+ 
+cd backend
+python3.12 -m venv .venv && source .venv/bin/activate   # 3.12 exactly; see Environment below
+pip install -e ".[dev]"
+cp .env.example .env
+pytest                                 # whole suite, seconds
+ 
+python -m app.seed                     # seven events covering every API state
+uvicorn app.main:app --reload          # http://localhost:8000/docs
+ 
+cd ../frontend && npm install && npm run dev   # mock data, no API calls
+```
+ 
+`/docs` is the quickest way to see the product work: withdraw a seeded registration from the full event and watch the seat pass to the next person in the queue. The seed script prints the `X-Attendee-Id` and registration ids you need.
+ 
+### When something looks broken
+ 
+- **Every database test errors at once** → Postgres isn't running.
+- **`relation … does not exist` against Supabase** → an unapplied migration, not a bug. Compare `alembic current` there with `alembic heads` here.
+- **Passes locally, fails in CI** → check Python is 3.12, and see the lockfile note under Environment.
+- **The page says "backend unreachable"** → the API isn't running, or your origin isn't in `CORS_ORIGINS`.
+- **A PR check fails instantly** → the title needs a `feat:` / `fix:` / `chore:` prefix.
+- **A PR check hangs** → E2E waits on the backend's health endpoint; read the "Backend log" step.
  
 ### Rules that keep us out of trouble
  
@@ -87,6 +127,14 @@ Each is implemented and defensible; each departs from the contract in §2/§3 an
 - **Python 3.12**, pinned in `backend/.python-version` and matched by CI. A 3.13 virtualenv can pass locally and fail in CI.
 - **No dependency lock on the backend.** `pyproject.toml` uses open ranges, so two machines can resolve different versions. The frontend has `package-lock.json`; the backend has nothing equivalent. Suspect this when something works for one person only.
 - **Frontend and API don't share vocabulary yet.** The mockup says `title`, `format`, `startsAt`; §3 says `name`, `delivery_mode`, `start_at`. Wiring them is Sprint 2 work, and generating TypeScript types from `/openapi.json` would turn a rename into a build error instead of a runtime one.
+ 
+### What Sprint 2 starts with
+ 
+1. **Connect the two halves.** The React app runs entirely on `mockEvents.ts`; every endpoint it needs now exists. The work: swap the registry's functions for `apiClient` calls, send the identity header, handle the §3 error codes (`EVENT_FULL`, `ALREADY_REGISTERED`, `REGISTRATION_CLOSED`, `MISSING_REQUIRED_FIELD`), and add the loading and error states mock data never needed. `useEventRegistry` was written with this seam in mind.
+2. **Generate TypeScript types from `/openapi.json` before that wiring**, so the vocabulary mismatch above surfaces as a build error rather than a bug someone finds by clicking.
+3. **One end-to-end test** that registers, views and withdraws against a live backend. Nobody has yet seen the product work start to finish.
+4. **Then Supabase Auth** (§9), replacing the `X-Attendee-Id` stub — after the wiring, so a failure can only be in one half. It brings RLS policies with it.
+5. **Smaller, worth doing:** lock the backend's dependencies; review the Dependabot PRs; make the notification log visible under uvicorn; bring Jira's statuses in line with what merged; delete merged branches.
 
 ---
 
