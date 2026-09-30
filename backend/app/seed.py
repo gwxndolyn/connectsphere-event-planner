@@ -23,7 +23,7 @@ from app.core.config import settings
 from app.core.database import SessionLocal
 from app.event.models import DeliveryMode, Event, EventStatus
 from app.registration.models import Registration, RegistrationStatus
-from app.user.models import Attendee
+from app.user.models import Attendee, User, UserRole
 
 # Fixed namespace so slugs map to the same UUIDs on every machine and every run.
 SEED_NAMESPACE = uuid.UUID("3f2b0c54-9b1a-4f3e-9a7e-2c0d1b8e5a41")
@@ -142,6 +142,11 @@ EVENTS = [
 
 def upsert_attendee(db: Session, email: str) -> Attendee:
     attendee_id = seed_id("attendee", email)
+    user = db.get(User, attendee_id)
+    if user is None:
+        user = User(id=attendee_id, email=email, role=UserRole.ATTENDEE)
+        db.add(user)
+        db.flush()
     attendee = db.get(Attendee, attendee_id)
     if attendee is None:
         attendee = Attendee(id=attendee_id, email=email)

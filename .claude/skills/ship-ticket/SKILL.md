@@ -74,7 +74,7 @@ Restate your understanding in a line or two before proceeding.
 Branch names are **not** CI-enforced and history is inconsistent. Normalize to
 this clean canonical form:
 
-```
+```text
 <type>/<TICKET-KEY>-<kebab-summary>
 ```
 
@@ -103,6 +103,7 @@ Run the suites for the area(s) you touched. Backend-only change → backend suit
 UI/flow change → frontend and/or e2e; multi-area → each affected suite.
 
 **Backend** (`backend/`) — needs Postgres:
+
 ```bash
 docker compose up -d postgres
 cd backend
@@ -111,6 +112,7 @@ DATABASE_URL=postgresql+psycopg://connectsphere:connectsphere@localhost:5432/con
 ```
 
 **Frontend** (`frontend/`) — CI runs lint + typecheck/build (no unit suite):
+
 ```bash
 cd frontend
 npm ci                         # or npm install if deps unchanged
@@ -120,6 +122,7 @@ npm run build                  # tsc -b && vite build (typecheck + build)
 
 **E2E** (`e2e/`, Playwright) — only when the change affects end-to-end behavior;
 mirror `e2e.yml`:
+
 ```bash
 docker compose up -d postgres
 cd backend && DATABASE_URL=postgresql+psycopg://connectsphere:connectsphere@localhost:5432/connectsphere \
@@ -138,7 +141,7 @@ Commit in logical units. **Every commit follows Conventional Commits** (same
 allowed types as the PR check), with the ticket key in the scope or subject —
 matching this repo's history:
 
-```
+```text
 feat(SCRUM-42): add RSVP endpoint and validation
 fix(SCRUM-7): expire waitlist offer after deadline
 ```
