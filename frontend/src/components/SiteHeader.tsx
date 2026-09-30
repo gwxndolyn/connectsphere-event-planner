@@ -3,8 +3,8 @@ import "./SiteHeader.css";
 interface SiteHeaderProps {
   search: string;
   onSearchChange: (value: string) => void;
-  view: "discovery" | "my-events";
-  onNavigate: (view: "discovery" | "my-events") => void;
+  view: "discovery" | "my-events" | "event-requests";
+  onNavigate: (view: "discovery" | "my-events" | "event-requests") => void;
 }
 
 export function SiteHeader({ search, onSearchChange, view, onNavigate }: SiteHeaderProps) {
@@ -52,6 +52,14 @@ export function SiteHeader({ search, onSearchChange, view, onNavigate }: SiteHea
           onClick={() => onNavigate(view === "my-events" ? "discovery" : "my-events")}
         >
           {view === "my-events" ? "Browse events" : "My events"}
+        </button>
+        <button
+          type="button"
+          className="site-header__nav-link"
+          aria-current={view === "event-requests" ? "page" : undefined}
+          onClick={() => onNavigate("event-requests")}
+        >
+          Event requests
         </button>
       </div>
     </header>

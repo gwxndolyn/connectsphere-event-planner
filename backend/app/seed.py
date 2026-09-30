@@ -62,6 +62,7 @@ ATTENDEES = [
     "arjun.rao.2024@smu.edu.sg",
     "sofia.lim.2024@smu.edu.sg",
 ]
+EVENT_ORGANISER_EMAIL = "event.organiser@smu.edu.sg"
 
 EVENTS = [
     EventSpec(
@@ -154,6 +155,24 @@ def upsert_attendee(db: Session, email: str) -> Attendee:
     return attendee
 
 
+def upsert_event_organiser(db: Session) -> User:
+    organiser_id = seed_id("user", "event-organiser")
+    organiser = db.get(User, organiser_id)
+    if organiser is None:
+        organiser = User(
+            id=organiser_id,
+            email=EVENT_ORGANISER_EMAIL,
+            role=UserRole.ORGANISER,
+            is_active=True,
+        )
+        db.add(organiser)
+    else:
+        organiser.email = EVENT_ORGANISER_EMAIL
+        organiser.role = UserRole.ORGANISER
+        organiser.is_active = True
+    return organiser
+
+
 def upsert_event(db: Session, spec: EventSpec, now: datetime) -> Event:
     event_id = seed_id("event", spec.slug)
     start_at = now + spec.starts_in
@@ -214,6 +233,7 @@ def upsert_registration(
 
 def seed(db: Session, now: datetime | None = None) -> None:
     now = now or datetime.now(UTC)
+    upsert_event_organiser(db)
     attendees = {email: upsert_attendee(db, email) for email in ATTENDEES}
     db.flush()
 
@@ -248,6 +268,8 @@ def main() -> int:
 
         calvin = db.get(Attendee, seed_id("attendee", ATTENDEES[0]))
         print(f"\nX-Attendee-Id for {calvin.email}:\n  {calvin.id}\n")
+        organiser = db.get(User, seed_id("user", "event-organiser"))
+        print(f"VITE_DEV_USER_ID for {organiser.email}:\n  {organiser.id}\n")
         print("Registrations you can withdraw:")
         mine = db.scalars(select(Registration).where(Registration.attendee_id == calvin.id))
         for registration in mine:
