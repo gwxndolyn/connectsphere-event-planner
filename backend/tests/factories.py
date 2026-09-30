@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.event.models import DeliveryMode, Event, EventRegistrationField, EventStatus
 from app.registration.models import Registration, RegistrationStatus
-from app.user.models import Attendee
+from app.user.models import Attendee, User, UserRole
 
 SGT = timezone(timedelta(hours=8))
 # Frozen "now" for every API test (spec §8: freeze time).
@@ -13,7 +13,12 @@ NOW = datetime(2026, 10, 1, 9, 0, tzinfo=SGT)
 
 
 def make_attendee(db: Session) -> Attendee:
-    attendee = Attendee(email=f"{uuid.uuid4().hex[:8]}@smu.edu.sg")
+    attendee_id = uuid.uuid4()
+    email = f"{uuid.uuid4().hex[:8]}@smu.edu.sg"
+    user = User(id=attendee_id, email=email, role=UserRole.ATTENDEE)
+    attendee = Attendee(id=attendee_id, email=email)
+    db.add(user)
+    db.flush()
     db.add(attendee)
     db.flush()
     return attendee
