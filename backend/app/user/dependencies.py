@@ -21,6 +21,8 @@ def get_current_attendee(
     return attendee
 
 
+# DECISION-PENDING: temporary X-User-Id identity stub for role-aware routes (US1/US8/US10).
+# X-Attendee-Id stays unchanged for Sprint 1 routes. Both get replaced by Supabase Auth.
 def get_current_user(
     x_user_id: Annotated[uuid.UUID | None, Header()] = None,
     db: Session = Depends(get_db),
