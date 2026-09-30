@@ -1,8 +1,9 @@
-# ConnectSphere — Sprint 1 Development Spec
+# ConnectSphere — Development Spec (Sprint 1 + Sprint 2)
  
 **Source of truth:** Jira project `SCRUM` (SPM ConnectSphere) — https://smu-team-kk38iw8n.atlassian.net
 **Generated:** 2026-09-19 from Jira issues SCRUM-2, SCRUM-5, SCRUM-6 and their subtasks.
-**Stack:** FastAPI (Python) backend · Supabase (Postgres) · frontend is a **static UI mockup only** this sprint.
+**Updated:** 2026-09-30 for Sprint 2 — US1 Submit Event Request (SCRUM-20) and the Epic 1 groundwork it laid.
+**Stack:** FastAPI (Python) backend · Supabase (Postgres) · React/Vite frontend. Sprint 1 screens are still mockups on `mockEvents.ts`; the Event requests screens (US1) call the real API.
  
 ---
  
@@ -11,7 +12,7 @@
 This is a **test-case-driven** spec. Every behaviour below traces back to an acceptance criterion written by the team in Jira. Work in this order:
  
 1. Read §2 (data model) and §3 (API contracts) — they are proposals, not gospel; if you deviate, say so explicitly.
-2. For each story, write the tests in §4 **first**, as failing tests. Test IDs (`TC-US3-01`, …) are stable references — use them as test function names, e.g. `def test_tc_us3_01_lists_only_confirmed_registration_open_events():`.
+2. For each story, write the tests in §4 **first**, as failing tests. Test IDs (`TC-US3-01`, `TC-US1-01`, …) are stable references — use them as test function names, e.g. `def test_tc_us3_01_lists_only_confirmed_registration_open_events():`.
 3. Implement until the tests pass.
 4. Check §5 — the subtask-to-test mapping is the definition of done for each Jira ticket.
 5. §6 lists real ambiguities in the acceptance criteria. **Do not silently invent an answer.** Use the stated Sprint 1 default and leave a `# DECISION-PENDING: <id>` comment at the code site.
@@ -34,6 +35,17 @@ Sprint 1 is the whole of **Epic 3: Event Registration** (SCRUM-22), minus one st
 `SCRUM-10` (US6 — Join a Waiting List) is in Epic 3 but **not in Sprint 1**. Sprint 1 touches the waitlist only where US3 and US7 force it to: offering a full-event attendee a waitlist place, and passing a freed place to the next person. Build the minimum that satisfies those two, and no waitlist management UI.
  
 Everything in Epic 1 (Event Management) and Epic 2 (Venue & Resources) is out of scope — including event creation, approval and venue booking. Sprint 1 therefore **cannot create a confirmed event through the product**, which is why SCRUM-23 (seeded mock events) exists.
+
+### Sprint 2 scope (27 Sep – 11 Oct)
+
+| Jira | Story | Owner (Jira) | Points |
+|---|---|---|---|
+| SCRUM-20 | US1 — Submit Event Request (Epic 1) | Chloe | 8 |
+| SCRUM-10 | US6 — Join a Waiting List (Epic 3) | Gwendolyn | 3 |
+| SCRUM-11 | US8 — Request Clarification (Epic 1) | Nicholas | 5 |
+| SCRUM-13 | US10 — Assign a Coordinator (Epic 1) | Matthew | 5 |
+
+US1, US8 and US10 move the same event request through one status lifecycle, so SCRUM-40 laid shared groundwork for all three (statuses, request fields, `users` with roles, the `X-User-Id` stub) — see §2 and §3. Status per ticket lives in Jira, not here.
  
 ---
  
@@ -43,17 +55,18 @@ Read this before writing code. It holds what the rest of the document can't: how
  
 **Per-ticket status does not live here.** Jira owns ticket state; git and the PR list own what merged. Duplicating either goes stale within hours — it already did once, when two of us edited this section on separate branches and produced a file that contradicted itself. Hence: **edit this section only in the PR that changes the code it describes**, and at sprint boundaries for the two summaries below.
  
-### Where things stand — end of Sprint 1
+### Where things stand — mid Sprint 2 (30 Sep)
  
-All three Sprint 1 stories have working backends, tested against a real Postgres and applied to the shared Supabase. **No React screen calls the API yet**, which is what §7 asked for; connecting them is Sprint 2's first job.
+All three Sprint 1 stories have working backends, tested against a real Postgres. **US1 (SCRUM-20) is the first feature built end to end**: schema, API and React screens, with the screens calling the real API. **The Sprint 1 screens still run on `mockEvents.ts`**; wiring them is the top open item (see "What's next" below).
  
 | Story | Backend | Mockup | Test cases |
 |---|---|---|---|
 | SCRUM-2 — register for an event | Done | Done | TC-US3 15/15 |
 | SCRUM-5 — view my upcoming events | Done | Done | TC-US11 11/11 |
 | SCRUM-6 — withdraw from a registration | Done | Done | TC-US7 15/15 |
+| SCRUM-20 — submit event request (US1) | Done | **Real screens, wired to API** | TC-US1 16/16 + 1 E2E |
  
-Every endpoint in §3 exists, plus `POST /registrations/{id}/decline` (deviation 3 below). Identity is still the `X-Attendee-Id` stub. The database is the six tables in §2 plus `attendees`; Supabase matches `main` and is seeded.
+Every endpoint in §3 exists, plus `POST /registrations/{id}/decline` (deviation 3 below). Identity is two stubs: `X-Attendee-Id` for the Sprint 1 routes and `X-User-Id` (role-aware) for the event-request routes. The database is the tables in §2 plus `attendees` and `users`. Backend suite: 89 tests; E2E: 2 tests (health check, US1 journey). **Supabase may lag `main`**: the SCRUM-40 migration (`20260930_1200_us1_request_schema`) must be applied there by the named person — check with `alembic current`.
  
 ### Get it running
  
@@ -63,16 +76,24 @@ docker compose up -d postgres          # tests and local work need this
 cd backend
 python3.12 -m venv .venv && source .venv/bin/activate   # 3.12 exactly; see Environment below
 pip install -e ".[dev]"
-cp .env.example .env
-pytest                                 # whole suite, seconds
+cp .env.example .env                   # keep DATABASE_URL on localhost
+alembic upgrade head                   # create the tables — the seed fails without this
+pytest                                 # whole suite, seconds (tests build their own DB)
  
-python -m app.seed                     # seven events covering every API state
+python -m app.seed                     # seven events, an attendee, and the organiser user
 uvicorn app.main:app --reload          # http://localhost:8000/docs
  
-cd ../frontend && npm install && npm run dev   # mock data, no API calls
-```
+cd ../frontend
+cp .env.example .env                   # REQUIRED: holds VITE_DEV_USER_ID (the seeded organiser)
+npm install && npm run dev             # http://localhost:5173 — restart after editing .env
  
-`/docs` is the quickest way to see the product work: withdraw a seeded registration from the full event and watch the seat pass to the next person in the queue. The seed script prints the `X-Attendee-Id` and registration ids you need.
+cd ../e2e && npm ci && npx playwright install chromium
+npm test                               # backend must be running; don't also run npm run dev
+```
+
+**Windows (PowerShell):** activate with `.venv\Scripts\activate`; copy with `Copy-Item .env.example .env`. Create `.env` files by copying or in VS Code, not with `echo >` — PowerShell writes UTF-16, which Vite can't read.
+ 
+`/docs` is the quickest way to see the Sprint 1 product work: withdraw a seeded registration from the full event and watch the seat pass to the next person in the queue. The seed script prints the `X-Attendee-Id` and registration ids you need, plus `VITE_DEV_USER_ID` (organiser `6c200a77-b7cc-5fb1-9d51-81a0abeba24b`, deterministic). For US1, open **Event requests** in the app, or call the event-request endpoints in `/docs` with that id in `X-User-Id`.
  
 ### When something looks broken
  
@@ -80,6 +101,11 @@ cd ../frontend && npm install && npm run dev   # mock data, no API calls
 - **`relation … does not exist` against Supabase** → an unapplied migration, not a bug. Compare `alembic current` there with `alembic heads` here.
 - **Passes locally, fails in CI** → check Python is 3.12, and see the lockfile note under Environment.
 - **The page says "backend unreachable"** → the API isn't running, or your origin isn't in `CORS_ORIGINS`.
+- **Event requests says "Set VITE_DEV_USER_ID…"** → `frontend/.env` doesn't exist (only `.env.example` does). Copy it and restart `npm run dev`.
+- **CORS errors even on `/api/events/health`** → something else is answering on port 8000 (open the health URL directly; "no Route matched" means another app), or a terminal still has a leftover `CORS_ORIGINS`. Close all terminals and start fresh.
+- **`401` on `/api/v1/me/event-requests`** → the organiser isn't in the database uvicorn is using. Run `alembic upgrade head` and `python -m app.seed`; check no terminal has a leftover `DATABASE_URL` (`echo $env:DATABASE_URL`).
+- **`python -m app.seed` fails with `relation … does not exist`** → you skipped `alembic upgrade head`.
+- **Ports 5173 / 8000 are taken by another project** → stop it, or for E2E set `E2E_FRONTEND_PORT` (and matching `VITE_API_BASE_URL` / `CORS_ORIGINS`).
 - **A PR check fails instantly** → the title needs a `feat:` / `fix:` / `chore:` prefix.
 - **A PR check hangs** → E2E waits on the backend's health endpoint; read the "Backend log" step.
  
@@ -90,7 +116,11 @@ cd ../frontend && npm install && npm run dev   # mock data, no API calls
 - **One migration head.** If two branches each add a migration, Alembic ends up with two heads on merge. Rebase on `main` and regenerate rather than merging heads.
 - **Tests never touch Supabase.** They build a separate `connectsphere_test` database from the migrations and refuse to run against a non-local host. Keep that guard.
 - **Deviating from §2/§3 is allowed; doing it silently is not.** Add a `# DECISION-PENDING: <id>` at the code site and a line under "Deviations awaiting a decision" below.
-- **Mockups stay mockups this sprint** (§7). No React code calls FastAPI until the team agrees to drop that constraint.
+- **New screens call the real API** (changed in Sprint 2 — the Sprint 1 "mockups stay mockups" rule is retired; *needs team confirmation*). Build through `frontend/src/api/client.ts`, with TypeScript types that match the API's snake_case names. Don't add new mock data.
+- **Two identity headers, one per route family.** Sprint 1 routes take `X-Attendee-Id` (`get_current_attendee`); event-request routes take `X-User-Id` (`get_current_user` / `require_user_roles`). Every attendee has a `users` row with the **same id** and role `attendee`, so one id works in both. Both stubs go when Supabase Auth lands (§9).
+- **Another person's record is `404 NOT_FOUND`, never `403`.** Applies to drafts as well as registrations (TC-US7-02, TC-US1-13).
+- **Schema changes go in the first PR of a story, alone.** US1 split into schema → API → screens PRs; the API and screen PRs added no migration. Keeps one Alembic head and a reviewable migration.
+- **E2E runs against a migrated, seeded database.** `e2e.yml` runs `alembic upgrade head` and `python -m app.seed` before starting the backend. A new E2E test needing data should get it from the seed, not by assuming an empty database.
  
 ### Deviations awaiting a decision
  
@@ -104,10 +134,14 @@ Each is implemented and defensible; each departs from the contract in §2/§3 an
 | 4 | `expire-offer` doesn't check that `offer_expires_at` has passed, and isn't restricted to the offer holder — it stands in for a system job | `app/registration/service.py` |
 | 5 | Offer-release responses say *whether* the seat was passed on, never to whom, because TC-X-04 forbids revealing another attendee | `app/registration/schemas.py` |
 | 6 | `POST /events/{id}/waitlist` doesn't require `X-Attendee-Id`, against §3's "every endpoint depends on it". Its contract is body-only (`{"email": ...}`), matching D3's email-only case | `app/registration/router.py` |
+| 7 | Event requests live on the `events` table (nullable fields + a status-based CHECK), not a separate `event_requests` table, so the whole lifecycle is one row | `app/event/models.py`, SCRUM-40 migration |
+| 8 | `expected_attendees = 0` is rejected even when saving a draft (`422 INVALID_EVENT_REQUEST`), because the DB CHECK forbids it | `app/event/request_service.py` |
+| 9 | New error code `INVALID_EVENT_REQUEST` (422, with `fields`) for present-but-invalid values — past/duplicate dates, start ≥ end, attendees < 1 — distinct from `MISSING_REQUIRED_FIELD` | `app/event/request_service.py` |
+| 10 | The form auto-adds a date left in the date picker on Save/Submit; "Add date" is only needed for extra dates. Found in manual testing | `frontend/src/features/eventRequest/` |
  
 ### Open decisions still unanswered
  
-§6 defines D1–D6 and a Sprint 1 default for each. All six are coded to their defaults and marked in the code; **none has been confirmed by the team**. D7 is new and not in §6.
+§6 defines D1–D6 and a Sprint 1 default for each. All six are coded to their defaults and marked in the code; **none has been confirmed by the team**. D7 is new and not in §6. D8–D12 came from US1 and are marked `DECISION-PENDING` in the code.
  
 | id | Question | What we assumed |
 |---|---|---|
@@ -118,6 +152,11 @@ Each is implemented and defensible; each departs from the contract in §2/§3 an
 | D5 | Does withdrawal notify by email or on screen? | On screen only |
 | D6 | May a waitlisted person leave the queue? | Yes, via the same withdraw endpoint |
 | D7 | Must you be identified to join a waitlist? | No — email is enough. Settle with D3 |
+| D8 | What are the event category options? | Free text, non-empty, max 100 chars |
+| D9 | What timezone are preferred times in? | Asia/Singapore local time (`time` without zone); converted when a request becomes an event |
+| D10 | What's the request reference format? | `ER-<year>-<6-digit sequence>`, e.g. `ER-2026-000123`, from `event_request_reference_seq`; one formatter function |
+| D11 | Who can read a submitted request? | Owner, coordinators and operations managers, **only while in a request status** (submitted → rejected). Other organisers 404. Drafts owner-only |
+| D12 | How are users identified before Supabase Auth? | `X-User-Id` header stub, alongside `X-Attendee-Id` |
  
 ### Environment
  
@@ -126,15 +165,18 @@ Each is implemented and defensible; each departs from the contract in §2/§3 an
 - **Backend tests need Postgres running**: `docker compose up -d postgres`. Without it every database test errors on connection, which looks alarming and isn't.
 - **Python 3.12**, pinned in `backend/.python-version` and matched by CI. A 3.13 virtualenv can pass locally and fail in CI.
 - **No dependency lock on the backend.** `pyproject.toml` uses open ranges, so two machines can resolve different versions. The frontend has `package-lock.json`; the backend has nothing equivalent. Suspect this when something works for one person only.
-- **Frontend and API don't share vocabulary yet.** The mockup says `title`, `format`, `startsAt`; §3 says `name`, `delivery_mode`, `start_at`. Wiring them is Sprint 2 work, and generating TypeScript types from `/openapi.json` would turn a rename into a build error instead of a runtime one.
+- **Frontend and API don't share vocabulary yet — for the Sprint 1 screens.** The mockup says `title`, `format`, `startsAt`; §3 says `name`, `delivery_mode`, `start_at`. The US1 screens already use the API's names (`frontend/src/features/eventRequest/`). Generating TypeScript types from `/openapi.json` would turn a rename into a build error instead of a runtime one.
+- **Env files are per machine and git-ignored.** Both `backend/.env` and `frontend/.env` must exist; after pulling a change to either `.env.example`, compare and copy the new lines across.
+- **The seed refuses a non-local database** unless run with `--yes`. Only the named Supabase person should ever pass it.
  
-### What Sprint 2 starts with
+### What's next in Sprint 2
  
-1. **Connect the two halves.** The React app runs entirely on `mockEvents.ts`; every endpoint it needs now exists. The work: swap the registry's functions for `apiClient` calls, send the identity header, handle the §3 error codes (`EVENT_FULL`, `ALREADY_REGISTERED`, `REGISTRATION_CLOSED`, `MISSING_REQUIRED_FIELD`), and add the loading and error states mock data never needed. `useEventRegistry` was written with this seam in mind.
-2. **Generate TypeScript types from `/openapi.json` before that wiring**, so the vocabulary mismatch above surfaces as a build error rather than a bug someone finds by clicking.
-3. **One end-to-end test** that registers, views and withdraws against a live backend. Nobody has yet seen the product work start to finish.
-4. **Then Supabase Auth** (§9), replacing the `X-Attendee-Id` stub — after the wiring, so a failure can only be in one half. It brings RLS policies with it.
-5. **Smaller, worth doing:** lock the backend's dependencies; review the Dependabot PRs; make the notification log visible under uvicorn; bring Jira's statuses in line with what merged; delete merged branches.
+1. **Wire the Sprint 1 screens** (event list, register, my events, withdraw). Every endpoint exists, and US1 built the plumbing: `api/client.ts` sends an identity header and turns 404/409/422 into structured errors. Swap `useEventRegistry`'s functions for `apiClient` calls, send `X-Attendee-Id` (the seed prints an attendee id), handle the §3 codes (`EVENT_FULL`, `ALREADY_REGISTERED`, `REGISTRATION_CLOSED`, `MISSING_REQUIRED_FIELD`), and add loading/error states. **No Jira ticket yet — create one.** Do it **before US6's frontend**: the join-waitlist prompt hangs off the register screen's real `EVENT_FULL` response.
+2. **US6 (SCRUM-10).** Backend mostly exists from Sprint 1. Still missing: honour `waitlist_enabled` (column added in SCRUM-40, default `false` — the seed's waitlist events may need it set to `true`), and **an accept-offer endpoint** (offers can only be declined or expire today). Settle D3/D6/D7.
+3. **US8 (SCRUM-11) and US10 (SCRUM-13)** build on the US1 request: statuses, `users`/roles and `X-User-Id` exist. Both need to **seed a coordinator and an operations manager** (the seed only has the organiser). Nothing yet moves a request to `under_review` or `approved` — agree who does. US10 moving an event to `planning` will hide it from staff under D11; widen that rule in US10 if the coordinator needs to keep reading it.
+4. **One end-to-end test** that registers, views and withdraws against the live backend, once item 1 is done. The E2E job already migrates and seeds.
+5. **Then Supabase Auth** (§9), replacing both header stubs — after the wiring, so a failure can only be in one half. It brings RLS policies with it.
+6. **Smaller, worth doing:** fix the root README (missing `alembic upgrade head`, the frontend `.env` copy, a CI section naming a `ci.yml` that doesn't exist, TODO team list); lock the backend's dependencies; review the Dependabot PRs; make the notification log visible under uvicorn; delete merged branches; turn on branch protection for `main`.
 
 ---
 
@@ -168,6 +210,57 @@ create table events (
  
 `registration_enabled` and the open/close window are **two separate gates**. The AC lists them as separate bullets ("events that are confirmed and have registration enabled" / "only register while registration is open"), so keep them separate — an event can have registration enabled but not yet open.
  
+### `events` — Sprint 2 additions for event requests (SCRUM-40)
+
+An event request **is** an `events` row in an early status (deviation 7). Migration `20260930_1200_us1_request_schema`:
+
+```sql
+-- full lifecycle; Sprint 1 values kept
+-- draft → submitted → under_review ⇄ awaiting_clarification → approved | rejected
+--       → planning → confirmed → cancelled | completed
+alter type event_status add value 'under_review' after 'submitted';  -- + awaiting_clarification,
+                                                                      --   approved, rejected, planning, completed
+alter table events
+  add column waitlist_enabled       boolean not null default false,   -- for US6
+  add column event_category         text,          -- D8
+  add column purpose                text,
+  add column preferred_dates        date[],        -- sorted on submit
+  add column preferred_start_time   time,          -- Asia/Singapore local, D9
+  add column preferred_end_time     time,
+  add column expected_attendees     integer,       -- check (expected_attendees >= 1)
+  add column room_layout_preference text,
+  add column accessibility_needs    text,
+  add column equipment_needs        text,
+  add column registration_required  boolean,       -- null = not decided (distinct from false)
+  add column created_by_user_id     uuid references users(id),
+  add column submitted_by_user_id   uuid references users(id),
+  add column submitted_at           timestamptz,
+  add column request_reference      text unique;   -- D10, set only on submit
+create sequence event_request_reference_seq;
+```
+
+- `name`, `start_at`, `end_at`, `capacity` and `delivery_mode` became **nullable**, guarded by the CHECK `events_final_fields_required`: they may be null only while status is `draft`, `submitted`, `under_review`, `awaiting_clarification`, `approved` or `rejected`. `planning` onwards must have them.
+- All request fields are nullable so drafts can be partial (AC3). Mandatory-field checks happen at submit, in the service, not in the schema.
+- Downgrade refuses if it would discard lifecycle, request or user data.
+
+### `users` — role-aware identity (SCRUM-40)
+
+```sql
+create type user_role as enum ('organiser', 'coordinator', 'operations_manager', 'attendee');
+
+create table users (
+  id          uuid primary key default gen_random_uuid(),
+  email       text not null unique,
+  role        user_role not null default 'attendee',
+  is_active   boolean not null default true,
+  created_at  timestamptz not null default now()
+);
+alter table users enable row level security;
+-- attendees.id references users.id: every attendee has a users row with the same id, role 'attendee'
+```
+
+Existing attendees were backfilled. Anything that creates an attendee (the seed's `upsert_attendee`, the test factory `make_attendee`) must create the `users` row first.
+
 ### `registrations` — the core table (SCRUM-24)
  
 ```sql
@@ -345,6 +438,34 @@ Manual trigger standing in for a scheduled job, exactly as the ticket says ("stu
  
 ---
  
+### Event requests — SCRUM-41 to SCRUM-44 (US1)
+
+Router: `app/event/request_router.py`; logic: `app/event/request_service.py`. **Identity:** `X-User-Id`, resolved by `get_current_user` (unknown or missing → `401 UNAUTHENTICATED`, inactive → `403 FORBIDDEN`); write routes also need role `organiser` (`require_user_roles`, wrong role → `403 FORBIDDEN`).
+
+| Method & path | Purpose |
+|---|---|
+| `POST /api/v1/event-requests` | Create a draft from partial data → `201` |
+| `GET /api/v1/me/event-requests` | Caller's requests, newest first → `{"event_requests": [...]}` |
+| `GET /api/v1/event-requests/{id}` | Read one (owner; staff per D11) |
+| `PATCH /api/v1/event-requests/{id}` | Update a draft; only fields sent are changed |
+| `POST /api/v1/event-requests/{id}/submit` | Validate and submit |
+
+Write body (every field optional; unknown fields rejected): `name`, `event_category`, `purpose`, `preferred_dates` (ISO dates), `preferred_start_time`, `preferred_end_time` (`HH:MM`), `expected_attendees`, `room_layout_preference`, `accessibility_needs`, `equipment_needs`, `registration_required`. The response echoes them plus `id`, `status`, `created_by_user_id`, `submitted_by_user_id`, `submitted_at`, `request_reference`, `created_at`.
+
+Mandatory at submit: `name`, `event_category`, `purpose`, `preferred_dates` (≥ 1), `preferred_start_time`, `preferred_end_time`, `expected_attendees`.
+
+| Outcome | Status | Body |
+|---|---|---|
+| Submitted | `200` | status `submitted`, `request_reference` like `ER-2026-000001`, submitter + `submitted_at` set, dates sorted |
+| Mandatory field missing | `422` | `{"code": "MISSING_REQUIRED_FIELD", "fields": [...]}` — status stays `draft` |
+| Value present but invalid (past or duplicate date, start ≥ end, attendees < 1) | `422` | `{"code": "INVALID_EVENT_REQUEST", "fields": [...]}` |
+| Edit or re-submit after submission | `409` | `{"code": "EVENT_REQUEST_LOCKED"}` |
+| Someone else's draft, or not visible under D11 | `404` | `{"code": "NOT_FOUND"}` |
+
+Submit and edit lock the row (`SELECT … FOR UPDATE`), so two simultaneous submits can't both succeed or burn two references.
+
+---
+
 ## 4. Test cases
  
 These are the acceptance criteria restated as executable checks. Each one maps to a bullet the team wrote in Jira. Write them all before writing implementation code.
@@ -411,6 +532,33 @@ These are the acceptance criteria restated as executable checks. Each one maps t
 | TC-US7-14 | A is `waitlisted`, not confirmed | A withdraws | `200`; A leaves the queue; everyone behind A moves up one position; no seat is freed |
 | TC-US7-15 | Notification send raises an exception | A withdraws | Withdrawal still commits; failure is logged; response is still `200` |
  
+### SCRUM-20 / US1 — Submit Event Request
+
+> *As an Event Organiser, I want to submit an event request with my initial event requirements so that I can have planning start without manually creating a request by email.*
+
+Backend: `tests/event/test_event_requests.py` (01–15), `tests/event/test_event_request_schema.py` (16). E2E: `e2e/tests/event-request.spec.ts`.
+
+| ID | Given | When | Then |
+|---|---|---|---|
+| TC-US1-01 | Organiser | Creates a request with only some fields | `201`, status `draft` |
+| TC-US1-02 | Owner's draft | Lists, reads and patches it | Changes persist; still `draft` |
+| TC-US1-03 | Optional requirements, `registration_required = false` | Save and read back | Round-trips; `false` stays distinct from unset |
+| TC-US1-04 | Draft with every mandatory field | Submit | `200`, status `submitted` |
+| TC-US1-05 | Draft missing mandatory fields | Submit | `422 MISSING_REQUIRED_FIELD` listing each; status stays `draft` |
+| TC-US1-06 | Past or duplicate preferred date | Submit | `422 INVALID_EVENT_REQUEST`; valid dates come back sorted |
+| TC-US1-07 | One time missing, or start ≥ end | Submit | `422` naming the time field |
+| TC-US1-08 | `expected_attendees = 0` | Save or submit | `422` (deviation 8) |
+| TC-US1-09 | Valid draft | Submit | `submitted_by_user_id` and `submitted_at` recorded |
+| TC-US1-10 | Two valid drafts | Submit both | Different references in `ER-<year>-<6 digits>` format |
+| TC-US1-11 | Draft / submitted request | Read / submit again | Draft has no reference; re-submit `409 EVENT_REQUEST_LOCKED`, reference unchanged |
+| TC-US1-12 | Submitted request | Owner patches it | `409 EVENT_REQUEST_LOCKED`; data unchanged |
+| TC-US1-13 | Another organiser's draft | Read, patch or submit | `404 NOT_FOUND` |
+| TC-US1-14 | Coordinator / ops manager | Read a draft; read a submitted request; read a confirmed event | `404`; `200`; `404` |
+| TC-US1-15 | Missing/unknown `X-User-Id`, inactive user, wrong role | Call the routes | `401`, `403`, `403`; Sprint 1 `X-Attendee-Id` tests unchanged |
+| TC-US1-16 | Migrated schema | Inspect / insert | Lifecycle values, columns, defaults, user backfill + FK, RLS on `users`; a `confirmed` event with null `start_at` is rejected; `expected_attendees` must be ≥ 1 |
+
+The E2E test drives the browser: save a draft → submit with a field missing → see it flagged → complete it (leaving a date unadded in the picker) → submit → see the reference.
+
 ### Cross-cutting
  
 | ID | Check |
@@ -458,6 +606,21 @@ Each Jira subtask is done when its tests pass. The subtasks have no descriptions
 | SCRUM-38 | Frontend: withdraw action | **Mockup only** — withdraw button, confirm dialog, post-withdrawal confirmation |
 | SCRUM-39 | Record withdrawal | TC-US7-12, TC-X-03 |
  
+### SCRUM-20 (US1)
+
+| Subtask | Work | Done when | PR |
+|---|---|---|---|
+| SCRUM-40 | Schema + groundwork migration | TC-US1-16; one Alembic head; Sprint 1 tests unchanged | #27 |
+| SCRUM-41 | Save-draft endpoint | TC-US1-01, 02, 03, 08 | #28 |
+| SCRUM-42 | Submit + missing-field list | TC-US1-04, 05, 06, 07 | #28 |
+| SCRUM-43 | Draft → Submitted + edit lock | TC-US1-11, 12 | #28 |
+| SCRUM-44 | Reference + submitter/timestamp | TC-US1-09, 10 | #28 |
+| SCRUM-45 | Frontend form + draft save | **Real API** — E2E journey | #29 |
+| SCRUM-46 | Missing-field indicators | Inline from the 422 `fields` list — E2E journey | #29 |
+| SCRUM-47 | Confirmation with reference | E2E journey | #29 |
+
+Access and identity (TC-US1-13, 14, 15) span SCRUM-41–44.
+
 **Build order** (dependencies are real — SCRUM-23 and SCRUM-24 unblock everything):
  
 ```
@@ -502,7 +665,7 @@ Say so and stop if the work drifts into any of these:
 - Standalone "Join a Waiting List" flow (SCRUM-10, Epic 3 but a later sprint)
 - Supabase Auth / real login — `X-Attendee-Id` stub only
 - Real email delivery — assert on a notification interface, log instead of send
-- A working frontend. **Mockups only.** Do not wire React to FastAPI this sprint.
+- A working frontend. **Mockups only.** Do not wire React to FastAPI this sprint. *(Sprint 2: retired — see §1a Rules.)*
 - Payments, check-in, attendance marking, feedback — nowhere in the backlog
 ---
  
@@ -513,6 +676,7 @@ Say so and stop if the work drifts into any of these:
 - **Structure:** routes stay thin. Guard logic and state transitions live in a service layer so they can be tested without HTTP.
 - **Errors:** every 4xx returns a machine-readable `code`, exactly as spelled in §3. The mockup keys off `code`, not off message text.
 - **Migrations:** every schema change is a migration file in the repo. No changes made only in the Supabase dashboard.
+- **Branches and PRs:** one branch per PR, named `feat(SCRUM-<n>)Title-Case-Words` (ranges allowed: `feat(SCRUM-41-44)…`), started from an up-to-date `main`. Commits and PR titles: `feat(SCRUM-<n>): lowercase summary` — CI checks the PR title's type prefix, not the branch name. Every PR is reviewed before merge.
 ---
  
 ## 9. Supabase Auth — plan for a later sprint
@@ -587,3 +751,10 @@ Sources: [Supabase JWTs](https://supabase.com/docs/guides/auth/jwts), [API keys]
 | TC-US7-12 | SCRUM-6 | Withdrawal recorded with timestamp |
 | TC-US7-13 | SCRUM-6 | Capacity updated immediately |
  
+| TC-US1-01, 02, 03 | SCRUM-20 | Enter details and optional requirements; save as draft and return later |
+| TC-US1-04 … 08 | SCRUM-20 | Mandatory fields; cannot submit until complete; shown what's missing; stays Draft |
+| TC-US1-09 | SCRUM-20 | Submission recorded with submitter and timestamp |
+| TC-US1-10, 11 | SCRUM-20 | Confirmation with a reference to track the request |
+| TC-US1-11, 12 | SCRUM-20 | Draft → Submitted; no direct edits after submission |
+| TC-US1-13, 14, 15 | SCRUM-20 | (Access rules — D11, D12) |
+| TC-US1-16 | SCRUM-40 | Schema groundwork for Epic 1 |
