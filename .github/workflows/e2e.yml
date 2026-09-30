@@ -31,7 +31,7 @@ jobs:
       DATABASE_URL: postgresql+psycopg://connectsphere:connectsphere@localhost:5432/connectsphere
       VITE_DEV_USER_ID: 6c200a77-b7cc-5fb1-9d51-81a0abeba24b
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
