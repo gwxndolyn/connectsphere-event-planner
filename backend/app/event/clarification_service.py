@@ -5,23 +5,57 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import DomainError
-from app.event.clarification_schemas import ClarificationOut, ClarificationRequestWrite
+from app.event.clarification_schemas import (
+    ClarificationOut,
+    ClarificationRequestWrite,
+    ClarificationSentOut,
+)
 from app.event.models import (
     CLARIFICATION_SECTIONS,
     ClarificationKind,
     Event,
     EventRequestClarification,
+    EventStatus,
 )
+from app.event.request_service import SUBMITTED_REQUEST_STATUSES
 from app.user.models import User
+
+# SCRUM-11 AC 2. Later rounds (8d, SCRUM-56) also start from under_review, once the
+# organiser's reply (SCRUM-77) has moved the request back there.
+CLARIFIABLE_STATUSES = (EventStatus.SUBMITTED, EventStatus.UNDER_REVIEW)
 
 
 class ClarificationService:
-    """Storage for an event request's clarification thread (SCRUM-54).
+    """An event request's clarification thread (US8).
 
-    Deliberately no status checks and no commit: the caller (the SCRUM-53 endpoint) locks the
-    event, guards its status, calls `add_request`, moves the event to awaiting_clarification and
-    commits, so the message and the status change land in one transaction.
+    `send_request` is the whole SCRUM-53 transition. `add_request` is the storage underneath it
+    (SCRUM-54): no status checks and no commit, so the message and the status change land in
+    one transaction.
     """
+
+    def send_request(
+        self,
+        db: Session,
+        request_id: uuid.UUID,
+        coordinator: User,
+        body: ClarificationRequestWrite,
+        now: datetime,
+    ) -> ClarificationSentOut:
+        event = db.scalars(
+            select(Event).where(Event.id == request_id).with_for_update()
+        ).one_or_none()
+        # Drafts and finished events are invisible to coordinators (D11), so they 404, not 409.
+        if event is None or event.status not in SUBMITTED_REQUEST_STATUSES:
+            raise DomainError(404, "NOT_FOUND")
+        if event.status not in CLARIFIABLE_STATUSES:
+            raise DomainError(409, "CLARIFICATION_NOT_ALLOWED", status=event.status.value)
+
+        clarification = self.add_request(db, event, coordinator, body, now)
+        event.status = EventStatus.AWAITING_CLARIFICATION
+        db.flush()
+        result = ClarificationSentOut(clarification=clarification, status=event.status)
+        db.commit()
+        return result
 
     def add_request(
         self,

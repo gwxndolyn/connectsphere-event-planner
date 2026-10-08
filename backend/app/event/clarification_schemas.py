@@ -3,7 +3,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
-from app.event.models import ClarificationKind
+from app.event.models import ClarificationKind, EventStatus
 
 
 class ClarificationRequestWrite(BaseModel):
@@ -30,3 +30,8 @@ class ClarificationOut(BaseModel):
 
 class ClarificationThreadOut(BaseModel):
     clarifications: list[ClarificationOut]
+
+
+class ClarificationSentOut(BaseModel):
+    clarification: ClarificationOut
+    status: EventStatus  # the request's new status: awaiting_clarification
