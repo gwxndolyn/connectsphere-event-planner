@@ -12,6 +12,15 @@ from app.user.models import User, UserRole
 
 EVENT_TIMEZONE = ZoneInfo("Asia/Singapore")
 
+# A submitted request until it becomes an event (D11): staff can read it in these statuses.
+SUBMITTED_REQUEST_STATUSES = (
+    EventStatus.SUBMITTED,
+    EventStatus.UNDER_REVIEW,
+    EventStatus.AWAITING_CLARIFICATION,
+    EventStatus.APPROVED,
+    EventStatus.REJECTED,
+)
+
 REQUIRED_FIELDS = (
     "name",
     "event_category",
@@ -117,15 +126,8 @@ class EventRequestService:
             return False
         # DECISION-PENDING: SCRUM-20 — submitted requests are visible to coordinators and
         # operations managers so US8/US10 can proceed; confirm this access policy with the team.
-        request_statuses = (
-            EventStatus.SUBMITTED,
-            EventStatus.UNDER_REVIEW,
-            EventStatus.AWAITING_CLARIFICATION,
-            EventStatus.APPROVED,
-            EventStatus.REJECTED,
-        )
         return (
-            event.status in request_statuses
+            event.status in SUBMITTED_REQUEST_STATUSES
             and reader.role in (UserRole.COORDINATOR, UserRole.OPERATIONS_MANAGER)
         )
 

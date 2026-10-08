@@ -7,6 +7,8 @@ from sqlalchemy.orm import Session
 
 from app.core.clock import get_now
 from app.core.database import get_db
+from app.event.clarification_schemas import ClarificationRequestWrite, ClarificationSentOut
+from app.event.clarification_service import clarification_service
 from app.event.request_schemas import EventRequestOut, EventRequestWrite, EventRequestsOut
 from app.event.request_service import event_request_service
 from app.user.dependencies import get_current_user, require_user_roles
@@ -16,6 +18,7 @@ router = APIRouter(prefix="/api/v1/event-requests", tags=["event-requests"])
 me_router = APIRouter(prefix="/api/v1/me", tags=["event-requests"])
 
 Organiser = Annotated[User, Depends(require_user_roles(UserRole.ORGANISER))]
+Coordinator = Annotated[User, Depends(require_user_roles(UserRole.COORDINATOR))]
 
 
 @router.post("", status_code=201, response_model=EventRequestOut)
@@ -62,3 +65,13 @@ def submit_request(
     now: datetime = Depends(get_now),
 ) -> EventRequestOut:
     return event_request_service.submit(db, request_id, organiser, now)
+
+@router.post("/{request_id}/clarifications", status_code=201, response_model=ClarificationSentOut)
+def send_clarification(
+    request_id: uuid.UUID,
+    body: ClarificationRequestWrite,
+    coordinator: Coordinator,
+    db: Session = Depends(get_db),
+    now: datetime = Depends(get_now),
+) -> ClarificationSentOut:
+    return clarification_service.send_request(db, request_id, coordinator, body, now)
