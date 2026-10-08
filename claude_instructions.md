@@ -65,9 +65,9 @@ All three Sprint 1 stories have working backends, tested against a real Postgres
 | SCRUM-5 — view my upcoming events | Done | Done | TC-US11 11/11 |
 | SCRUM-6 — withdraw from a registration | Done | Done | TC-US7 15/15 |
 | SCRUM-20 — submit event request (US1) | Done | **Real screens, wired to API** | TC-US1 16/16 + 1 E2E |
-| SCRUM-11 — request clarification (US8a) | **Storage only** (SCRUM-54): thread table + service, no endpoint yet | Not started | TC-US8 8/8 so far |
+| SCRUM-11 — request clarification (US8a) | Done: storage (SCRUM-54) + send endpoint (SCRUM-53) | Not started (SCRUM-57) | TC-US8 14/14 |
  
-Every endpoint in §3 exists, plus `POST /registrations/{id}/decline` (deviation 3 below). Identity is two stubs: `X-Attendee-Id` for the Sprint 1 routes and `X-User-Id` (role-aware) for the event-request routes. The database is the tables in §2 plus `attendees` and `users`. Backend suite: 101 tests; E2E: 2 tests (health check, US1 journey). **Supabase may lag `main`**: the SCRUM-40 and SCRUM-54 migrations (`20260930_1200_us1_request_schema`, `20261008_1200_us8_clarifications`) must be applied there by the named person — check with `alembic current`.
+Every endpoint in §3 exists, plus `POST /registrations/{id}/decline` (deviation 3 below). Identity is two stubs: `X-Attendee-Id` for the Sprint 1 routes and `X-User-Id` (role-aware) for the event-request routes. The database is the tables in §2 plus `attendees` and `users`. Backend suite: 110 tests; E2E: 2 tests (health check, US1 journey). **Supabase may lag `main`**: the SCRUM-40 and SCRUM-54 migrations (`20260930_1200_us1_request_schema`, `20261008_1200_us8_clarifications`) must be applied there by the named person — check with `alembic current`.
  
 ### Get it running
  
@@ -140,10 +140,11 @@ Each is implemented and defensible; each departs from the contract in §2/§3 an
 | 9 | New error code `INVALID_EVENT_REQUEST` (422, with `fields`) for present-but-invalid values — past/duplicate dates, start ≥ end, attendees < 1 — distinct from `MISSING_REQUIRED_FIELD` | `app/event/request_service.py` |
 | 10 | The form auto-adds a date left in the date picker on Save/Submit; "Add date" is only needed for extra dates. Found in manual testing | `frontend/src/features/eventRequest/` |
 | 11 | New error code `INVALID_CLARIFICATION` (422, `fields: ["sections"]` plus the unknown `sections`) for an unknown or repeated section; an empty section list or blank comment is `MISSING_REQUIRED_FIELD` | `app/event/clarification_service.py` |
+| 12 | New error code `CLARIFICATION_NOT_ALLOWED` (409, with the request's current `status`) when a coordinator asks for clarification outside `submitted`/`under_review` | `app/event/clarification_service.py` |
  
 ### Open decisions still unanswered
  
-§6 defines D1–D6 and a Sprint 1 default for each. All six are coded to their defaults and marked in the code; **none has been confirmed by the team**. D7 is new and not in §6. D8–D12 came from US1 and D13 from US8; all are marked `DECISION-PENDING` in the code.
+§6 defines D1–D6 and a Sprint 1 default for each. All six are coded to their defaults and marked in the code; **none has been confirmed by the team**. D7 is new and not in §6. D8–D12 came from US1 and D13–D14 from US8; all are marked `DECISION-PENDING` in the code.
  
 | id | Question | What we assumed |
 |---|---|---|
@@ -160,6 +161,7 @@ Each is implemented and defensible; each departs from the contract in §2/§3 an
 | D11 | Who can read a submitted request? | Owner, coordinators and operations managers, **only while in a request status** (submitted → rejected). Other organisers 404. Drafts owner-only |
 | D12 | How are users identified before Supabase Auth? | `X-User-Id` header stub, alongside `X-Attendee-Id` |
 | D13 | Which sections can a clarification request tag? | SCRUM-11 only gives examples (attendance, layout, equipment). Assumed seven, grouping the US1 fields: `details`, `schedule`, `attendance`, `layout`, `accessibility`, `equipment`, `registration`. One list in `CLARIFICATION_SECTIONS`, mirrored by the migration's CHECK |
+| D14 | Which coordinator may ask for clarification? | Any active coordinator. US10 (SCRUM-13) assigns a coordinator to a request; tighten this to the assigned one then |
  
 ### Environment
  
@@ -176,7 +178,7 @@ Each is implemented and defensible; each departs from the contract in §2/§3 an
  
 1. **Wire the Sprint 1 screens** (event list, register, my events, withdraw). Every endpoint exists, and US1 built the plumbing: `api/client.ts` sends an identity header and turns 404/409/422 into structured errors. Swap `useEventRegistry`'s functions for `apiClient` calls, send `X-Attendee-Id` (the seed prints an attendee id), handle the §3 codes (`EVENT_FULL`, `ALREADY_REGISTERED`, `REGISTRATION_CLOSED`, `MISSING_REQUIRED_FIELD`), and add loading/error states. **No Jira ticket yet — create one.** Do it **before US6's frontend**: the join-waitlist prompt hangs off the register screen's real `EVENT_FULL` response.
 2. **US6 (SCRUM-10).** Backend mostly exists from Sprint 1. Still missing: honour `waitlist_enabled` (column added in SCRUM-40, default `false` — the seed's waitlist events may need it set to `true`), and **an accept-offer endpoint** (offers can only be declined or expire today). Settle D3/D6/D7.
-3. **US8 (SCRUM-11) and US10 (SCRUM-13)** build on the US1 request: statuses, `users`/roles and `X-User-Id` exist. The seed has a **coordinator** since SCRUM-54; US10 still needs to seed an **operations manager**. US8's storage exists (§2 `event_request_clarifications`): SCRUM-53's endpoint should lock the event, guard the status, call `clarification_service.add_request`, set `awaiting_clarification` and commit once — `add_request` deliberately doesn't commit or check status. SCRUM-77 adds the reply as a `response` row for the same round. Nothing yet moves a request to `under_review` or `approved` — agree who does. US10 moving an event to `planning` will hide it from staff under D11; widen that rule in US10 if the coordinator needs to keep reading it.
+3. **US8 (SCRUM-11) and US10 (SCRUM-13)** build on the US1 request: statuses, `users`/roles and `X-User-Id` exist. The seed has a **coordinator** since SCRUM-54; US10 still needs to seed an **operations manager**. US8a's backend is done: `POST /api/v1/event-requests/{id}/clarifications` (§3) stores the question and sets `awaiting_clarification` in one transaction (`clarification_service.send_request`). SCRUM-55 hooks the organiser notification into `send_request`; SCRUM-77 adds the reply as a `response` row for the same round and sets `under_review`, which lets the next round through the guard; SCRUM-56 refines what's allowed for later rounds. Nothing yet moves a request to `under_review` or `approved` — agree who does. US10 moving an event to `planning` will hide it from staff under D11; widen that rule in US10 if the coordinator needs to keep reading it.
 4. **One end-to-end test** that registers, views and withdraws against the live backend, once item 1 is done. The E2E job already migrates and seeds.
 5. **Then Supabase Auth** (§9), replacing both header stubs — after the wiring, so a failure can only be in one half. It brings RLS policies with it.
 6. **Smaller, worth doing:** fix the root README (missing `alembic upgrade head`, the frontend `.env` copy, a CI section naming a `ci.yml` that doesn't exist, TODO team list); lock the backend's dependencies; review the Dependabot PRs; make the notification log visible under uvicorn; delete merged branches; turn on branch protection for `main`.
@@ -285,7 +287,7 @@ create table event_request_clarifications (
 alter table event_request_clarifications enable row level security;
 ```
 
-- `clarification_service.add_request` validates, stores sections in D13's order, and numbers the round (`max(round) + 1`). It **doesn't check the event's status or commit**: SCRUM-53's endpoint locks the event, guards the status, calls it and moves the request to `awaiting_clarification` in the same transaction. Whether a new round is allowed (8d) is that guard's job too.
+- `clarification_service.add_request` validates, stores sections in D13's order, and numbers the round (`max(round) + 1`). It **doesn't check the event's status or commit**: `send_request` (SCRUM-53) locks the event, guards the status, calls it and moves the request to `awaiting_clarification` in the same transaction. Whether a new round is allowed (8d) is that guard's job too.
 - `clarification_service.list_thread` returns the thread oldest round first, each question before its reply (SCRUM-58).
 - Downgrade refuses if any message exists.
 
@@ -492,6 +494,21 @@ Mandatory at submit: `name`, `event_category`, `purpose`, `preferred_dates` (≥
 
 Submit and edit lock the row (`SELECT … FOR UPDATE`), so two simultaneous submits can't both succeed or burn two references.
 
+### `POST /api/v1/event-requests/{id}/clarifications` — SCRUM-53 (US8a)
+
+Role `coordinator` only (D14). Body: `{"sections": ["attendance", "layout"], "comment": "..."}` — sections from D13. Logic: `clarification_service.send_request`, which locks the request row.
+
+| Outcome | Status | Body |
+|---|---|---|
+| Sent | `201` | `{"clarification": {"id", "event_id", "round", "kind": "request", "sections", "comment", "author_user_id", "created_at"}, "status": "awaiting_clarification"}` |
+| No sections / blank comment | `422` | `{"code": "MISSING_REQUIRED_FIELD", "fields": [...]}` |
+| Unknown or repeated section | `422` | `{"code": "INVALID_CLARIFICATION", "fields": ["sections"], "sections": [...]}` |
+| Request not `submitted` or `under_review` | `409` | `{"code": "CLARIFICATION_NOT_ALLOWED", "status": "<current>"}` (deviation 12) |
+| Draft, an event past the request stage, or unknown id | `404` | `{"code": "NOT_FOUND"}` |
+| Missing/unknown identity; wrong role or inactive | `401` / `403` | `UNAUTHENTICATED` / `FORBIDDEN` |
+
+Nothing is stored and the status doesn't change on any error.
+
 ---
 
 ## 4. Test cases
@@ -587,11 +604,11 @@ Backend: `tests/event/test_event_requests.py` (01–15), `tests/event/test_event
 
 The E2E test drives the browser: save a draft → submit with a field missing → see it flagged → complete it (leaving a date unadded in the picker) → submit → see the reference.
 
-### SCRUM-11 / US8a — Send a clarification request (storage, SCRUM-54)
+### SCRUM-11 / US8a — Send a clarification request
 
 > *As an Event Coordinator, I want to send a clarification request back to the Event Organiser on specific parts of their submission, so that ambiguous requirements are called out before planning proceeds.*
 
-Backend: `tests/event/test_event_request_clarifications.py`. These cover storage only; SCRUM-53 adds the endpoint, status guard and transition (AC 2, 3) and should continue the TC-US8 numbering.
+Backend: `tests/event/test_event_request_clarifications.py` (01–08, storage, SCRUM-54) and `tests/event/test_event_request_clarification_api.py` (09–14, endpoint, SCRUM-53).
 
 | ID | Given | When | Then |
 |---|---|---|---|
@@ -603,6 +620,12 @@ Backend: `tests/event/test_event_request_clarifications.py`. These cover storage
 | TC-US8-06 | Round 1 question + reply, round 2 question | List the thread | Ordered by round, question before reply |
 | TC-US8-07 | — | Insert directly with no/unknown sections, blank comment, a reply with sections, or a second question in a round | Database rejects each |
 | TC-US8-08 | — | Run the seed | An active `coordinator` user exists |
+| TC-US8-09 | `submitted` or `under_review` request | Coordinator sends | `201`, round 1, status `awaiting_clarification` (AC 2, 3) |
+| TC-US8-10 | Clarification sent | Owner reads the request | Status `awaiting_clarification`; one message stored |
+| TC-US8-11 | `awaiting_clarification`, `approved` or `rejected` request | Coordinator sends | `409 CLARIFICATION_NOT_ALLOWED`; status unchanged, nothing stored (AC 2) |
+| TC-US8-12 | Draft, confirmed event, unknown id | Coordinator sends | `404 NOT_FOUND` |
+| TC-US8-13 | No identity, organiser, ops manager, attendee, inactive coordinator | Send | `401`, then `403` for each; status unchanged |
+| TC-US8-14 | Submitted request | Send with missing or unknown sections | `422`; status stays `submitted`, nothing stored |
 
 ### Cross-cutting
  
@@ -671,7 +694,7 @@ Access and identity (TC-US1-13, 14, 15) span SCRUM-41–44.
 | Subtask | Work | Done when | PR |
 |---|---|---|---|
 | SCRUM-54 | Thread table, `clarification_service`, seeded coordinator | TC-US8-01 to 08; one Alembic head | #34 |
-| SCRUM-53 | Endpoint + guard + Submitted/Under Review → Awaiting Clarification | AC 2, 3 | |
+| SCRUM-53 | Endpoint + guard + Submitted/Under Review → Awaiting Clarification | TC-US8-09 to 14 (AC 2, 3) | |
 | SCRUM-57 | Coordinator section selector + comment UI | | |
 
 **Build order** (dependencies are real — SCRUM-23 and SCRUM-24 unblock everything):
