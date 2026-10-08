@@ -694,7 +694,7 @@ Access and identity (TC-US1-13, 14, 15) span SCRUM-41–44.
 | Subtask | Work | Done when | PR |
 |---|---|---|---|
 | SCRUM-54 | Thread table, `clarification_service`, seeded coordinator | TC-US8-01 to 08; one Alembic head | #34 |
-| SCRUM-53 | Endpoint + guard + Submitted/Under Review → Awaiting Clarification | TC-US8-09 to 14 (AC 2, 3) | |
+| SCRUM-53 | Endpoint + guard + Submitted/Under Review → Awaiting Clarification | TC-US8-09 to 14 (AC 2, 3) | #35 |
 | SCRUM-57 | Coordinator section selector + comment UI | | |
 
 **Build order** (dependencies are real — SCRUM-23 and SCRUM-24 unblock everything):
