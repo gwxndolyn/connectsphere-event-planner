@@ -63,6 +63,7 @@ ATTENDEES = [
     "sofia.lim.2024@smu.edu.sg",
 ]
 EVENT_ORGANISER_EMAIL = "event.organiser@smu.edu.sg"
+EVENT_COORDINATOR_EMAIL = "event.coordinator@smu.edu.sg"
 
 EVENTS = [
     EventSpec(
@@ -173,6 +174,25 @@ def upsert_event_organiser(db: Session) -> User:
     return organiser
 
 
+def upsert_event_coordinator(db: Session) -> User:
+    """US8 reviews requests as a coordinator; the organiser can't stand in for one."""
+    coordinator_id = seed_id("user", "event-coordinator")
+    coordinator = db.get(User, coordinator_id)
+    if coordinator is None:
+        coordinator = User(
+            id=coordinator_id,
+            email=EVENT_COORDINATOR_EMAIL,
+            role=UserRole.COORDINATOR,
+            is_active=True,
+        )
+        db.add(coordinator)
+    else:
+        coordinator.email = EVENT_COORDINATOR_EMAIL
+        coordinator.role = UserRole.COORDINATOR
+        coordinator.is_active = True
+    return coordinator
+
+
 def upsert_event(db: Session, spec: EventSpec, now: datetime) -> Event:
     event_id = seed_id("event", spec.slug)
     start_at = now + spec.starts_in
@@ -234,6 +254,7 @@ def upsert_registration(
 def seed(db: Session, now: datetime | None = None) -> None:
     now = now or datetime.now(UTC)
     upsert_event_organiser(db)
+    upsert_event_coordinator(db)
     attendees = {email: upsert_attendee(db, email) for email in ATTENDEES}
     db.flush()
 
@@ -270,6 +291,8 @@ def main() -> int:
         print(f"\nX-Attendee-Id for {calvin.email}:\n  {calvin.id}\n")
         organiser = db.get(User, seed_id("user", "event-organiser"))
         print(f"VITE_DEV_USER_ID for {organiser.email}:\n  {organiser.id}\n")
+        coordinator = db.get(User, seed_id("user", "event-coordinator"))
+        print(f"X-User-Id for {coordinator.email}:\n  {coordinator.id}\n")
         print("Registrations you can withdraw:")
         mine = db.scalars(select(Registration).where(Registration.attendee_id == calvin.id))
         for registration in mine:

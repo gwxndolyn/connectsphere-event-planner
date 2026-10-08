@@ -42,6 +42,24 @@ class DeliveryMode(enum.StrEnum):
     ONLINE = "online"
 
 
+class ClarificationKind(enum.StrEnum):
+    REQUEST = "request"  # a coordinator's question, tagged with sections
+    RESPONSE = "response"  # the organiser's reply to that round
+
+
+# DECISION-PENDING: D13 — SCRUM-11 names only examples (attendance, layout, equipment); these
+# group the US1 request fields. The migration's CHECK constraint holds the same list.
+CLARIFICATION_SECTIONS = (
+    "details",  # name, event_category, purpose
+    "schedule",  # preferred_dates, preferred_start_time, preferred_end_time
+    "attendance",  # expected_attendees
+    "layout",  # room_layout_preference
+    "accessibility",  # accessibility_needs
+    "equipment",  # equipment_needs
+    "registration",  # registration_required
+)
+
+
 class Event(Base):
     """Placeholder for Epic 1 output. Seeded only in Sprint 1 (SCRUM-23); no write paths."""
 
@@ -120,3 +138,25 @@ class EventRegistrationField(Base):
     options: Mapped[list[str] | None] = mapped_column(JSONB)
     required: Mapped[bool] = mapped_column(server_default=text("true"))
     sort_order: Mapped[int] = mapped_column(Integer, server_default=text("0"))
+
+
+class EventRequestClarification(Base):
+    """One message in an event request's clarification thread (US8, SCRUM-54). Round n holds the
+    coordinator's question and, once answered (SCRUM-77), the organiser's reply. The table's
+    CHECK constraints are the source of truth; the class mirrors them for readers."""
+
+    __tablename__ = "event_request_clarifications"
+    __table_args__ = (
+        UniqueConstraint("event_id", "round", "kind", name="event_request_clarifications_round_kind_key"),
+        CheckConstraint("round >= 1", name="event_request_clarifications_round_positive"),
+        CheckConstraint("btrim(comment) <> ''", name="event_request_clarifications_comment_not_blank"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, server_default=text("gen_random_uuid()"))
+    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id"))
+    round: Mapped[int] = mapped_column(Integer)
+    kind: Mapped[ClarificationKind] = mapped_column(pg_enum(ClarificationKind, "clarification_kind"))
+    sections: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
+    comment: Mapped[str] = mapped_column(Text)
+    author_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
