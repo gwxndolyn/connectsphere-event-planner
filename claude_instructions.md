@@ -677,6 +677,7 @@ Say so and stop if the work drifts into any of these:
 - **Errors:** every 4xx returns a machine-readable `code`, exactly as spelled in §3. The mockup keys off `code`, not off message text.
 - **Migrations:** every schema change is a migration file in the repo. No changes made only in the Supabase dashboard.
 - **Branches and PRs:** one branch per PR, named `feat(SCRUM-<n>)Title-Case-Words` (ranges allowed: `feat(SCRUM-41-44)…`), started from an up-to-date `main`. Commits and PR titles: `feat(SCRUM-<n>): lowercase summary` — CI checks the PR title's type prefix, not the branch name. Every PR is reviewed before merge.
+- **Keep this file current:** every PR updates this document for what it changed (status row, rules, schema/API, deviations) before it merges, so everyone's Claude matches `main` after a pull.
 ---
  
 ## 9. Supabase Auth — plan for a later sprint

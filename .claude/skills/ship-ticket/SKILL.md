@@ -71,22 +71,24 @@ Restate your understanding in a line or two before proceeding.
 
 ## Phase 2 — Create the branch
 
-Branch names are **not** CI-enforced and history is inconsistent. Normalize to
-this clean canonical form:
+Branch names are **not** CI-enforced, but the team convention (spec §8 in
+`claude_instructions.md`, and recent history) is:
 
 ```text
-<type>/<TICKET-KEY>-<kebab-summary>
+<type>(SCRUM-<n>)Title-Case-Words
 ```
 
-e.g. `feat/SCRUM-42-rsvp-endpoint`, `fix/SCRUM-7-waitlist-offer-expiry`.
+e.g. `feat(SCRUM-45-47)Submit-Event-Request-Form`,
+`fix(SCRUM-12)Handle-Null-Event-Date`. Ticket ranges are allowed
+(`SCRUM-41-44`). No space or colon after the `)`.
 
 ```bash
 git switch main
 git pull --ff-only            # if this fails, stop and report
-git switch -c feat/SCRUM-42-rsvp-endpoint
+git switch -c "feat(SCRUM-42)Rsvp-Endpoint"   # quote it: parentheses are shell syntax
 ```
 
-- Slug: lowercase, hyphenated, concise.
+- Summary: Title-Case words joined by hyphens, concise.
 - If the branch exists, ask whether to reuse it or rename.
 
 ## Phase 3 — Implement
@@ -149,11 +151,28 @@ fix(SCRUM-7): expire waitlist offer after deadline
 - Imperative mood, no trailing period in the subject.
 - Multiple commits are fine; each must independently follow the convention.
 
+## Phase 5b — Update `claude_instructions.md` (required, same PR)
+
+Team rule: every PR updates `claude_instructions.md` for what it changed, so
+everyone's Claude is aligned after they pull `main`. Edit only what this change
+makes stale or adds, e.g.:
+
+- §1a "Where things stand": the story's row (backend / screens / test counts).
+- §1a rules, troubleshooting or setup steps the change introduces.
+- §2 / §3 if the schema or an API contract changed; any deviation goes under
+  "Deviations awaiting a decision" with its `DECISION-PENDING` id.
+- §5 test mapping if new test IDs were added.
+
+Don't copy Jira ticket state or a changelog into it (§1a explains why). Commit it
+as its own commit, e.g. `docs(SCRUM-42): update spec for rsvp endpoint`. If the
+change truly affects nothing documented, say so at the Phase 6 gate.
+
 ## Phase 6 — Confirm before pushing  ⚠️ REQUIRED GATE
 
 Show the user and get explicit approval:
 
-- branch name, commit list, proposed PR title + body, and a test-results summary.
+- branch name, commit list, proposed PR title + body, a test-results summary,
+  and what changed in `claude_instructions.md` (or why nothing did).
 
 Only continue once the user approves.
 
@@ -181,6 +200,8 @@ gh pr create --base main --title "<PR title>" --body "<body>"
 
 - Never push or open a PR without the Phase 6 confirmation.
 - Never commit directly to `main`; keep the change on its own branch.
+- Never open a PR that leaves `claude_instructions.md` describing the old
+  behavior.
 - Never fabricate test results; if a suite couldn't run, say so and why.
 - If files can't be read (OneDrive dataless), stop and ask the user to hydrate
   them rather than guessing conventions.
