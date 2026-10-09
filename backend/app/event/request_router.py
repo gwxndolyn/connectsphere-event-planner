@@ -7,7 +7,12 @@ from sqlalchemy.orm import Session
 
 from app.core.clock import get_now
 from app.core.database import get_db
-from app.event.clarification_schemas import ClarificationRequestWrite, ClarificationSentOut
+from app.event.clarification_schemas import (
+    ClarificationRequestWrite,
+    ClarificationResponseWrite,
+    ClarificationSentOut,
+    ClarificationThreadOut,
+)
 from app.event.clarification_service import clarification_service
 from app.event.request_schemas import EventRequestOut, EventRequestWrite, EventRequestsOut
 from app.event.request_service import event_request_service
@@ -84,3 +89,23 @@ def send_clarification(
     now: datetime = Depends(get_now),
 ) -> ClarificationSentOut:
     return clarification_service.send_request(db, request_id, coordinator, body, now)
+
+
+@router.get("/{request_id}/clarifications", response_model=ClarificationThreadOut)
+def read_clarification_thread(
+    request_id: uuid.UUID,
+    reader: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ClarificationThreadOut:
+    return ClarificationThreadOut(clarifications=clarification_service.read_thread(db, request_id, reader))
+
+
+@router.post("/{request_id}/clarifications/response", status_code=201, response_model=ClarificationSentOut)
+def respond_to_clarification(
+    request_id: uuid.UUID,
+    body: ClarificationResponseWrite,
+    organiser: Organiser,
+    db: Session = Depends(get_db),
+    now: datetime = Depends(get_now),
+) -> ClarificationSentOut:
+    return clarification_service.send_response(db, request_id, organiser, body, now)
