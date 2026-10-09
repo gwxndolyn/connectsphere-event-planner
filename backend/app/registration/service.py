@@ -19,6 +19,7 @@ from app.registration.models import (
 )
 from app.registration.schemas import (
     EventConfirmationOut,
+    MyOfferedRegistrationOut,
     MyRegistrationOut,
     MyRegistrationsResponse,
     MyWaitlistedRegistrationOut,
@@ -124,6 +125,7 @@ class RegistrationService:
                 email=next_in_line.attendee_email,
                 event_name=event.name,
                 expires_at=next_in_line.offer_expires_at,
+                registration_id=next_in_line.id,
             )
         except Exception:
             # The withdrawal and the offer still stand; only the message failed (TC-US7-15).
@@ -208,6 +210,46 @@ class RegistrationService:
             notifier,
             attendee=attendee,
         )
+
+    def accept_offer(
+        self, db: Session, registration_id: uuid.UUID, attendee: Attendee, now: datetime
+    ) -> RegisterResponse:
+        """The offer holder takes up the seat (SCRUM-51, US6b AC 2): offered → confirmed.
+        Anyone not holding a live offer is refused and keeps their status (AC 3)."""
+        registration = db.get(Registration, registration_id)
+        # Email-only waitlist entries (D3) have no attendee to match, so they 404 here too.
+        if registration is None or registration.attendee_id != attendee.id:
+            raise DomainError(404, "NOT_FOUND")
+
+        event = db.scalars(select(Event).where(Event.id == registration.event_id).with_for_update()).one()
+        db.refresh(registration, with_for_update=True)
+
+        if registration.status != RegistrationStatus.OFFERED:
+            raise DomainError(409, "NO_ACTIVE_OFFER")
+        # A lapsed offer no longer holds its seat (seats_remaining ignores it), so someone else
+        # may already have it. Refuse rather than overbook; the expiry sweep (D2) cleans it up.
+        if registration.offer_expires_at is None or registration.offer_expires_at <= now:
+            raise DomainError(409, "OFFER_EXPIRED")
+        if now >= event.start_at:
+            raise DomainError(403, "EVENT_STARTED")
+
+        registration.status = RegistrationStatus.CONFIRMED
+        registration.offer_expires_at = None
+        registration.updated_at = now
+        db.add(
+            AttendanceLog(
+                registration_id=registration.id,
+                event_id=event.id,
+                attendee_id=attendee.id,
+                action="registered",
+                occurred_at=now,
+                note="accepted waitlist offer",
+            )
+        )
+        db.flush()
+        response = self._confirmation(registration, event)
+        db.commit()
+        return response
 
     def withdraw(
         self,
@@ -346,6 +388,9 @@ class RegistrationService:
         )
         db.commit()
 
+        return self._confirmation(registration, event)
+
+    def _confirmation(self, registration: Registration, event: Event) -> RegisterResponse:
         return RegisterResponse(
             registration_id=registration.id,
             status=registration.status,
@@ -442,16 +487,23 @@ class RegistrationService:
         by start, alphabetical tiebreak). TC-US11-01 … 11.
 
         Filtered on `end_at`, not `start_at` (TC-US11-09) — an in-progress event still shows.
-        Only `confirmed` and `waitlisted` rows: `offered`/`withdrawn`/`declined`/`expired` aren't
-        "registered for" in the AC's sense, and withdrawing already drops a row from here for
-        free (TC-US11-08) since `withdrawn` isn't in that set.
+        `withdrawn`/`declined`/`expired` rows never show, so withdrawing drops a row from here for
+        free (TC-US11-08). A live offer gets its own `offered` section (SCRUM-50): it's the
+        on-screen notice that a place is waiting (D5), and the attendee accepts from there.
         """
         rows = db.execute(
             select(Registration, Event)
             .join(Event, Event.id == Registration.event_id)
             .where(
                 Registration.attendee_id == attendee.id,
-                Registration.status.in_((RegistrationStatus.CONFIRMED, RegistrationStatus.WAITLISTED)),
+                or_(
+                    Registration.status.in_((RegistrationStatus.CONFIRMED, RegistrationStatus.WAITLISTED)),
+                    # A lapsed offer can't be accepted (OFFER_EXPIRED), so it isn't offered any more.
+                    and_(
+                        Registration.status == RegistrationStatus.OFFERED,
+                        Registration.offer_expires_at > now,
+                    ),
+                ),
                 Event.end_at > now,
             )
             .order_by(Event.start_at, Event.name)
@@ -459,17 +511,20 @@ class RegistrationService:
 
         confirmed: list[MyRegistrationOut] = []
         waitlisted: list[MyWaitlistedRegistrationOut] = []
+        offered: list[MyOfferedRegistrationOut] = []
         for registration, event in rows:
             fields = self._my_registration_fields(registration, event)
             if registration.status == RegistrationStatus.CONFIRMED:
                 confirmed.append(MyRegistrationOut(**fields))
+            elif registration.status == RegistrationStatus.OFFERED:
+                offered.append(MyOfferedRegistrationOut(**fields, offer_expires_at=registration.offer_expires_at))
             else:
                 waitlisted.append(
                     MyWaitlistedRegistrationOut(
                         **fields, waitlist_position=self.waitlist_position(db, registration)
                     )
                 )
-        return MyRegistrationsResponse(confirmed=confirmed, waitlisted=waitlisted)
+        return MyRegistrationsResponse(confirmed=confirmed, waitlisted=waitlisted, offered=offered)
 
 
 registration_service = RegistrationService()

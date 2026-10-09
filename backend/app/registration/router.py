@@ -93,3 +93,14 @@ def decline_offer(
     """Not in §3's endpoint list, but TC-US7-11 requires declining as a distinct action
     from letting the window lapse."""
     return registration_service.decline_offer(db, registration_id, attendee, now, notifier)
+
+
+@router.post("/{registration_id}/accept")
+def accept_offer(
+    registration_id: uuid.UUID,
+    attendee: Attendee = Depends(get_current_attendee),
+    db: Session = Depends(get_db),
+    now: datetime = Depends(get_now),
+) -> RegisterResponse:
+    """US6b AC 2: the attendee holding an offer takes up the seat."""
+    return registration_service.accept_offer(db, registration_id, attendee, now)

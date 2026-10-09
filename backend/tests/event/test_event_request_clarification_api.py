@@ -189,7 +189,7 @@ async def test_tc_us8_16_review_queue_is_staff_only(
     assert (await client.get("/api/v1/event-requests")).status_code == 401
 
 
-async def test_tc_us8_17_sent_clarification_notifies_organiser_with_request_details(
+async def test_tc_us8_25_sent_clarification_notifies_organiser_with_request_details(
     client: AsyncClient,
     db: Session,
     organiser: User,
@@ -222,7 +222,7 @@ async def test_tc_us8_17_sent_clarification_notifies_organiser_with_request_deta
 @pytest.mark.parametrize(
     "status", [EventStatus.AWAITING_CLARIFICATION, EventStatus.APPROVED, EventStatus.REJECTED]
 )
-async def test_tc_us8_18_blocked_clarification_does_not_notify(
+async def test_tc_us8_26_blocked_clarification_does_not_notify(
     client: AsyncClient,
     db: Session,
     organiser: User,
@@ -238,7 +238,7 @@ async def test_tc_us8_18_blocked_clarification_does_not_notify(
     assert notifier.clarifications == []
 
 
-async def test_tc_us8_19_missing_request_does_not_notify(
+async def test_tc_us8_27_missing_request_does_not_notify(
     client: AsyncClient,
     db: Session,
     organiser: User,
@@ -255,7 +255,7 @@ async def test_tc_us8_19_missing_request_does_not_notify(
     assert notifier.clarifications == []
 
 
-async def test_tc_us8_20_invalid_clarification_does_not_notify(
+async def test_tc_us8_28_invalid_clarification_does_not_notify(
     client: AsyncClient,
     db: Session,
     organiser: User,
@@ -270,7 +270,7 @@ async def test_tc_us8_20_invalid_clarification_does_not_notify(
     assert notifier.clarifications == []
 
 
-async def test_tc_us8_21_notifier_failure_does_not_undo_clarification(
+async def test_tc_us8_29_notifier_failure_does_not_undo_clarification(
     client: AsyncClient,
     db: Session,
     organiser: User,
@@ -294,7 +294,7 @@ async def test_tc_us8_21_notifier_failure_does_not_undo_clarification(
 
 
 @pytest.mark.parametrize("missing_recipient", ["owner", "email"])
-async def test_tc_us8_22_missing_organiser_recipient_skips_notification_with_warning(
+async def test_tc_us8_30_missing_organiser_recipient_skips_notification_with_warning(
     client: AsyncClient,
     db: Session,
     organiser: User,

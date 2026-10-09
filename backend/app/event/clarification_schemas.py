@@ -15,6 +15,12 @@ class ClarificationRequestWrite(BaseModel):
     comment: str = ""
 
 
+class ClarificationResponseWrite(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    comment: str = ""
+
+
 class ClarificationOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -34,4 +40,5 @@ class ClarificationThreadOut(BaseModel):
 
 class ClarificationSentOut(BaseModel):
     clarification: ClarificationOut
-    status: EventStatus  # the request's new status: awaiting_clarification
+    # The request's new status: awaiting_clarification after a question, under_review after a reply.
+    status: EventStatus
