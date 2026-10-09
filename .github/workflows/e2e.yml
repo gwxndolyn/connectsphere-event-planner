@@ -33,7 +33,7 @@ jobs:
       VITE_DEV_COORDINATOR_ID: 2aac679a-f014-5437-b43a-d150447a6336
       VITE_DEV_ATTENDEE_ID: 83565d3f-e757-5c0e-8c6e-8dadb298ce18
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
