@@ -318,3 +318,68 @@ async def test_tc_us8_30_missing_organiser_recipient_skips_notification_with_war
     assert len(stored(db, event)) == 1
     assert notifier.clarifications == []
     assert "could not notify organiser" in caplog.text
+
+
+def assert_refused_without_side_effects(
+    db: Session, event: Event, status: EventStatus, rows_before: list, notified_before: list, notifier: FakeNotifier
+) -> None:
+    db.refresh(event)
+    assert event.status == status
+    assert [row.id for row in stored(db, event)] == [row.id for row in rows_before]
+    assert notifier.clarifications == notified_before
+
+
+async def test_tc_us8_33_open_round_blocks_another_question(
+    client: AsyncClient, db: Session, organiser: User, coordinator: User, notifier: FakeNotifier
+) -> None:
+    event = make_request(db, organiser)
+    event.request_reference = "ER-2026-000056"
+    assert (await send(client, coordinator, event.id)).status_code == 201
+    rows_before, notified_before = stored(db, event), list(notifier.clarifications)
+
+    response = await send(client, coordinator, event.id)
+
+    assert response.status_code == 409
+    assert response.json() == {"code": "CLARIFICATION_NOT_ALLOWED", "status": "awaiting_clarification"}
+    assert_refused_without_side_effects(
+        db, event, EventStatus.AWAITING_CLARIFICATION, rows_before, notified_before, notifier
+    )
+
+
+@pytest.mark.parametrize("status", [EventStatus.APPROVED, EventStatus.REJECTED])
+async def test_tc_us8_34_decided_requests_refuse_clarification(
+    client: AsyncClient,
+    db: Session,
+    organiser: User,
+    coordinator: User,
+    notifier: FakeNotifier,
+    status: EventStatus,
+) -> None:
+    event = make_request(db, organiser, status)
+    rows_before, notified_before = stored(db, event), list(notifier.clarifications)
+
+    response = await send(client, coordinator, event.id)
+
+    assert response.status_code == 409
+    assert response.json() == {"code": "CLARIFICATION_NOT_ALLOWED", "status": status.value}
+    assert_refused_without_side_effects(db, event, status, rows_before, notified_before, notifier)
+
+
+@pytest.mark.parametrize(
+    "status", [EventStatus.PLANNING, EventStatus.CONFIRMED, EventStatus.CANCELLED, EventStatus.COMPLETED]
+)
+async def test_tc_us8_35_past_request_stage_is_not_found(
+    client: AsyncClient,
+    db: Session,
+    coordinator: User,
+    notifier: FakeNotifier,
+    status: EventStatus,
+) -> None:
+    event = make_event(db, status=status)
+    rows_before, notified_before = stored(db, event), list(notifier.clarifications)
+
+    response = await send(client, coordinator, event.id)
+
+    assert response.status_code == 404
+    assert response.json() == {"code": "NOT_FOUND"}
+    assert_refused_without_side_effects(db, event, status, rows_before, notified_before, notifier)

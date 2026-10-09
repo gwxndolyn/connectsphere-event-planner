@@ -25,8 +25,11 @@ from app.user.models import User
 
 logger = logging.getLogger(__name__)
 
-# SCRUM-11 AC 2. Later rounds (8d, SCRUM-56) also start from under_review, once the
-# organiser's reply (SCRUM-77) has moved the request back there.
+# DECISION-PENDING: D15 — SCRUM-11 AC 2 (ask from submitted/under_review) and SCRUM-75 AC 1/2
+# (more rounds, none once decided). A new round is max(round) + 1, with no limit. A request
+# awaiting clarification can't take another question: the organiser's reply answers the latest
+# open round, so a second open question would never get its own answer. Approved and rejected
+# are 409 too; statuses past the request stage are already 404 (D11).
 CLARIFIABLE_STATUSES = (EventStatus.SUBMITTED, EventStatus.UNDER_REVIEW)
 
 
