@@ -71,7 +71,7 @@ async def test_tc_us7_08_the_offered_attendee_is_notified(
 ) -> None:
     event, holders, queue = full_event_with_waitlist(db)
     (leaver, leaver_registration) = holders[0]
-    (first_attendee, _) = queue[0]
+    (first_attendee, first_registration) = queue[0]
 
     await client.post(
         f"/api/v1/registrations/{leaver_registration.id}/withdraw", headers=auth(leaver)
@@ -82,6 +82,8 @@ async def test_tc_us7_08_the_offered_attendee_is_notified(
         "email": first_attendee.email,
         "event_name": event.name,
         "expires_at": NOW + WAITLIST_OFFER_WINDOW,
+        # SCRUM-50: what the attendee accepts with.
+        "registration_id": first_registration.id,
     }
 
 

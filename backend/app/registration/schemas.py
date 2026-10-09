@@ -74,6 +74,15 @@ class MyWaitlistedRegistrationOut(MyRegistrationOut):
     waitlist_position: int
 
 
+class MyOfferedRegistrationOut(MyRegistrationOut):
+    """A place held for this attendee after a withdrawal (US6b). Accept it with
+    `POST /registrations/{registration_id}/accept` before `offer_expires_at`."""
+
+    offer_expires_at: datetime
+
+
 class MyRegistrationsResponse(BaseModel):
     confirmed: list[MyRegistrationOut]
     waitlisted: list[MyWaitlistedRegistrationOut]
+    # Additive in Sprint 2 (SCRUM-50): older clients that read only the two lists above still work.
+    offered: list[MyOfferedRegistrationOut] = []
