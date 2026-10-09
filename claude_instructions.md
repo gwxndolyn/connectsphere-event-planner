@@ -518,7 +518,7 @@ Submit and edit lock the row (`SELECT … FOR UPDATE`), so two simultaneous subm
 
 ### `POST /api/v1/event-requests/{id}/clarifications` — SCRUM-53 (US8a)
 
-Role `coordinator` only (D14). Body: `{"sections": ["attendance", "layout"], "comment": "..."}` — sections from D13. Logic: `clarification_service.send_request`, which locks the request row.
+Role `coordinator` only (D14). Body: `{"sections": ["attendance", "layout"], "comment": "..."}` — sections from D13. Logic: `clarification_service.send_request`, which locks the request row. After the clarification and status commit, the service calls the log-only notifier with the organiser email, request reference, event name, round, sections and comment. A missing owner/email or incomplete request details logs a warning and skips notification; notifier exceptions are logged and never undo the committed clarification.
 
 | Outcome | Status | Body |
 |---|---|---|
@@ -674,6 +674,12 @@ Backend: `tests/event/test_event_request_clarifications.py` (01–08, storage, S
 | TC-US8-22 | Open clarification | Owner sends a blank answer | `422 MISSING_REQUIRED_FIELD`; still `awaiting_clarification` |
 | TC-US8-23 | Answered round | Coordinator asks again | `201`, round 2, `awaiting_clarification` |
 | TC-US8-24 | Open clarification | Other organiser, attendee, no identity read the thread | `404`, `404`, `401` |
+| TC-US8-25 | Eligible submitted/under-review request with an organiser | Coordinator sends | Notifier called once with organiser email, request reference, event name, round, canonical sections and trimmed comment (AC 1, 2) |
+| TC-US8-26 | Request in a blocked status | Coordinator sends; response is `409` | No notification (AC 3) |
+| TC-US8-27 | Draft, past-stage event or unknown id | Coordinator sends; response is `404` | No notification (AC 3) |
+| TC-US8-28 | Submitted request, invalid clarification body | Coordinator sends; response is `422` | No notification (AC 3) |
+| TC-US8-29 | Valid clarification; notifier raises | Coordinator sends | `201`; clarification and `awaiting_clarification` remain committed; exception logged (AC 1, 3) |
+| TC-US8-30 | Valid clarification with no owner or no organiser email | Coordinator sends | `201`; warning logged; no notification; clarification and status remain committed (AC 1, 3) |
 
 The E2E test drives the browser: organiser submits a request → switch to coordinator → open it from the queue → send with nothing chosen and see both inputs flagged → tick Attendance and Room layout, comment, send → see the confirmation → switch back to organiser, see `awaiting clarification`, open the request and see the question → send a blank response and see it flagged → answer → see `under review` → switch to coordinator and see `under review` in the queue (SCRUM-78).
 
@@ -781,6 +787,7 @@ Access and identity (TC-US1-13, 14, 15) span SCRUM-41–44.
 | SCRUM-54 | Thread table, `clarification_service`, seeded coordinator | TC-US8-01 to 08; one Alembic head | #34 |
 | SCRUM-53 | Endpoint + guard + Submitted/Under Review → Awaiting Clarification | TC-US8-09 to 14 (AC 2, 3) | #35 |
 | SCRUM-57 | Coordinator section selector + comment UI, review queue, **Acting as** switch | TC-US8-15, 16; E2E journey | #36 |
+| SCRUM-55 | Log-only organiser clarification notification after commit | TC-US8-25 to 30 (AC 1–3); no migration | — |
 
 **Build order** (dependencies are real — SCRUM-23 and SCRUM-24 unblock everything):
  
@@ -826,6 +833,7 @@ Say so and stop if the work drifts into any of these:
 - Standalone "Join a Waiting List" flow (SCRUM-10, Epic 3 but a later sprint)
 - Supabase Auth / real login — `X-Attendee-Id` stub only
 - Real email delivery — assert on a notification interface, log instead of send
+- Clarification-request notification (SCRUM-55) uses that interface after commit; missing recipient data logs a warning and skips notification, and notifier failures do not undo the clarification
 - A working frontend. **Mockups only.** Do not wire React to FastAPI this sprint. *(Sprint 2: retired — see §1a Rules.)*
 - Payments, check-in, attendance marking, feedback — nowhere in the backlog
 ---

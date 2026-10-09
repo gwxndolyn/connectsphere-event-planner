@@ -16,6 +16,7 @@ from app.event.clarification_schemas import (
 from app.event.clarification_service import clarification_service
 from app.event.request_schemas import EventRequestOut, EventRequestWrite, EventRequestsOut
 from app.event.request_service import event_request_service
+from app.notification.service import Notifier, get_notifier
 from app.user.dependencies import get_current_user, require_user_roles
 from app.user.models import User, UserRole
 
@@ -87,8 +88,9 @@ def send_clarification(
     coordinator: Coordinator,
     db: Session = Depends(get_db),
     now: datetime = Depends(get_now),
+    notifier: Notifier = Depends(get_notifier),
 ) -> ClarificationSentOut:
-    return clarification_service.send_request(db, request_id, coordinator, body, now)
+    return clarification_service.send_request(db, request_id, coordinator, body, now, notifier)
 
 
 @router.get("/{request_id}/clarifications", response_model=ClarificationThreadOut)

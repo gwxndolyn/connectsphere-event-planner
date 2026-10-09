@@ -13,6 +13,17 @@ class Notifier(Protocol):
         self, *, email: str, event_name: str, expires_at: datetime, registration_id: uuid.UUID
     ) -> None: ...
 
+    def clarification_requested(
+        self,
+        *,
+        email: str,
+        request_reference: str,
+        event_name: str,
+        round: int,
+        sections: list[str],
+        comment: str,
+    ) -> None: ...
+
 
 class LoggingNotifier:
     """Sprint 1 stand-in: no mail is sent, the call is logged (spec §7)."""
@@ -27,6 +38,26 @@ class LoggingNotifier:
             event_name,
             expires_at,
             registration_id,
+        )
+
+    def clarification_requested(
+        self,
+        *,
+        email: str,
+        request_reference: str,
+        event_name: str,
+        round: int,
+        sections: list[str],
+        comment: str,
+    ) -> None:
+        logger.info(
+            "clarification requested: %s, %s (%s, round %d), sections %s: %s",
+            email,
+            request_reference,
+            event_name,
+            round,
+            ", ".join(sections),
+            comment,
         )
 
 
