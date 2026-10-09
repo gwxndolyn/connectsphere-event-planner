@@ -813,8 +813,8 @@ Access and identity (TC-US1-13, 14, 15) span SCRUM-41–44.
 
 | Subtask | Work | Done when | PR |
 |---|---|---|---|
-| SCRUM-48 | `waitlist_available` helper (full and `waitlist_enabled`); `EVENT_FULL` uses it; seed enables the bootcamp's waitlist | TC-US6A-01, 02, 09 (AC 1, 2) | |
-| SCRUM-49 | `POST /events/{id}/waitlist` refuses with `WAITLIST_NOT_ENABLED` / `SEATS_AVAILABLE`, takes register's gates (D16), keeps the position confirmation | TC-US6A-03 to 08 (AC 1–3); no migration | |
+| SCRUM-48 | `waitlist_available` helper (full and `waitlist_enabled`); `EVENT_FULL` uses it; seed enables the bootcamp's waitlist | TC-US6A-01, 02, 09 (AC 1, 2) | #43 |
+| SCRUM-49 | `POST /events/{id}/waitlist` refuses with `WAITLIST_NOT_ENABLED` / `SEATS_AVAILABLE`, takes register's gates (D16), keeps the position confirmation | TC-US6A-03 to 08 (AC 1–3); no migration | #43 |
 | SCRUM-52 | Join-waitlist prompt on the register screen | Frontend | |
 
 ### SCRUM-72 (US6b)
@@ -837,7 +837,7 @@ Access and identity (TC-US1-13, 14, 15) span SCRUM-41–44.
 
 | Subtask | Work | Done when | PR |
 |---|---|---|---|
-| SCRUM-56 | Rounds guard pinned as D15: ask again from `under_review` with no limit; 409 while a round is open or once decided; 404 past the request stage | TC-US8-31 to 35 (AC 1–3); no migration, no frontend | |
+| SCRUM-56 | Rounds guard pinned as D15: ask again from `under_review` with no limit; 409 while a round is open or once decided; 404 past the request stage | TC-US8-31 to 35 (AC 1–3); no migration, no frontend | #42 |
 
 ### SCRUM-11 (US8a)
 
@@ -846,7 +846,7 @@ Access and identity (TC-US1-13, 14, 15) span SCRUM-41–44.
 | SCRUM-54 | Thread table, `clarification_service`, seeded coordinator | TC-US8-01 to 08; one Alembic head | #34 |
 | SCRUM-53 | Endpoint + guard + Submitted/Under Review → Awaiting Clarification | TC-US8-09 to 14 (AC 2, 3) | #35 |
 | SCRUM-57 | Coordinator section selector + comment UI, review queue, **Acting as** switch | TC-US8-15, 16; E2E journey | #36 |
-| SCRUM-55 | Log-only organiser clarification notification after commit | TC-US8-25 to 30 (AC 1–3); no migration | — |
+| SCRUM-55 | Log-only organiser clarification notification after commit | TC-US8-25 to 30 (AC 1–3); no migration | #41 |
 
 **Build order** (dependencies are real — SCRUM-23 and SCRUM-24 unblock everything):
  
