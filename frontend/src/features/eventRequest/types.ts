@@ -62,3 +62,7 @@ export interface ClarificationSent {
   clarification: Clarification;
   status: EventRequestStatus;
 }
+
+export interface ClarificationThread {
+  clarifications: Clarification[];
+}

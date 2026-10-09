@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("coordinator sends a clarification request on a submitted event request", async ({ page }) => {
+test("coordinator asks for clarification and the organiser answers it", async ({ page }) => {
   const preferredDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
     .toISOString()
     .slice(0, 10);
@@ -44,8 +44,26 @@ test("coordinator sends a clarification request on a submitted event request", a
   await expect(page.getByRole("list", { name: "Sections sent" })).toContainText("Attendance");
   await expect(page.getByRole("list", { name: "Sections sent" })).toContainText("Room layout");
 
-  // The organiser now sees the new status on their request.
+  // The organiser now sees the new status on their request, opens it and answers (SCRUM-78).
   await page.getByLabel("Acting as").selectOption("organiser");
   await expect(page.getByRole("heading", { name: "My event requests" })).toBeVisible();
-  await expect(page.getByRole("button", { name: new RegExp(eventName) })).toContainText("awaiting clarification");
+  const organiserRow = page.getByRole("button", { name: new RegExp(eventName) });
+  await expect(organiserRow).toContainText("awaiting clarification");
+  await organiserRow.click();
+  await expect(page.getByRole("heading", { name: "Clarification requested" })).toBeVisible();
+  await expect(page.getByText("Is 40 the final headcount, and which layout do you need?")).toBeVisible();
+  await expect(page.getByRole("list", { name: "Sections in question" })).toContainText("Attendance");
+
+  await page.getByRole("button", { name: "Send response" }).click();
+  await expect(page.getByRole("alert")).toContainText("Write a response");
+  await expect(page.getByLabel("Your response")).toHaveAttribute("aria-invalid", "true");
+
+  await page.getByLabel("Your response").fill("Yes, 40 including speakers, in rows facing the stage.");
+  await page.getByRole("button", { name: "Send response" }).click();
+  await expect(page.getByRole("heading", { level: 2, name: "Response sent" })).toBeVisible();
+  await expect(page.getByText("under review")).toBeVisible();
+
+  // Back with the coordinator, the request is under review again (8c AC 2).
+  await page.getByLabel("Acting as").selectOption("coordinator");
+  await expect(page.getByRole("button", { name: new RegExp(eventName) })).toContainText("under review");
 });

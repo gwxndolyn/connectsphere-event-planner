@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { ApiError, apiClient } from "../../api/client";
+import { SECTIONS, displayValue, sectionLabel, statusLabel } from "./clarificationSections";
 import type {
   ClarificationSection,
   ClarificationSent,
@@ -10,48 +11,8 @@ import "./eventRequests.css";
 import "./clarifications.css";
 
 type Screen = "queue" | "review" | "sent";
-type DisplayedField = [keyof EventRequest, string];
-
-// Same order as the backend's CLARIFICATION_SECTIONS (D13); each groups the US1 fields it covers.
-const SECTIONS: { key: ClarificationSection; label: string; fields: DisplayedField[] }[] = [
-  {
-    key: "details",
-    label: "Event details",
-    fields: [
-      ["name", "Event name"],
-      ["event_category", "Event category"],
-      ["purpose", "Purpose / description"],
-    ],
-  },
-  {
-    key: "schedule",
-    label: "Schedule",
-    fields: [
-      ["preferred_dates", "Preferred dates"],
-      ["preferred_start_time", "Start time"],
-      ["preferred_end_time", "End time"],
-    ],
-  },
-  { key: "attendance", label: "Attendance", fields: [["expected_attendees", "Expected attendees"]] },
-  { key: "layout", label: "Room layout", fields: [["room_layout_preference", "Room layout preference"]] },
-  { key: "accessibility", label: "Accessibility", fields: [["accessibility_needs", "Accessibility needs"]] },
-  { key: "equipment", label: "Equipment", fields: [["equipment_needs", "Equipment needs"]] },
-  { key: "registration", label: "Registration", fields: [["registration_required", "Attendee registration"]] },
-];
-
 // SCRUM-11 AC 2: the backend refuses other statuses with CLARIFICATION_NOT_ALLOWED.
 const CLARIFIABLE_STATUSES = new Set(["submitted", "under_review"]);
-
-function displayValue(value: EventRequest[keyof EventRequest]): string {
-  if (value === null || value === "" || (Array.isArray(value) && value.length === 0)) return "Not provided";
-  if (Array.isArray(value)) return value.join(", ");
-  if (typeof value === "boolean") return value ? "Required" : "Not required";
-  return String(value);
-}
-
-function statusLabel(status: string): string {
-  return status.replaceAll("_", " ");
-}
 
 function errorMessage(error: unknown): string {
   if (!(error instanceof ApiError)) return "The request could not be completed. Check the backend connection and try again.";
@@ -273,7 +234,7 @@ export function ClarificationReviewPage() {
           </p>
           <ul className="clarify-sent-sections" aria-label="Sections sent">
             {(sent.clarification.sections ?? []).map((key) => (
-              <li key={key}>{SECTIONS.find((section) => section.key === key)?.label ?? key}</li>
+              <li key={key}>{sectionLabel(key)}</li>
             ))}
           </ul>
           <button className="request-button request-button--primary" type="button" onClick={backToQueue}>
