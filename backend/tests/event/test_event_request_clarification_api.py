@@ -157,3 +157,31 @@ async def test_tc_us8_14_invalid_body_leaves_the_request_unchanged(
     db.refresh(event)
     assert event.status == EventStatus.SUBMITTED
     assert stored(db, event) == []
+
+
+async def test_tc_us8_15_review_queue_lists_submitted_requests_oldest_first(
+    client: AsyncClient, db: Session, organiser: User, coordinator: User
+) -> None:
+    newer = make_request(db, organiser, EventStatus.UNDER_REVIEW)
+    older = make_request(db, organiser, EventStatus.AWAITING_CLARIFICATION)
+    older.submitted_at = NOW - timedelta(days=3)
+    hidden = [make_request(db, organiser, EventStatus.DRAFT), make_event(db)]
+    db.flush()
+
+    response = await client.get("/api/v1/event-requests", headers=auth(coordinator))
+
+    assert response.status_code == 200
+    ids = [request["id"] for request in response.json()["event_requests"]]
+    assert ids.index(str(older.id)) < ids.index(str(newer.id))
+    assert not {str(event.id) for event in hidden} & set(ids)
+
+
+async def test_tc_us8_16_review_queue_is_staff_only(
+    client: AsyncClient, db: Session, organiser: User, coordinator: User
+) -> None:
+    operations_manager = make_user(db, UserRole.OPERATIONS_MANAGER)
+
+    assert (await client.get("/api/v1/event-requests", headers=auth(coordinator))).status_code == 200
+    assert (await client.get("/api/v1/event-requests", headers=auth(operations_manager))).status_code == 200
+    assert (await client.get("/api/v1/event-requests", headers=auth(organiser))).status_code == 403
+    assert (await client.get("/api/v1/event-requests")).status_code == 401

@@ -37,3 +37,28 @@ export interface EventRequest extends EventRequestWrite {
 export interface EventRequestsResponse {
   event_requests: EventRequest[];
 }
+// Mirrors CLARIFICATION_SECTIONS in the backend (D13).
+export type ClarificationSection =
+  | "details"
+  | "schedule"
+  | "attendance"
+  | "layout"
+  | "accessibility"
+  | "equipment"
+  | "registration";
+
+export interface Clarification {
+  id: string;
+  event_id: string;
+  round: number;
+  kind: "request" | "response";
+  sections: ClarificationSection[] | null;
+  comment: string;
+  author_user_id: string;
+  created_at: string;
+}
+
+export interface ClarificationSent {
+  clarification: Clarification;
+  status: EventRequestStatus;
+}

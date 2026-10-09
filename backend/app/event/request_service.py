@@ -61,6 +61,16 @@ class EventRequestService:
         ).all()
         return [EventRequestOut.model_validate(event) for event in events]
 
+    def list_for_review(self, db: Session) -> list[EventRequestOut]:
+        """Staff review queue: every submitted request still at the request stage (D11),
+        oldest submission first so nothing waits behind newer work."""
+        events = db.scalars(
+            select(Event)
+            .where(Event.status.in_(SUBMITTED_REQUEST_STATUSES))
+            .order_by(Event.submitted_at, Event.id)
+        ).all()
+        return [EventRequestOut.model_validate(event) for event in events]
+
     def get(self, db: Session, request_id: uuid.UUID, reader: User) -> EventRequestOut:
         event = db.get(Event, request_id)
         if event is None or not self._can_read(event, reader):

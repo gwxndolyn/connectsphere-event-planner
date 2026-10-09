@@ -88,6 +88,26 @@
   padding: 0;
 }
 
+.site-header__role {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.site-header__role select {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 6px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
 @media (max-width: 640px) {
   .site-header__bar {
     flex-wrap: wrap;

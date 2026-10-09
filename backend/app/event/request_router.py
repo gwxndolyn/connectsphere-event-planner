@@ -19,6 +19,7 @@ me_router = APIRouter(prefix="/api/v1/me", tags=["event-requests"])
 
 Organiser = Annotated[User, Depends(require_user_roles(UserRole.ORGANISER))]
 Coordinator = Annotated[User, Depends(require_user_roles(UserRole.COORDINATOR))]
+Staff = Annotated[User, Depends(require_user_roles(UserRole.COORDINATOR, UserRole.OPERATIONS_MANAGER))]
 
 
 @router.post("", status_code=201, response_model=EventRequestOut)
@@ -28,6 +29,14 @@ def create_draft(
     db: Session = Depends(get_db),
 ) -> EventRequestOut:
     return event_request_service.create_draft(db, organiser, body)
+
+
+@router.get("", response_model=EventRequestsOut)
+def list_for_review(
+    _: Staff,
+    db: Session = Depends(get_db),
+) -> EventRequestsOut:
+    return EventRequestsOut(event_requests=event_request_service.list_for_review(db))
 
 
 @me_router.get("/event-requests", response_model=EventRequestsOut)
