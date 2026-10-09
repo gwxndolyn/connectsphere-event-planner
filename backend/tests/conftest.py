@@ -77,12 +77,36 @@ class FakeNotifier:
 
     def __init__(self) -> None:
         self.offers: list[dict[str, object]] = []
+        self.clarifications: list[dict[str, object]] = []
         self.fail = False
 
     def waitlist_offer(self, *, email: str, event_name: str, expires_at: datetime) -> None:
         if self.fail:
             raise RuntimeError("mail server unavailable")
         self.offers.append({"email": email, "event_name": event_name, "expires_at": expires_at})
+
+    def clarification_requested(
+        self,
+        *,
+        email: str,
+        request_reference: str,
+        event_name: str,
+        round: int,
+        sections: list[str],
+        comment: str,
+    ) -> None:
+        self.clarifications.append(
+            {
+                "email": email,
+                "request_reference": request_reference,
+                "event_name": event_name,
+                "round": round,
+                "sections": sections,
+                "comment": comment,
+            }
+        )
+        if self.fail:
+            raise RuntimeError("mail server unavailable")
 
 
 @pytest.fixture

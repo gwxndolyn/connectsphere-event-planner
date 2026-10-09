@@ -1,3 +1,4 @@
+import logging
 import uuid
 from datetime import timedelta
 
@@ -8,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.event.models import Event, EventRequestClarification, EventStatus
 from app.user.models import User, UserRole
+from tests.conftest import FakeNotifier
 from tests.factories import NOW, make_event
 
 pytestmark = pytest.mark.anyio
@@ -185,3 +187,134 @@ async def test_tc_us8_16_review_queue_is_staff_only(
     assert (await client.get("/api/v1/event-requests", headers=auth(operations_manager))).status_code == 200
     assert (await client.get("/api/v1/event-requests", headers=auth(organiser))).status_code == 403
     assert (await client.get("/api/v1/event-requests")).status_code == 401
+
+
+async def test_tc_us8_17_sent_clarification_notifies_organiser_with_request_details(
+    client: AsyncClient,
+    db: Session,
+    organiser: User,
+    coordinator: User,
+    notifier: FakeNotifier,
+) -> None:
+    event = make_request(db, organiser)
+    event.request_reference = "ER-2026-000055"
+
+    response = await send(
+        client,
+        coordinator,
+        event.id,
+        {"sections": ["attendance", "layout"], "comment": "  How many people?  "},
+    )
+
+    assert response.status_code == 201
+    assert notifier.clarifications == [
+        {
+            "email": organiser.email,
+            "request_reference": "ER-2026-000055",
+            "event_name": "Community design workshop",
+            "round": 1,
+            "sections": ["attendance", "layout"],
+            "comment": "How many people?",
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    "status", [EventStatus.AWAITING_CLARIFICATION, EventStatus.APPROVED, EventStatus.REJECTED]
+)
+async def test_tc_us8_18_blocked_clarification_does_not_notify(
+    client: AsyncClient,
+    db: Session,
+    organiser: User,
+    coordinator: User,
+    notifier: FakeNotifier,
+    status: EventStatus,
+) -> None:
+    event = make_request(db, organiser, status)
+
+    response = await send(client, coordinator, event.id)
+
+    assert response.status_code == 409
+    assert notifier.clarifications == []
+
+
+async def test_tc_us8_19_missing_request_does_not_notify(
+    client: AsyncClient,
+    db: Session,
+    organiser: User,
+    coordinator: User,
+    notifier: FakeNotifier,
+) -> None:
+    draft = make_request(db, organiser, EventStatus.DRAFT)
+    confirmed = make_event(db)
+
+    for request_id in (draft.id, confirmed.id, uuid.uuid4()):
+        response = await send(client, coordinator, request_id)
+        assert response.status_code == 404
+
+    assert notifier.clarifications == []
+
+
+async def test_tc_us8_20_invalid_clarification_does_not_notify(
+    client: AsyncClient,
+    db: Session,
+    organiser: User,
+    coordinator: User,
+    notifier: FakeNotifier,
+) -> None:
+    event = make_request(db, organiser)
+
+    response = await send(client, coordinator, event.id, {"sections": [], "comment": "Question?"})
+
+    assert response.status_code == 422
+    assert notifier.clarifications == []
+
+
+async def test_tc_us8_21_notifier_failure_does_not_undo_clarification(
+    client: AsyncClient,
+    db: Session,
+    organiser: User,
+    coordinator: User,
+    notifier: FakeNotifier,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    event = make_request(db, organiser)
+    event.request_reference = "ER-2026-000021"
+    notifier.fail = True
+
+    with caplog.at_level(logging.ERROR, logger="app.event.clarification_service"):
+        response = await send(client, coordinator, event.id)
+
+    assert response.status_code == 201
+    db.refresh(event)
+    assert event.status == EventStatus.AWAITING_CLARIFICATION
+    assert len(stored(db, event)) == 1
+    assert len(notifier.clarifications) == 1
+    assert "could not notify" in caplog.text
+
+
+@pytest.mark.parametrize("missing_recipient", ["owner", "email"])
+async def test_tc_us8_22_missing_organiser_recipient_skips_notification_with_warning(
+    client: AsyncClient,
+    db: Session,
+    organiser: User,
+    coordinator: User,
+    notifier: FakeNotifier,
+    caplog: pytest.LogCaptureFixture,
+    missing_recipient: str,
+) -> None:
+    event = make_request(db, organiser)
+    if missing_recipient == "owner":
+        event.created_by_user_id = None
+    else:
+        organiser.email = ""
+
+    with caplog.at_level(logging.WARNING, logger="app.event.clarification_service"):
+        response = await send(client, coordinator, event.id)
+
+    assert response.status_code == 201
+    db.refresh(event)
+    assert event.status == EventStatus.AWAITING_CLARIFICATION
+    assert len(stored(db, event)) == 1
+    assert notifier.clarifications == []
+    assert "could not notify organiser" in caplog.text

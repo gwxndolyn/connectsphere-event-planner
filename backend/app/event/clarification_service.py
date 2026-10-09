@@ -1,3 +1,4 @@
+import logging
 import uuid
 from datetime import datetime
 
@@ -18,7 +19,10 @@ from app.event.models import (
     EventStatus,
 )
 from app.event.request_service import SUBMITTED_REQUEST_STATUSES
+from app.notification.service import Notifier
 from app.user.models import User
+
+logger = logging.getLogger(__name__)
 
 # SCRUM-11 AC 2. Later rounds (8d, SCRUM-56) also start from under_review, once the
 # organiser's reply (SCRUM-77) has moved the request back there.
@@ -40,6 +44,7 @@ class ClarificationService:
         coordinator: User,
         body: ClarificationRequestWrite,
         now: datetime,
+        notifier: Notifier,
     ) -> ClarificationSentOut:
         event = db.scalars(
             select(Event).where(Event.id == request_id).with_for_update()
@@ -54,7 +59,46 @@ class ClarificationService:
         event.status = EventStatus.AWAITING_CLARIFICATION
         db.flush()
         result = ClarificationSentOut(clarification=clarification, status=event.status)
+        organiser_id = event.created_by_user_id
+        request_reference = event.request_reference
+        event_name = event.name
         db.commit()
+
+        try:
+            if organiser_id is None:
+                logger.warning(
+                    "could not notify organiser about clarification for request %s: no owner",
+                    request_id,
+                )
+                return result
+
+            organiser = db.get(User, organiser_id)
+            if organiser is None or not organiser.email:
+                logger.warning(
+                    "could not notify organiser about clarification for request %s: no email",
+                    request_id,
+                )
+                return result
+
+            if not request_reference or not event_name:
+                logger.warning(
+                    "could not notify organiser about clarification for request %s: missing request details",
+                    request_id,
+                )
+                return result
+
+            notifier.clarification_requested(
+                email=organiser.email,
+                request_reference=request_reference,
+                event_name=event_name,
+                round=clarification.round,
+                sections=clarification.sections,
+                comment=clarification.comment,
+            )
+        except Exception:
+            logger.exception(
+                "could not notify organiser about clarification for request %s", request_id
+            )
         return result
 
     def add_request(
