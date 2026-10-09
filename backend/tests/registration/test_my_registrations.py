@@ -195,7 +195,7 @@ async def test_tc_us11_10_no_upcoming_registrations_returns_empty_lists(
 
     response = await client.get(URL, headers=auth(attendee))
 
-    assert response.json() == {"confirmed": [], "waitlisted": []}
+    assert response.json() == {"confirmed": [], "waitlisted": [], "offered": []}
 
 
 async def test_tc_us11_11_confirmed_only_does_not_break_when_waitlisted_is_empty(

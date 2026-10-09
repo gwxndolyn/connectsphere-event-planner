@@ -1,4 +1,5 @@
 import os
+import uuid
 from collections.abc import AsyncGenerator, Generator
 from datetime import datetime
 from pathlib import Path
@@ -79,10 +80,14 @@ class FakeNotifier:
         self.offers: list[dict[str, object]] = []
         self.fail = False
 
-    def waitlist_offer(self, *, email: str, event_name: str, expires_at: datetime) -> None:
+    def waitlist_offer(
+        self, *, email: str, event_name: str, expires_at: datetime, registration_id: uuid.UUID
+    ) -> None:
         if self.fail:
             raise RuntimeError("mail server unavailable")
-        self.offers.append({"email": email, "event_name": event_name, "expires_at": expires_at})
+        self.offers.append(
+            {"email": email, "event_name": event_name, "expires_at": expires_at, "registration_id": registration_id}
+        )
 
 
 @pytest.fixture

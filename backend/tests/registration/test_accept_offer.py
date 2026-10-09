@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import pytest
 from httpx import AsyncClient
@@ -145,3 +145,60 @@ async def test_tc_us6b_07_needs_identity_and_an_unstarted_event(client: AsyncCli
     assert started.json() == {"code": "EVENT_STARTED"}
     db.refresh(b)
     assert b.status == RegistrationStatus.OFFERED
+
+
+async def test_tc_us6b_08_the_next_attendee_sees_the_offer_on_screen(
+    client: AsyncClient, db: Session
+) -> None:
+    """SCRUM-50: a withdrawal from a full event puts the place in the next attendee's own list."""
+    event = make_event(db, capacity=1, start_at=NOW + timedelta(days=1))
+    leaver = make_attendee(db)
+    leaver_registration = make_registration(db, event, leaver)
+    waiting = make_attendee(db)
+    queued = make_registration(
+        db, event, waiting, status=RegistrationStatus.WAITLISTED, waitlist_joined_at=NOW - timedelta(hours=1)
+    )
+
+    before = (await client.get("/api/v1/me/registrations", headers=auth(waiting))).json()
+    await client.post(f"/api/v1/registrations/{leaver_registration.id}/withdraw", headers=auth(leaver))
+    after = (await client.get("/api/v1/me/registrations", headers=auth(waiting))).json()
+
+    assert [row["registration_id"] for row in before["waitlisted"]] == [str(queued.id)]
+    assert before["offered"] == []
+    assert after["waitlisted"] == []
+    assert len(after["offered"]) == 1
+    offer = after["offered"][0]
+    assert offer["registration_id"] == str(queued.id)
+    assert offer["event_name"] == event.name
+    assert datetime.fromisoformat(offer["offer_expires_at"]) == NOW + WAITLIST_OFFER_WINDOW
+
+
+async def test_tc_us6b_09_the_notice_carries_what_is_needed_to_accept(
+    client: AsyncClient, db: Session, notifier
+) -> None:
+    event = make_event(db, capacity=1, start_at=NOW + timedelta(days=1))
+    leaver = make_attendee(db)
+    leaver_registration = make_registration(db, event, leaver)
+    waiting = make_attendee(db)
+    make_registration(
+        db, event, waiting, status=RegistrationStatus.WAITLISTED, waitlist_joined_at=NOW - timedelta(hours=1)
+    )
+
+    await client.post(f"/api/v1/registrations/{leaver_registration.id}/withdraw", headers=auth(leaver))
+    notice = notifier.offers[0]
+    accepted = await client.post(
+        f"/api/v1/registrations/{notice['registration_id']}/accept", headers=auth(waiting)
+    )
+
+    assert notice["email"] == waiting.email
+    assert accepted.status_code == 200
+    assert accepted.json()["status"] == "confirmed"
+
+
+async def test_tc_us6b_10_a_lapsed_offer_is_not_listed(client: AsyncClient, db: Session) -> None:
+    _, (b_attendee, _), _ = full_event_with_offer(db, offer_expires_at=NOW)
+
+    response = await client.get("/api/v1/me/registrations", headers=auth(b_attendee))
+
+    assert response.json()["offered"] == []
+    assert response.json()["waitlisted"] == []
