@@ -9,6 +9,16 @@ export const DEV_USER_IDS: Record<DevRole, string | undefined> = {
   coordinator: import.meta.env.VITE_DEV_COORDINATOR_ID,
 };
 
+// The Sprint 1 attendee routes (events board, register, withdraw, My Events) identify the caller
+// by X-Attendee-Id instead (§3). One seeded attendee for now; Supabase Auth replaces both stubs.
+export const DEV_ATTENDEE_ID: string | undefined = import.meta.env.VITE_DEV_ATTENDEE_ID;
+
+export type Identity = "user" | "attendee";
+
+interface RequestOptions extends RequestInit {
+  identity?: Identity;
+}
+
 const DEV_ROLE_KEY = "connectsphere.devRole";
 
 function readStoredRole(): DevRole {
@@ -39,18 +49,25 @@ export class ApiError extends Error {
     readonly status: number,
     readonly code: string,
     readonly fields: string[] = [],
+    // The whole error payload, for codes that carry more than `fields` (e.g. EVENT_FULL's
+    // waitlist_available).
+    readonly body: Record<string, unknown> = {},
   ) {
     super(code);
     this.name = "ApiError";
   }
 }
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+async function request<T>(path: string, { identity = "user", ...options }: RequestOptions = {}): Promise<T> {
   const headers = new Headers(options.headers);
   if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
-  const devUserId = DEV_USER_IDS[devRole];
-  if (devUserId && !headers.has("X-User-Id")) {
-    headers.set("X-User-Id", devUserId);
+  if (identity === "attendee") {
+    if (DEV_ATTENDEE_ID && !headers.has("X-Attendee-Id")) headers.set("X-Attendee-Id", DEV_ATTENDEE_ID);
+  } else {
+    const devUserId = DEV_USER_IDS[devRole];
+    if (devUserId && !headers.has("X-User-Id")) {
+      headers.set("X-User-Id", devUserId);
+    }
   }
 
   const response = await fetch(`${BASE_URL}${path}`, {
@@ -66,6 +83,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       response.status,
       typeof body.code === "string" ? body.code : "HTTP_ERROR",
       Array.isArray(body.fields) ? body.fields.filter((field): field is string => typeof field === "string") : [],
+      errorBody as Record<string, unknown>,
     );
   }
 
@@ -74,9 +92,9 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 
 export const apiClient = {
-  get: <T>(path: string) => request<T>(path),
-  post: <T>(path: string, body: unknown) =>
-    request<T>(path, { method: "POST", body: JSON.stringify(body) }),
-  patch: <T>(path: string, body: unknown) =>
-    request<T>(path, { method: "PATCH", body: JSON.stringify(body) }),
+  get: <T>(path: string, identity?: Identity) => request<T>(path, { identity }),
+  post: <T>(path: string, body: unknown, identity?: Identity) =>
+    request<T>(path, { method: "POST", body: JSON.stringify(body), identity }),
+  patch: <T>(path: string, body: unknown, identity?: Identity) =>
+    request<T>(path, { method: "PATCH", body: JSON.stringify(body), identity }),
 };

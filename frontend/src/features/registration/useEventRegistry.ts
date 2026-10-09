@@ -1,143 +1,64 @@
-import { useEffect, useMemo, useState } from "react";
-import type {
-  Attendee,
-  CampusEvent,
-  EventAvailability,
-  Registration,
-  RegistrationResult,
-} from "./types";
+import { useCallback, useEffect, useState } from "react";
+import { registrationApi } from "./api";
+import type { EventAvailability, MyRegistrations, RegistrationConfirmation, WithdrawalResult } from "./types";
 
-const REGISTRATIONS_KEY = "connectsphere.registrations";
-const ATTENDEE_KEY = "connectsphere.attendee";
+const NO_REGISTRATIONS: MyRegistrations = { confirmed: [], waitlisted: [], offered: [] };
 
-function generateConfirmationCode(): string {
-  return `CS-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
-}
-
-function readJSON<T>(key: string, fallback: T): T {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function writeJSON(key: string, value: unknown) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    // Storage unavailable (private browsing, quota) — registrations just won't persist.
-  }
+function loadBoth() {
+  return Promise.all([registrationApi.listAvailable(), registrationApi.listMine()]);
 }
 
 /**
- * Mocks the registrations backend (SCRUM-26/27/30/31) so the UI can be built
- * ahead of it. Swap register/joinWaitlist/cancelRegistration for apiClient
- * calls once those endpoints exist — the signatures already match.
+ * The attendee's view of events and registrations, from the API (SCRUM-79): the events board
+ * (SCRUM-25), register (SCRUM-26), My Events (SCRUM-30/31) and withdraw (SCRUM-34). Both lists
+ * are re-read after every change, so seat counts and sections always match the server.
+ *
+ * SCRUM-52 (join waitlist) and SCRUM-76 (accept an offer) add their actions here the same way:
+ * call `registrationApi`, then `refresh()`.
  */
-export function useEventRegistry(initialEvents: CampusEvent[]) {
-  const [registrations, setRegistrations] = useState<Registration[]>(() =>
-    readJSON(REGISTRATIONS_KEY, []),
-  );
-  const [currentAttendee, setCurrentAttendee] = useState<Attendee | null>(() =>
-    readJSON(ATTENDEE_KEY, null),
-  );
+export function useEventRegistry() {
+  const [events, setEvents] = useState<EventAvailability[]>([]);
+  const [myRegistrations, setMyRegistrations] = useState<MyRegistrations>(NO_REGISTRATIONS);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<unknown>(null);
 
-  useEffect(() => writeJSON(REGISTRATIONS_KEY, registrations), [registrations]);
-  useEffect(() => writeJSON(ATTENDEE_KEY, currentAttendee), [currentAttendee]);
+  const applyLoad = useCallback((isCurrent: () => boolean = () => true) => {
+    return loadBoth()
+      .then(([available, mine]) => {
+        if (!isCurrent()) return;
+        setEvents(available);
+        setMyRegistrations(mine);
+        setError(null);
+      })
+      .catch((reason: unknown) => {
+        if (isCurrent()) setError(reason);
+      })
+      .finally(() => {
+        if (isCurrent()) setLoading(false);
+      });
+  }, []);
 
-  const events: EventAvailability[] = useMemo(
-    () =>
-      initialEvents.map((event) => {
-        const confirmedCount = registrations.filter(
-          (r) => r.eventId === event.id && r.status === "confirmed",
-        ).length;
-        return { ...event, registeredCount: event.seedRegisteredCount + confirmedCount };
-      }),
-    [initialEvents, registrations],
-  );
+  useEffect(() => {
+    let current = true;
+    void applyLoad(() => current);
+    return () => {
+      current = false;
+    };
+  }, [applyLoad]);
 
-  function hasExistingRegistration(eventId: string, email: string) {
-    return registrations.some((r) => r.eventId === eventId && r.attendee.email === email);
+  const refresh = useCallback(() => applyLoad(), [applyLoad]);
+
+  async function register(eventId: string, answers: Record<string, string>): Promise<RegistrationConfirmation> {
+    const confirmation = await registrationApi.register(eventId, answers);
+    await refresh();
+    return confirmation;
   }
 
-  function register(eventId: string, attendee: Attendee): RegistrationResult {
-    const event = events.find((e) => e.id === eventId);
-    if (!event) throw new Error(`Unknown event: ${eventId}`);
-    if (hasExistingRegistration(eventId, attendee.email)) return { status: "duplicate" };
-
-    setCurrentAttendee(attendee);
-
-    if (event.registeredCount >= event.capacity) {
-      setRegistrations((prev) => [
-        ...prev,
-        {
-          id: crypto.randomUUID(),
-          eventId,
-          attendee,
-          status: "waitlisted",
-          registeredAt: new Date().toISOString(),
-        },
-      ]);
-      return { status: "waitlisted" };
-    }
-
-    const confirmationCode = generateConfirmationCode();
-    setRegistrations((prev) => [
-      ...prev,
-      {
-        id: crypto.randomUUID(),
-        eventId,
-        attendee,
-        status: "confirmed",
-        confirmationCode,
-        registeredAt: new Date().toISOString(),
-      },
-    ]);
-    return { status: "registered", confirmationCode };
+  async function withdraw(registrationId: string): Promise<WithdrawalResult> {
+    const result = await registrationApi.withdraw(registrationId);
+    await refresh();
+    return result;
   }
 
-  function joinWaitlist(eventId: string, email: string): RegistrationResult {
-    if (hasExistingRegistration(eventId, email)) return { status: "duplicate" };
-
-    setCurrentAttendee((prev) => prev ?? { name: "", email });
-    setRegistrations((prev) => [
-      ...prev,
-      {
-        id: crypto.randomUUID(),
-        eventId,
-        attendee: { name: "", email },
-        status: "waitlisted",
-        registeredAt: new Date().toISOString(),
-      },
-    ]);
-    return { status: "waitlisted" };
-  }
-
-  function cancelRegistration(registrationId: string) {
-    setRegistrations((prev) => prev.filter((r) => r.id !== registrationId));
-  }
-
-  function waitlistPosition(registration: Registration): number {
-    const event = initialEvents.find((e) => e.id === registration.eventId);
-    const seedAhead = event?.seedWaitlistCount ?? 0;
-    const aheadInQueue = registrations.filter(
-      (r) =>
-        r.eventId === registration.eventId &&
-        r.status === "waitlisted" &&
-        r.registeredAt < registration.registeredAt,
-    ).length;
-    return seedAhead + aheadInQueue + 1;
-  }
-
-  return {
-    events,
-    registrations,
-    currentAttendee,
-    register,
-    joinWaitlist,
-    cancelRegistration,
-    waitlistPosition,
-  };
+  return { events, myRegistrations, loading, error, refresh, register, withdraw };
 }

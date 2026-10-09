@@ -150,22 +150,9 @@
   overflow: hidden;
 }
 
-.event-card__icon {
-  font-size: 44px;
-  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.15));
-}
-
-.event-card__thumb--workshop {
-  background: linear-gradient(135deg, #ffd679, #f2a93c);
-}
-.event-card__thumb--social {
-  background: linear-gradient(135deg, #b7e08a, #6d9a3f);
-}
-.event-card__thumb--career {
+/* The API has no event category (SCRUM-79), so every card shares one thumb. */
+.event-card__thumb--default {
   background: linear-gradient(135deg, #8fd4e8, #3f7a9a);
-}
-.event-card__thumb--performance {
-  background: linear-gradient(135deg, #e3a3d9, #8a3f7a);
 }
 
 .event-card__badge {
@@ -190,15 +177,6 @@
 
 .event-card__body {
   padding: 12px 2px 0;
-}
-
-.event-card__category {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
-  margin-bottom: 4px;
 }
 
 .event-card__title {
@@ -231,6 +209,10 @@
   color: var(--accent);
 }
 
+.event-card__seats--registered {
+  color: var(--tab-active);
+}
+
 /* --- Buttons --- */
 
 .button {
@@ -256,6 +238,12 @@
   background: var(--chip-bg);
   border: 1px solid var(--border);
   color: var(--text);
+}
+
+/* While a request is in flight. */
+.button:disabled {
+  cursor: progress;
+  opacity: 0.6;
 }
 
 /* --- Dialog --- */
@@ -330,7 +318,8 @@
   margin-bottom: 16px;
 }
 
-.reg-form__field input {
+.reg-form__field input,
+.reg-form__field select {
   font: inherit;
   font-size: 15px;
   padding: 10px 12px;
@@ -340,7 +329,8 @@
   color: var(--text);
 }
 
-.reg-form__field input:focus-visible {
+.reg-form__field input:focus-visible,
+.reg-form__field select:focus-visible {
   outline: 2px solid var(--tab-active);
   outline-offset: 1px;
 }
@@ -391,12 +381,6 @@
   font-size: 15px;
   font-weight: 600;
   margin-bottom: 2px;
-}
-
-.ticket__attendee {
-  font-size: 14px;
-  color: var(--text-muted);
-  margin-bottom: 14px;
 }
 
 .ticket__details {

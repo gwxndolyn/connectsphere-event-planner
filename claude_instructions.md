@@ -3,7 +3,7 @@
 **Source of truth:** Jira project `SCRUM` (SPM ConnectSphere) — https://smu-team-kk38iw8n.atlassian.net
 **Generated:** 2026-09-19 from Jira issues SCRUM-2, SCRUM-5, SCRUM-6 and their subtasks.
 **Updated:** 2026-09-30 for Sprint 2 — US1 Submit Event Request (SCRUM-20) and the Epic 1 groundwork it laid.
-**Stack:** FastAPI (Python) backend · Supabase (Postgres) · React/Vite frontend. Sprint 1 screens are still mockups on `mockEvents.ts`; the Event requests screens (US1) call the real API.
+**Stack:** FastAPI (Python) backend · Supabase (Postgres) · React/Vite frontend. Every screen calls the real API: the Sprint 1 attendee screens since SCRUM-79, the Event requests screens since US1.
  
 ---
  
@@ -57,21 +57,21 @@ Read this before writing code. It holds what the rest of the document can't: how
  
 ### Where things stand — mid Sprint 2 (30 Sep)
  
-All three Sprint 1 stories have working backends, tested against a real Postgres. **US1 (SCRUM-20) is the first feature built end to end**: schema, API and React screens, with the screens calling the real API. **The Sprint 1 screens still run on `mockEvents.ts`**; wiring them is the top open item (see "What's next" below).
+All three Sprint 1 stories have working backends, tested against a real Postgres. **US1 (SCRUM-20) is the first feature built end to end**: schema, API and React screens, with the screens calling the real API. **The Sprint 1 attendee screens call the real API since SCRUM-79** (`mockEvents.ts` and the localStorage registry are gone).
  
 | Story | Backend | Mockup | Test cases |
 |---|---|---|---|
-| SCRUM-2 — register for an event | Done | Done | TC-US3 15/15 |
-| SCRUM-5 — view my upcoming events | Done | Done | TC-US11 11/11 |
-| SCRUM-6 — withdraw from a registration | Done | Done | TC-US7 15/15 |
+| SCRUM-2 — register for an event | Done | **Real screens, wired to API** (SCRUM-79) | TC-US3 15/15 + E2E |
+| SCRUM-5 — view my upcoming events | Done | **Real screens, wired to API** (SCRUM-79) | TC-US11 11/11 + E2E |
+| SCRUM-6 — withdraw from a registration | Done | **Real screens, wired to API** (SCRUM-79) | TC-US7 15/15 + E2E |
 | SCRUM-20 — submit event request (US1) | Done | **Real screens, wired to API** | TC-US1 16/16 + 1 E2E |
 | SCRUM-11 — request clarification (US8a) | Done: storage (SCRUM-54), send endpoint (SCRUM-53), review queue (SCRUM-57) | **Real screens, wired to API** (SCRUM-57) | TC-US8 16/16 + 1 E2E |
-| SCRUM-10 — join a waitlist (US6a) | Done: availability rule (SCRUM-48) + join refusals (SCRUM-49) | Not started (SCRUM-52) | TC-US6A 9/9 |
+| SCRUM-10 — join a waitlist (US6a) | Done: availability rule (SCRUM-48) + join refusals (SCRUM-49) | Attendee screens wired (SCRUM-79); join prompt not started (SCRUM-52) | TC-US6A 9/9 |
 | SCRUM-72 — take up a place (US6b) | Done: offer notice (SCRUM-50) + accept (SCRUM-51) | Not started (SCRUM-76) | TC-US6B 10/10 |
 | SCRUM-74 — organiser responds (US8c) | Done: response endpoint + thread read (SCRUM-77) | Organiser response form done (SCRUM-78); thread view to do (SCRUM-58) | TC-US8-17 to 24 + E2E |
 | SCRUM-75 — more clarification rounds (US8d) | Done: rounds guard pinned as D15 (SCRUM-56) | No change needed | TC-US8-31 to 35 |
  
-Every endpoint in §3 exists, plus `POST /registrations/{id}/decline` (deviation 3 below) and `POST /registrations/{id}/accept` (deviation 13). Identity is two stubs: `X-Attendee-Id` for the Sprint 1 routes and `X-User-Id` (role-aware) for the event-request routes. The database is the tables in §2 plus `attendees` and `users`. Backend suite: 168 tests; E2E: 3 tests (health check, US1 journey, US8 clarification journey: ask and answer). **Supabase may lag `main`**: the SCRUM-40 and SCRUM-54 migrations (`20260930_1200_us1_request_schema`, `20261008_1200_us8_clarifications`) must be applied there by the named person — check with `alembic current`.
+Every endpoint in §3 exists, plus `POST /registrations/{id}/decline` (deviation 3 below) and `POST /registrations/{id}/accept` (deviation 13). Identity is two stubs: `X-Attendee-Id` for the Sprint 1 routes and `X-User-Id` (role-aware) for the event-request routes. The database is the tables in §2 plus `attendees` and `users`. Backend suite: 172 tests; E2E: 4 tests (health check, US1 journey, US8 clarification journey: ask and answer, attendee journey: list, register, My events, withdraw). **Supabase may lag `main`**: the SCRUM-40 and SCRUM-54 migrations (`20260930_1200_us1_request_schema`, `20261008_1200_us8_clarifications`) must be applied there by the named person — check with `alembic current`.
  
 ### Get it running
  
@@ -89,11 +89,11 @@ python -m app.seed                     # seven events, attendees, the organiser 
 uvicorn app.main:app --reload          # http://localhost:8000/docs
  
 cd ../frontend
-cp .env.example .env                   # REQUIRED: VITE_DEV_USER_ID (organiser) + VITE_DEV_COORDINATOR_ID
+cp .env.example .env                   # REQUIRED: VITE_DEV_USER_ID (organiser), VITE_DEV_COORDINATOR_ID, VITE_DEV_ATTENDEE_ID (Calvin)
 npm install && npm run dev             # http://localhost:5173 — restart after editing .env
  
 cd ../e2e && npm ci && npx playwright install chromium
-npm test                               # backend must be running; don't also run npm run dev
+npm test                               # backend must be running; don't also run npm run dev. Reseed first (python -m app.seed) on a reused database
 ```
 
 **Windows (PowerShell):** activate with `.venv\Scripts\activate`; copy with `Copy-Item .env.example .env`. Create `.env` files by copying or in VS Code, not with `echo >` — PowerShell writes UTF-16, which Vite can't read.
@@ -108,6 +108,9 @@ npm test                               # backend must be running; don't also run
 - **The page says "backend unreachable"** → the API isn't running, or your origin isn't in `CORS_ORIGINS`.
 - **Event requests says "Set VITE_DEV_USER_ID…"** → `frontend/.env` doesn't exist (only `.env.example` does). Copy it and restart `npm run dev`.
 - **The review queue says "Set VITE_DEV_COORDINATOR_ID…"** → your `frontend/.env` predates SCRUM-57. Copy that line from `.env.example` and restart `npm run dev`.
+- **The events board or My events says "Set VITE_DEV_ATTENDEE_ID…"** → your `frontend/.env` predates SCRUM-79. Copy that line from `.env.example` (seeded attendee Calvin, `83565d3f-e757-5c0e-8c6e-8dadb298ce18`) and restart `npm run dev`.
+- **The attendee E2E fails at its first step (Tech Talk not "You're registered")** → it ran before against this database and left Calvin withdrawn. Run `python -m app.seed`, then rerun.
+- **`python -m app.seed` fails on `registrations_one_active_per_attendee`** → fixed in SCRUM-79: the seed now withdraws any other active row for a seeded (event, attendee) pair, such as one made by withdrawing and registering again in the app, before resetting its own row. If you still see it, your `backend` predates that change.
 - **CORS errors even on `/api/events/health`** → something else is answering on port 8000 (open the health URL directly; "no Route matched" means another app), or a terminal still has a leftover `CORS_ORIGINS`. Close all terminals and start fresh.
 - **`401` on `/api/v1/me/event-requests`** → the organiser isn't in the database uvicorn is using. Run `alembic upgrade head` and `python -m app.seed`; check no terminal has a leftover `DATABASE_URL` (`echo $env:DATABASE_URL`).
 - **`python -m app.seed` fails with `relation … does not exist`** → you skipped `alembic upgrade head`.
@@ -123,7 +126,7 @@ npm test                               # backend must be running; don't also run
 - **Tests never touch Supabase.** They build a separate `connectsphere_test` database from the migrations and refuse to run against a non-local host. Keep that guard.
 - **Deviating from §2/§3 is allowed; doing it silently is not.** Add a `# DECISION-PENDING: <id>` at the code site and a line under "Deviations awaiting a decision" below.
 - **New screens call the real API** (changed in Sprint 2 — the Sprint 1 "mockups stay mockups" rule is retired; *needs team confirmation*). Build through `frontend/src/api/client.ts`, with TypeScript types that match the API's snake_case names. Don't add new mock data.
-- **Two identity headers, one per route family.** Sprint 1 routes take `X-Attendee-Id` (`get_current_attendee`); event-request routes take `X-User-Id` (`get_current_user` / `require_user_roles`). Every attendee has a `users` row with the **same id** and role `attendee`, so one id works in both. Both stubs go when Supabase Auth lands (§9).
+- **Two identity headers, one per route family.** Sprint 1 routes take `X-Attendee-Id` (`get_current_attendee`); event-request routes take `X-User-Id` (`get_current_user` / `require_user_roles`). Every attendee has a `users` row with the **same id** and role `attendee`, so one id works in both. In the frontend, `apiClient` sends `X-User-Id` by default and `X-Attendee-Id` (from `VITE_DEV_ATTENDEE_ID`) when a call passes `identity` `"attendee"`, as every call in `features/registration/api.ts` does (SCRUM-79). Both stubs go when Supabase Auth lands (§9).
 - **Another person's record is `404 NOT_FOUND`, never `403`.** Applies to drafts as well as registrations (TC-US7-02, TC-US1-13).
 - **Schema changes go in the first PR of a story, alone.** US1 split into schema → API → screens PRs; the API and screen PRs added no migration. Keeps one Alembic head and a reviewable migration.
 - **E2E runs against a migrated, seeded database.** `e2e.yml` runs `alembic upgrade head` and `python -m app.seed` before starting the backend. A new E2E test needing data should get it from the seed, not by assuming an empty database.
@@ -150,6 +153,7 @@ Each is implemented and defensible; each departs from the contract in §2/§3 an
 | 14 | New error code `NO_OPEN_CLARIFICATION` (409, with the request's current `status`) when the organiser answers outside `awaiting_clarification`, including a second answer to the same round | `app/event/clarification_service.py` |
 | 15 | `GET /me/registrations` has a third section, `offered`, not in §3's original shape: live offers with `offer_expires_at`, so the attendee sees the place on screen (D5). It's additive; the notifier also now receives the `registration_id` to accept with | `app/registration/service.py`, `app/notification/service.py` |
 | 16 | US6a (SCRUM-48, 49): `EVENT_FULL`'s `waitlist_available` can now be `false` (message "This event is full."), and `POST /events/{id}/waitlist` has two new 409 codes: `WAITLIST_NOT_ENABLED` (the event's waitlist is off; checked first) and `SEATS_AVAILABLE` (places remain, so register instead) | `app/registration/service.py` |
+| 17 | SCRUM-79 dropped what the mock showed but the API doesn't return: event category (label, icon, coloured thumb), description, the attendee name/email inputs and the name on the ticket (identity is `X-Attendee-Id`). The "Waitlist only" tab and card label are now **Full**, since `/events/available` doesn't say whether a waitlist exists. The ticket's confirmation code is a **booking reference** derived from `registration_id` (first 8 hex characters, uppercased); the API has no code. Times show in Asia/Singapore. A waitlisted event's card says "You're on the waitlist (#position)" and its dialog "You're on the waitlist for this event. Find it under My events.", matched through the new `event_id` on `GET /me/registrations` rows (additive backend change, TC-US11-12); confirmed events keep "You're registered" | `frontend/src/features/registration/`, `app/registration/schemas.py` |
  
 ### Open decisions still unanswered
  
@@ -188,7 +192,7 @@ Each is implemented and defensible; each departs from the contract in §2/§3 an
  
 ### What's next in Sprint 2
  
-1. **Wire the Sprint 1 screens** (event list, register, my events, withdraw). Every endpoint exists, and US1 built the plumbing: `api/client.ts` sends an identity header and turns 404/409/422 into structured errors. Swap `useEventRegistry`'s functions for `apiClient` calls, send `X-Attendee-Id` (the seed prints an attendee id), handle the §3 codes (`EVENT_FULL`, `ALREADY_REGISTERED`, `REGISTRATION_CLOSED`, `MISSING_REQUIRED_FIELD`), and add loading/error states. **No Jira ticket yet — create one.** Do it **before US6's frontend**: the join-waitlist prompt hangs off the register screen's real `EVENT_FULL` response.
+1. ~~**Wire the Sprint 1 screens**~~ Done (SCRUM-79). `useEventRegistry` reads `GET /events/available` and `GET /me/registrations` and re-reads both after register and withdraw; response types and mappers live in `features/registration/api.ts`, with `registrationErrorMessage` for the §3 codes. Add SCRUM-52's `joinWaitlist` (email-only, D7: send `identity` `"user"` or none, not `"attendee"`) and SCRUM-76's `acceptOffer` there; `ApiError.body` carries `EVENT_FULL`'s `waitlist_available`, and the hook already holds the `offered` section. Gaps for later, not blockers: `/events/available` doesn't expose `waitlist_enabled`, and there's no attendee profile endpoint, so the UI can't show the attendee's name.
 2. **US6 (SCRUM-10).** Backend mostly exists from Sprint 1. US6a's backend is done (SCRUM-48, 49): the waitlist is offered and joinable only when the event is full **and** `waitlist_enabled` (default `false`; the seed turns it on for Design Sprint Bootcamp). SCRUM-52 is the frontend, and should key the join prompt off `EVENT_FULL`'s `waitlist_available`. Accepting an offer exists since SCRUM-51 (`POST /registrations/{id}/accept`, §3); an email-only waitlist entry (D3) can't accept, because it has no attendee to match. Settle D3/D6/D7.
 3. **US8 (SCRUM-11) and US10 (SCRUM-13)** build on the US1 request: statuses, `users`/roles and `X-User-Id` exist. The seed has a **coordinator** since SCRUM-54; US10 still needs to seed an **operations manager**. US8a is done end to end: coordinators pick a request from the review queue (`GET /api/v1/event-requests`) and send through `POST /api/v1/event-requests/{id}/clarifications` (§3), which stores the question and sets `awaiting_clarification` in one transaction (`clarification_service.send_request`). Screen: `frontend/src/features/eventRequest/ClarificationReviewPage.tsx`; a new role-specific screen should follow its pattern (`App.tsx` picks the page by `devRole`). SCRUM-55 hooks the organiser notification into `send_request`. 8c's backend is done (SCRUM-77): the owner answers with `POST …/clarifications/response`, which stores a `response` row for the open round and sets `under_review`, so the next round passes the guard; anyone who can read the request reads the thread with `GET …/clarifications`. The organiser answers in the app since SCRUM-78 (an awaiting-clarification request opens the question and a response box in `EventRequestsPage.tsx`); SCRUM-58's thread view is still to do. Section labels and value formatting for both screens live in `frontend/src/features/eventRequest/clarificationSections.ts` — reuse it rather than copying the list. Later rounds (8d, SCRUM-56) are allowed from `under_review` with no limit and refused while a round is open or once decided (D15). Nothing yet moves a request to `under_review` or `approved` — agree who does. US10 moving an event to `planning` will hide it from staff under D11; widen that rule in US10 if the coordinator needs to keep reading it.
 4. **One end-to-end test** that registers, views and withdraws against the live backend, once item 1 is done. The E2E job already migrates and seeds.
@@ -398,7 +402,7 @@ select capacity from events where id = :event_id for update;
  
 Prefix everything `/api/v1`. Return Pydantic models, not raw dicts.
  
-**Identity (Sprint 1):** Supabase Auth is not wired up yet. Read the caller from an `X-Attendee-Id` header and resolve it in a single `get_current_attendee()` dependency. Every endpoint depends on it. When auth lands, one function changes. Do not scatter attendee lookups through route bodies.
+**Identity (Sprint 1):** Supabase Auth is not wired up yet. Read the caller from an `X-Attendee-Id` header and resolve it in a single `get_current_attendee()` dependency. Every endpoint depends on it. When auth lands, one function changes. Do not scatter attendee lookups through route bodies. The frontend sends it from `VITE_DEV_ATTENDEE_ID` (seeded attendee Calvin) on the attendee routes: available events, register, withdraw, `GET /me/registrations` (SCRUM-79).
  
 ### `GET /events/available` — SCRUM-25
  
@@ -461,7 +465,7 @@ No registration row and no `attendance_log` row on any refusal.
 ```json
 {
   "confirmed": [{
-    "registration_id": "uuid", "event_name": "Tech Talk: Agile at Scale",
+    "registration_id": "uuid", "event_id": "uuid", "event_name": "Tech Talk: Agile at Scale",
     "date": "2026-10-02", "start_time": "14:00", "end_time": "16:00",
     "venue_name": "SMU SCIS Seminar Room 2-1", "joining_info": "Room 2-1",
     "delivery_mode": "in_person"
@@ -474,6 +478,8 @@ No registration row and no `attendance_log` row on any refusal.
 `offered` (SCRUM-50, deviation 15) lists places held for the attendee after someone withdrew, until `offer_expires_at`; accept with `POST /registrations/{registration_id}/accept`. A lapsed offer isn't listed, since it can no longer be accepted.
  
 Sorting, filtering and section order are all server-side — the mockup must not re-sort. See `TC-US11-04` through `TC-US11-07`.
+
+`event_id` (SCRUM-79, additive) is the row's event, the same id as `GET /events/available`. The events board uses it to tell a waitlisted event from a confirmed one, since `already_registered` is true for both (TC-US11-12).
  
 ### `POST /registrations/{registration_id}/withdraw` — SCRUM-34, SCRUM-35, SCRUM-36, SCRUM-39
  
@@ -614,6 +620,7 @@ These are the acceptance criteria restated as executable checks. Each one maps t
 | TC-US11-09 | An event's `end_at` is in the past | A loads the view | The event is absent — filter on `end_at`, **not** `start_at`; an in-progress event still shows |
 | TC-US11-10 | A has no upcoming registrations | A loads the view | Empty-state message, not an empty array rendered as a blank page |
 | TC-US11-11 | A has confirmed registrations but nothing waitlisted | A loads the view | Waitlisted section is omitted or shows its own empty state — it must not break the Confirmed section |
+| TC-US11-12 | A is confirmed, waitlisted and offered on three events | A loads the view | Every row carries its event's `event_id` (SCRUM-79) |
  
 ### SCRUM-6 / US7 — Withdraw from a registration
  
@@ -713,6 +720,8 @@ The E2E test drives the browser: organiser submits a request → switch to coord
 ### SCRUM-10 / US6a — Join a waiting list for a full event
 
 ACs: (1) the waitlist is offered only when the event is full and supports one; (2) not when places remain or it isn't supported; (3) after joining, the attendee is confirmed with their position.
+
+E2E (SCRUM-79): `e2e/tests/attendee-registration.spec.ts`, as seeded attendee Calvin: the board lists Tech Talk ("You're registered") and Design Sprint Bootcamp ("Full") → My events, withdraw Tech Talk → register for it again and see the confirmation with a booking reference → it shows under Confirmed → withdraw again. It leaves Calvin withdrawn, so reseed before rerunning on the same database. Reseeding is safe after any app use: the seed withdraws other active rows for its (event, attendee) pairs first (`tests/registration/test_seed_reseed.py`).
 
 Backend: `tests/registration/test_waitlist_rules.py` (SCRUM-48, 49). `make_event` defaults to `waitlist_enabled=True`, like `registration_enabled=True`, so the US3/US7/US6B waitlist tests keep their meaning; these tests pass `False` where they need it.
 
@@ -815,6 +824,7 @@ Access and identity (TC-US1-13, 14, 15) span SCRUM-41–44.
 |---|---|---|---|
 | SCRUM-48 | `waitlist_available` helper (full and `waitlist_enabled`); `EVENT_FULL` uses it; seed enables the bootcamp's waitlist | TC-US6A-01, 02, 09 (AC 1, 2) | #43 |
 | SCRUM-49 | `POST /events/{id}/waitlist` refuses with `WAITLIST_NOT_ENABLED` / `SEATS_AVAILABLE`, takes register's gates (D16), keeps the position confirmation | TC-US6A-03 to 08 (AC 1–3); no migration | #43 |
+| SCRUM-79 | Attendee screens (board, register, My events, withdraw) call the API via `X-Attendee-Id`; mock removed; `event_id` on My Registrations rows so the board shows waitlist status; reseed withdraws app-made duplicates of seeded registrations | `npm run build` + `lint`; attendee E2E journey; TC-US11-12; `test_seed_reseed.py` | |
 | SCRUM-52 | Join-waitlist prompt on the register screen | Frontend | |
 
 ### SCRUM-72 (US6b)

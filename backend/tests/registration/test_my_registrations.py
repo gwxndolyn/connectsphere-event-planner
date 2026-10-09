@@ -217,3 +217,23 @@ async def test_my_registrations_requires_an_attendee_header(client: AsyncClient,
 
     assert response.status_code == 401
     assert response.json() == {"code": "UNAUTHENTICATED"}
+
+
+async def test_tc_us11_12_every_entry_carries_its_event_id(client: AsyncClient, db: Session) -> None:
+    """SCRUM-79: the events board matches these rows to `GET /events/available` by event id."""
+    attendee = make_attendee(db)
+    confirmed_event = make_event(db, name="Confirmed Event")
+    waitlisted_event = make_event(db, name="Waitlisted Event", capacity=0)
+    offered_event = make_event(db, name="Offered Event")
+    make_registration(db, confirmed_event, attendee)
+    make_registration(db, waitlisted_event, attendee, status=RegistrationStatus.WAITLISTED, waitlist_joined_at=NOW)
+    make_registration(
+        db, offered_event, attendee, status=RegistrationStatus.OFFERED, offer_expires_at=NOW + timedelta(hours=1)
+    )
+
+    response = await client.get(URL, headers=auth(attendee))
+
+    body = response.json()
+    assert [e["event_id"] for e in body["confirmed"]] == [str(confirmed_event.id)]
+    assert [e["event_id"] for e in body["waitlisted"]] == [str(waitlisted_event.id)]
+    assert [e["event_id"] for e in body["offered"]] == [str(offered_event.id)]
