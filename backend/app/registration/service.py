@@ -496,6 +496,7 @@ class RegistrationService:
         joining_info = event.join_link if event.delivery_mode == DeliveryMode.ONLINE else event.room_number
         return {
             "registration_id": registration.id,
+            "event_id": event.id,
             "event_name": event.name,
             "date": local_start.date().isoformat(),
             "start_time": local_start.strftime("%H:%M"),

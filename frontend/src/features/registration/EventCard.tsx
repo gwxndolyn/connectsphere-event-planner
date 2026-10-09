@@ -1,53 +1,42 @@
 import { formatEventDate, formatEventTime } from "./datetime";
 import type { EventAvailability } from "./types";
 
-const CATEGORY_LABEL: Record<EventAvailability["category"], string> = {
-  workshop: "Workshop",
-  social: "Social",
-  career: "Career",
-  performance: "Performance",
-};
-
-const CATEGORY_ICON: Record<EventAvailability["category"], string> = {
-  workshop: "🛠️",
-  social: "🎉",
-  career: "💼",
-  performance: "🎻",
-};
-
 interface EventCardProps {
   event: EventAvailability;
+  waitlisted: boolean;
+  waitlistPosition?: number;
   onReserve: (event: EventAvailability) => void;
 }
 
 function badgeFor(event: EventAvailability) {
-  const ratio = event.registeredCount / event.capacity;
-  if (ratio >= 1) return { label: "Waitlist only", variant: "soon" as const };
+  if (event.isFull) return { label: "Full", variant: "soon" as const };
+  const ratio = event.capacity > 0 ? (event.capacity - event.seatsRemaining) / event.capacity : 1;
   if (ratio >= 0.85) return { label: "Almost full", variant: "hot" as const };
   if (ratio >= 0.6) return { label: "Going fast", variant: "hot" as const };
   return null;
 }
 
-export function EventCard({ event, onReserve }: EventCardProps) {
-  const seatsLeft = event.capacity - event.registeredCount;
-  const isFull = seatsLeft <= 0;
+function seatsText(event: EventAvailability, waitlisted: boolean, waitlistPosition?: number): string {
+  if (waitlisted) return waitlistPosition ? `You're on the waitlist (#${waitlistPosition})` : "You're on the waitlist";
+  if (event.alreadyRegistered) return "You're registered";
+  if (event.isFull) return "Full";
+  return `${event.seatsRemaining} ${event.seatsRemaining === 1 ? "seat" : "seats"} left`;
+}
+
+export function EventCard({ event, waitlisted, waitlistPosition, onReserve }: EventCardProps) {
   const badge = badgeFor(event);
 
   return (
     <button type="button" className="event-card" onClick={() => onReserve(event)}>
-      <div className={`event-card__thumb event-card__thumb--${event.category}`}>
+      <div className="event-card__thumb event-card__thumb--default">
         {badge && (
           <span className={`event-card__badge event-card__badge--${badge.variant}`}>
             {badge.label}
           </span>
         )}
-        <span className="event-card__icon" aria-hidden="true">
-          {CATEGORY_ICON[event.category]}
-        </span>
       </div>
 
       <div className="event-card__body">
-        <p className="event-card__category">{CATEGORY_LABEL[event.category]}</p>
         <h3 className="event-card__title">{event.title}</h3>
         <p className="event-card__date">
           {formatEventDate(event)}, {formatEventTime(event)}
@@ -55,8 +44,12 @@ export function EventCard({ event, onReserve }: EventCardProps) {
         <p className="event-card__venue">
           {event.format === "online" ? "Online" : event.venue}
         </p>
-        <p className={`event-card__seats${isFull ? " event-card__seats--full" : ""}`}>
-          {isFull ? "Waitlist only" : `${seatsLeft} seats left`}
+        <p
+          className={`event-card__seats${event.isFull && !event.alreadyRegistered ? " event-card__seats--full" : ""}${
+            event.alreadyRegistered ? " event-card__seats--registered" : ""
+          }`}
+        >
+          {seatsText(event, waitlisted, waitlistPosition)}
         </p>
       </div>
     </button>

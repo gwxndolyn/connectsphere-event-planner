@@ -61,6 +61,8 @@ class MyRegistrationOut(BaseModel):
     renders this field directly and must not re-derive it from `delivery_mode`."""
 
     registration_id: uuid.UUID
+    # Lets the events board match a row to `GET /events/available` (SCRUM-79).
+    event_id: uuid.UUID
     event_name: str
     date: str
     start_time: str

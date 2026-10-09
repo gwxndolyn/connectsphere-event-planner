@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import SessionLocal
 from app.event.models import DeliveryMode, Event, EventStatus
-from app.registration.models import Registration, RegistrationStatus
+from app.registration.models import ACTIVE_STATUSES, Registration, RegistrationStatus
 from app.user.models import Attendee, User, UserRole
 
 # Fixed namespace so slugs map to the same UUIDs on every machine and every run.
@@ -245,6 +245,24 @@ def upsert_registration(
         "withdrawn_at": None,
         "updated_at": now,
     }
+    # Using the app between seeds (withdraw, then register or rejoin again) leaves a newer active
+    # row for this pair. Withdraw it, and flush before resetting the seeded row, so the two are
+    # never active at once (registrations_one_active_per_attendee).
+    others = db.scalars(
+        select(Registration).where(
+            Registration.event_id == event.id,
+            Registration.attendee_id == attendee.id,
+            Registration.id != registration_id,
+            Registration.status.in_(ACTIVE_STATUSES),
+        )
+    ).all()
+    for other in others:
+        other.status = RegistrationStatus.WITHDRAWN
+        other.withdrawn_at = now
+        other.updated_at = now
+    if others:
+        db.flush()
+
     registration = db.get(Registration, registration_id)
     if registration is None:
         registration = Registration(id=registration_id, **values)

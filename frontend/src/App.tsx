@@ -5,14 +5,13 @@ import { EventHealthCheck } from "./features/event/EventHealthCheck";
 import { ClarificationReviewPage } from "./features/eventRequest/ClarificationReviewPage";
 import { EventRequestsPage } from "./features/eventRequest/EventRequestsPage";
 import { EventsBoard } from "./features/registration/EventsBoard";
-import { mockEvents } from "./features/registration/mockEvents";
 import { MyEventsView } from "./features/registration/MyEventsView";
 import { useEventRegistry } from "./features/registration/useEventRegistry";
 
 type View = "discovery" | "my-events" | "event-requests";
 
 function App() {
-  const registry = useEventRegistry(mockEvents);
+  const registry = useEventRegistry();
   const [view, setView] = useState<View>("discovery");
   const [search, setSearch] = useState("");
   const [devRole, setDevRoleState] = useState<DevRole>(getDevRole);

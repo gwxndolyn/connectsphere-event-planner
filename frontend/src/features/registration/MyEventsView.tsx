@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { compareEventStart, formatEventDate, formatEventTimeRange, isEventExpired } from "./datetime";
-import type { EventAvailability, Registration } from "./types";
+import { registrationErrorMessage } from "./api";
+import { formatEventDate, formatEventTimeRange, toTimed } from "./datetime";
+import type { MyRegistration } from "./types";
 import type { useEventRegistry } from "./useEventRegistry";
 import { WithdrawDialog } from "./WithdrawDialog";
 
@@ -9,39 +10,31 @@ interface MyEventsViewProps {
   onBrowse: () => void;
 }
 
-interface Entry {
-  registration: Registration;
-  event: EventAvailability;
-}
-
+/**
+ * The attendee's upcoming registrations, from `GET /me/registrations` (SCRUM-30/31): already
+ * split into sections, sorted by start time and without ended events. `offered` rows are kept in
+ * the registry but not shown until SCRUM-76 adds "Accept place".
+ */
 export function MyEventsView({ registry, onBrowse }: MyEventsViewProps) {
-  const { events, registrations, currentAttendee, cancelRegistration, waitlistPosition } = registry;
+  const { myRegistrations, loading, error, withdraw } = registry;
   // Held separately from the registry: the row is gone once the withdrawal goes through,
-  // but the confirmation still needs the event and registration to describe what happened.
-  const [pending, setPending] = useState<Entry | null>(null);
-
-  const myEntries: Entry[] = currentAttendee
-    ? registrations
-        .filter((r) => r.attendee.email === currentAttendee.email)
-        .map((registration) => {
-          const event = events.find((e) => e.id === registration.eventId);
-          return event ? { registration, event } : null;
-        })
-        .filter((entry): entry is Entry => entry !== null && !isEventExpired(entry.event))
-    : [];
-
-  const confirmed = myEntries
-    .filter((e) => e.registration.status === "confirmed")
-    .sort((a, b) => compareEventStart(a.event, b.event));
-  const waitlisted = myEntries
-    .filter((e) => e.registration.status === "waitlisted")
-    .sort((a, b) => compareEventStart(a.event, b.event));
+  // but the confirmation still needs it to describe what happened.
+  const [pending, setPending] = useState<MyRegistration | null>(null);
+  const { confirmed, waitlisted } = myRegistrations;
 
   return (
     <section className="board">
       <h1 className="board__title">My events</h1>
 
-      {myEntries.length === 0 ? (
+      {loading ? (
+        <p className="board__empty" role="status">
+          Loading your events…
+        </p>
+      ) : error ? (
+        <p className="board__empty" role="alert">
+          {registrationErrorMessage(error)}
+        </p>
+      ) : confirmed.length + waitlisted.length === 0 ? (
         <div className="my-events__empty">
           <p>You haven't registered for any upcoming events yet.</p>
           <button type="button" className="button button--reserve" onClick={onBrowse}>
@@ -53,7 +46,7 @@ export function MyEventsView({ registry, onBrowse }: MyEventsViewProps) {
           {confirmed.length > 0 && (
             <MyEventsSection
               heading="Confirmed"
-              entries={confirmed}
+              registrations={confirmed}
               onCancel={setPending}
               cancelLabel="Cancel registration"
             />
@@ -62,10 +55,9 @@ export function MyEventsView({ registry, onBrowse }: MyEventsViewProps) {
           {waitlisted.length > 0 && (
             <MyEventsSection
               heading="Waitlisted"
-              entries={waitlisted}
+              registrations={waitlisted}
               onCancel={setPending}
               cancelLabel="Leave waitlist"
-              waitlistPosition={waitlistPosition}
             />
           )}
         </>
@@ -73,14 +65,8 @@ export function MyEventsView({ registry, onBrowse }: MyEventsViewProps) {
 
       {pending && (
         <WithdrawDialog
-          event={pending.event}
-          registration={pending.registration}
-          waitlistPosition={
-            pending.registration.status === "waitlisted"
-              ? waitlistPosition(pending.registration)
-              : undefined
-          }
-          onConfirm={() => cancelRegistration(pending.registration.id)}
+          registration={pending}
+          onConfirm={() => withdraw(pending.id)}
           onClose={() => setPending(null)}
         />
       )}
@@ -90,54 +76,50 @@ export function MyEventsView({ registry, onBrowse }: MyEventsViewProps) {
 
 interface MyEventsSectionProps {
   heading: string;
-  entries: Entry[];
-  onCancel: (entry: Entry) => void;
+  registrations: MyRegistration[];
+  onCancel: (registration: MyRegistration) => void;
   cancelLabel: string;
-  waitlistPosition?: (registration: Registration) => number;
 }
 
-function MyEventsSection({
-  heading,
-  entries,
-  onCancel,
-  cancelLabel,
-  waitlistPosition,
-}: MyEventsSectionProps) {
+function MyEventsSection({ heading, registrations, onCancel, cancelLabel }: MyEventsSectionProps) {
   return (
     <div className="my-events__section">
       <h2 className="my-events__heading">{heading}</h2>
       <ul className="my-events__list">
-        {entries.map(({ registration, event }) => (
-          <li key={registration.id} className="my-events__row">
-            <div className="my-events__info">
-              <p className="my-events__event-title">{event.title}</p>
-              <p className="my-events__event-meta">
-                {formatEventDate(event)}, {formatEventTimeRange(event)}
-              </p>
-              <p className="my-events__event-meta">
-                {event.format === "online" ? (
-                  <a href={event.joinUrl} target="_blank" rel="noreferrer">
-                    Join online
-                  </a>
-                ) : (
-                  event.venue
-                )}
-              </p>
-              {waitlistPosition && (
-                <p className="my-events__position">
-                  Position {waitlistPosition(registration)} on the waitlist
+        {registrations.map((registration) => {
+          const timed = toTimed(registration.date, registration.startTime, registration.endTime);
+          return (
+            <li key={registration.id} className="my-events__row">
+              <div className="my-events__info">
+                <p className="my-events__event-title">{registration.eventTitle}</p>
+                <p className="my-events__event-meta">
+                  {formatEventDate(timed)}, {formatEventTimeRange(timed)}
                 </p>
-              )}
-            </div>
-            <button
-              type="button"
-              className="button button--secondary"
-              onClick={() => onCancel({ registration, event })}
-            >
-              {cancelLabel}
-            </button>
-          </li>
-        ))}
+                <p className="my-events__event-meta">
+                  {registration.format === "online" ? (
+                    <a href={registration.joiningInfo} target="_blank" rel="noreferrer">
+                      Join online
+                    </a>
+                  ) : (
+                    [registration.venue, registration.joiningInfo].filter(Boolean).join(" · ")
+                  )}
+                </p>
+                {registration.waitlistPosition !== undefined && (
+                  <p className="my-events__position">
+                    Position {registration.waitlistPosition} on the waitlist
+                  </p>
+                )}
+              </div>
+              <button
+                type="button"
+                className="button button--secondary"
+                onClick={() => onCancel(registration)}
+              >
+                {cancelLabel}
+              </button>
+            </li>
+          );
+        })}
       </ul>
     </div>
   );

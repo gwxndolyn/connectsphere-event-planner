@@ -1,17 +1,16 @@
 import { useMemo, useState } from "react";
-import { isEventExpired } from "./datetime";
+import { registrationErrorMessage } from "./api";
 import { EventCard } from "./EventCard";
 import "./registration.css";
 import { RegistrationDialog } from "./RegistrationDialog";
-import type { EventAvailability } from "./types";
 import type { useEventRegistry } from "./useEventRegistry";
 
-type Tab = "all" | "open" | "waitlist";
+type Tab = "all" | "open" | "full";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "all", label: "All" },
   { id: "open", label: "Open" },
-  { id: "waitlist", label: "Waitlist only" },
+  { id: "full", label: "Full" },
 ];
 
 interface EventsBoardProps {
@@ -20,26 +19,29 @@ interface EventsBoardProps {
 }
 
 export function EventsBoard({ registry, search }: EventsBoardProps) {
-  const { events, currentAttendee, register, joinWaitlist } = registry;
-  const [selected, setSelected] = useState<EventAvailability | null>(null);
+  const { events, myRegistrations, loading, error, register } = registry;
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("all");
 
-  const selectedEvent = selected ? events.find((e) => e.id === selected.id) ?? null : null;
+  // Looked up by id so the dialog sees fresh seat counts after each refresh.
+  const selectedEvent = selectedId ? events.find((e) => e.id === selectedId) ?? null : null;
 
+  // `already_registered` is true for waitlisted rows too, so the board tells them apart by event id.
+  const waitlistPositions = useMemo(
+    () => new Map(myRegistrations.waitlisted.map((row) => [row.eventId, row.waitlistPosition])),
+    [myRegistrations],
+  );
+
+  // The API returns only events open for registration that haven't ended, soonest first.
   const visibleEvents = useMemo(() => {
     const query = search.trim().toLowerCase();
     return events.filter((event) => {
-      if (isEventExpired(event)) return false;
-
-      const isFull = event.registeredCount >= event.capacity;
-      if (tab === "open" && isFull) return false;
-      if (tab === "waitlist" && !isFull) return false;
+      if (tab === "open" && event.isFull) return false;
+      if (tab === "full" && !event.isFull) return false;
 
       if (!query) return true;
       return (
-        event.title.toLowerCase().includes(query) ||
-        (event.venue ?? "").toLowerCase().includes(query) ||
-        event.category.toLowerCase().includes(query)
+        event.title.toLowerCase().includes(query) || (event.venue ?? "").toLowerCase().includes(query)
       );
     });
   }, [events, search, tab]);
@@ -61,12 +63,28 @@ export function EventsBoard({ registry, search }: EventsBoardProps) {
         ))}
       </nav>
 
-      {visibleEvents.length === 0 ? (
-        <p className="board__empty">No events match "{search}". Try another search.</p>
+      {loading ? (
+        <p className="board__empty" role="status">
+          Loading events…
+        </p>
+      ) : error ? (
+        <p className="board__empty board__error" role="alert">
+          {registrationErrorMessage(error)}
+        </p>
+      ) : visibleEvents.length === 0 ? (
+        <p className="board__empty">
+          {search.trim() ? `No events match "${search}". Try another search.` : "No events are open for registration right now."}
+        </p>
       ) : (
         <div className="board__grid">
           {visibleEvents.map((event) => (
-            <EventCard key={event.id} event={event} onReserve={setSelected} />
+            <EventCard
+              key={event.id}
+              event={event}
+              waitlisted={waitlistPositions.has(event.id)}
+              waitlistPosition={waitlistPositions.get(event.id)}
+              onReserve={(chosen) => setSelectedId(chosen.id)}
+            />
           ))}
         </div>
       )}
@@ -74,10 +92,9 @@ export function EventsBoard({ registry, search }: EventsBoardProps) {
       {selectedEvent && (
         <RegistrationDialog
           event={selectedEvent}
-          currentAttendee={currentAttendee}
-          onRegister={(name, email) => register(selectedEvent.id, { name, email })}
-          onJoinWaitlist={(email) => joinWaitlist(selectedEvent.id, email)}
-          onClose={() => setSelected(null)}
+          waitlisted={waitlistPositions.has(selectedEvent.id)}
+          onRegister={(answers) => register(selectedEvent.id, answers)}
+          onClose={() => setSelectedId(null)}
         />
       )}
     </section>

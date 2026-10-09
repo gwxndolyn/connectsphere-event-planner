@@ -1,47 +1,45 @@
 import { useId, useState, type FormEvent } from "react";
+import { ApiError } from "../../api/client";
+import { registrationErrorMessage } from "./api";
 import { ConfirmationTicket } from "./ConfirmationTicket";
 import { formatEventDate, formatEventTimeRange } from "./datetime";
-import type { Attendee, EventAvailability, RegistrationResult } from "./types";
+import type { EventAvailability, RegistrationConfirmation } from "./types";
 
 interface RegistrationDialogProps {
   event: EventAvailability;
-  currentAttendee: Attendee | null;
-  onRegister: (name: string, email: string) => RegistrationResult;
-  onJoinWaitlist: (email: string) => RegistrationResult;
+  waitlisted: boolean;
+  onRegister: (answers: Record<string, string>) => Promise<RegistrationConfirmation>;
   onClose: () => void;
 }
 
-export function RegistrationDialog({
-  event,
-  currentAttendee,
-  onRegister,
-  onJoinWaitlist,
-  onClose,
-}: RegistrationDialogProps) {
+/**
+ * Register for an open event (SCRUM-26). The attendee is whoever X-Attendee-Id names, so the
+ * form asks only the event's own registration questions. A full event has no action here yet:
+ * joining its waitlist is SCRUM-52.
+ */
+export function RegistrationDialog({ event, waitlisted, onRegister, onClose }: RegistrationDialogProps) {
   const titleId = useId();
-  const isFull = event.registeredCount >= event.capacity;
-
-  const [name, setName] = useState(currentAttendee?.name ?? "");
-  const [email, setEmail] = useState(currentAttendee?.email ?? "");
+  const [answers, setAnswers] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<RegistrationResult | null>(null);
+  const [invalidFields, setInvalidFields] = useState<string[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [confirmation, setConfirmation] = useState<RegistrationConfirmation | null>(null);
 
-  function handleSubmit(e: FormEvent) {
+  const fieldLabels = Object.fromEntries(event.registrationFields.map((field) => [field.key, field.label]));
+
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
-
-    const outcome = isFull ? onJoinWaitlist(email) : onRegister(name, email);
-
-    if (outcome.status === "duplicate") {
-      setError(
-        isFull
-          ? "You're already on the list for this event."
-          : "You're already registered for this event.",
-      );
-      return;
+    setInvalidFields([]);
+    setSubmitting(true);
+    try {
+      setConfirmation(await onRegister(answers));
+    } catch (reason) {
+      setError(registrationErrorMessage(reason, fieldLabels));
+      if (reason instanceof ApiError) setInvalidFields(reason.fields);
+    } finally {
+      setSubmitting(false);
     }
-
-    setResult(outcome);
   }
 
   return (
@@ -52,15 +50,8 @@ export function RegistrationDialog({
         aria-labelledby={titleId}
         onClick={(e) => e.stopPropagation()}
       >
-        {result ? (
-          <ConfirmationTicket
-            event={event}
-            variant={result.status === "registered" ? "registered" : "waitlisted"}
-            attendeeName={result.status === "registered" ? name : undefined}
-            email={email}
-            confirmationCode={result.status === "registered" ? result.confirmationCode : undefined}
-            onDone={onClose}
-          />
+        {confirmation ? (
+          <ConfirmationTicket confirmation={confirmation} onDone={onClose} />
         ) : (
           <form className="reg-form" onSubmit={handleSubmit}>
             <button type="button" className="dialog__close" onClick={onClose} aria-label="Close">
@@ -75,41 +66,54 @@ export function RegistrationDialog({
               {event.format === "online" ? "Online" : event.venue}
             </p>
 
-            {isFull && (
-              <p className="reg-form__notice">
-                This event is full. Join the waitlist and we'll email you if a seat opens up.
-              </p>
+            {waitlisted ? (
+              <p className="reg-form__notice">You're on the waitlist for this event. Find it under My events.</p>
+            ) : event.alreadyRegistered ? (
+              <p className="reg-form__notice">You're already registered for this event. Find it under My events.</p>
+            ) : event.isFull ? (
+              <p className="reg-form__notice">This event is full.</p>
+            ) : (
+              <>
+                {event.registrationFields.map((field) => (
+                  <label key={field.key} className="reg-form__field">
+                    {field.label}
+                    {field.options ? (
+                      <select
+                        required={field.required}
+                        value={answers[field.key] ?? ""}
+                        aria-invalid={invalidFields.includes(field.key) || undefined}
+                        onChange={(e) => setAnswers({ ...answers, [field.key]: e.target.value })}
+                      >
+                        <option value="">Choose…</option>
+                        {field.options.map((option) => (
+                          <option key={option} value={option}>
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="text"
+                        required={field.required}
+                        value={answers[field.key] ?? ""}
+                        aria-invalid={invalidFields.includes(field.key) || undefined}
+                        onChange={(e) => setAnswers({ ...answers, [field.key]: e.target.value })}
+                      />
+                    )}
+                  </label>
+                ))}
+
+                {error && (
+                  <p className="reg-form__error" role="alert">
+                    {error}
+                  </p>
+                )}
+
+                <button type="submit" className="button button--reserve reg-form__submit" disabled={submitting}>
+                  {submitting ? "Reserving…" : "Reserve my seat"}
+                </button>
+              </>
             )}
-
-            {!isFull && (
-              <label className="reg-form__field">
-                Name
-                <input
-                  type="text"
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  autoComplete="name"
-                />
-              </label>
-            )}
-
-            <label className="reg-form__field">
-              Email
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                autoComplete="email"
-              />
-            </label>
-
-            {error && <p className="reg-form__error">{error}</p>}
-
-            <button type="submit" className="button button--reserve reg-form__submit">
-              {isFull ? "Join the waitlist" : "Reserve my seat"}
-            </button>
           </form>
         )}
       </div>
