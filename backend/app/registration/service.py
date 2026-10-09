@@ -63,6 +63,11 @@ class RegistrationService:
         )
         return event.capacity - (occupancy or 0)
 
+    def waitlist_available(self, db: Session, event: Event, now: datetime) -> bool:
+        """US6a AC 1/2 (SCRUM-48): the event is full, an unexpired offer counting as taken, and
+        waitlists are enabled for it. Short-circuits, so a disabled event never counts seats."""
+        return event.waitlist_enabled and self.seats_remaining(db, event, now) <= 0
+
     def waitlist_position(self, db: Session, registration: Registration) -> int | None:
         """1-based rank among the event's waitlisted rows. Derived from join time, never stored.
         `id` breaks ties so two rows sharing a timestamp still get distinct, stable positions."""
@@ -100,6 +105,8 @@ class RegistrationService:
         until it expires, so seats_remaining does not rise (TC-US7-07, TC-US7-09)."""
         if self.seats_remaining(db, event, now) <= 0:
             return None
+        # DECISION-PENDING: D17 — not gated on waitlist_enabled. US6a only governs joining, so
+        # people already queued keep their place if the event's waitlist is switched off later.
         next_in_line = self._head_of_waitlist(db, event)
         if next_in_line is None:
             # No waitlist: the seat simply returns to the pool, and nobody is notified (TC-US7-06).
@@ -324,12 +331,7 @@ class RegistrationService:
         if event is None:
             raise DomainError(404, "NOT_FOUND")
 
-        if event.status != EventStatus.CONFIRMED or not event.registration_enabled:
-            raise DomainError(403, "REGISTRATION_NOT_ENABLED")
-        if event.registration_opens_at is not None and now < event.registration_opens_at:
-            raise DomainError(403, "REGISTRATION_CLOSED")
-        if event.registration_closes_at is not None and now >= event.registration_closes_at:
-            raise DomainError(403, "REGISTRATION_CLOSED")
+        self._check_registration_open(event, now)
 
         fields = db.scalars(
             select(EventRegistrationField).where(EventRegistrationField.event_id == event_id)
@@ -350,12 +352,16 @@ class RegistrationService:
 
         if self.seats_remaining(db, event, now) <= 0:
             # AC: the attendee is *offered* a waitlist place, not silently joined to it — a
-            # second, explicit POST /waitlist call is required.
+            # second, explicit POST /waitlist call is required. Only offered when the event
+            # supports one (US6a AC 1, 2).
+            waitlist_available = self.waitlist_available(db, event, now)
             raise DomainError(
                 409,
                 "EVENT_FULL",
-                waitlist_available=True,
-                message="This event is full. You may join the waitlist.",
+                waitlist_available=waitlist_available,
+                message="This event is full. You may join the waitlist."
+                if waitlist_available
+                else "This event is full.",
             )
 
         registration = Registration(
@@ -390,6 +396,15 @@ class RegistrationService:
 
         return self._confirmation(registration, event)
 
+    def _check_registration_open(self, event: Event, now: datetime) -> None:
+        """The two gates (spec §2): a confirmed event with registration enabled, inside its window."""
+        if event.status != EventStatus.CONFIRMED or not event.registration_enabled:
+            raise DomainError(403, "REGISTRATION_NOT_ENABLED")
+        if event.registration_opens_at is not None and now < event.registration_opens_at:
+            raise DomainError(403, "REGISTRATION_CLOSED")
+        if event.registration_closes_at is not None and now >= event.registration_closes_at:
+            raise DomainError(403, "REGISTRATION_CLOSED")
+
     def _confirmation(self, registration: Registration, event: Event) -> RegisterResponse:
         return RegisterResponse(
             registration_id=registration.id,
@@ -407,6 +422,7 @@ class RegistrationService:
         self, db: Session, event_id: uuid.UUID, email: str, now: datetime
     ) -> WaitlistJoinResponse:
         """SCRUM-27: TC-US3-11 … TC-US3-14. The explicit follow-up to an `EVENT_FULL` offer.
+        SCRUM-49: refused unless that offer would have been made (US6a AC 1, 2).
 
         # DECISION-PENDING: D7 — §3's identity paragraph says every endpoint depends on
         # get_current_attendee, but this endpoint's own contract is body-only (`{"email": ...}`),
@@ -418,6 +434,9 @@ class RegistrationService:
         event = db.scalars(select(Event).where(Event.id == event_id).with_for_update()).one_or_none()
         if event is None:
             raise DomainError(404, "NOT_FOUND")
+        # DECISION-PENDING: D16 — US6a doesn't say, but "reached its registration capacity"
+        # presumes registration is open, so the waitlist takes register's gates.
+        self._check_registration_open(event, now)
 
         already = db.scalars(
             select(Registration).where(
@@ -428,6 +447,12 @@ class RegistrationService:
         ).first()
         if already is not None:
             raise DomainError(409, "ALREADY_REGISTERED")
+
+        if not self.waitlist_available(db, event, now):
+            # A disabled waitlist wins: nothing will ever be offered there. Otherwise there are
+            # places left, and the attendee should register instead (deviation 16).
+            code = "WAITLIST_NOT_ENABLED" if not event.waitlist_enabled else "SEATS_AVAILABLE"
+            raise DomainError(409, code)
 
         # D3: store both when we can. `attendee_id` links the row to "My Events" (SCRUM-5);
         # `attendee_email` is always set, since the AC only promises an email for the waitlist.

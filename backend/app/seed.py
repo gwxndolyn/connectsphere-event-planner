@@ -50,6 +50,8 @@ class EventSpec:
     venue_name: str | None = "SMU SCIS Building"
     room_number: str | None = "Seminar Room 2-1"
     join_link: str | None = None
+    # US6a: off by default, as in the database.
+    waitlist_enabled: bool = False
     # Emails of attendees holding a confirmed seat, in order.
     confirmed: list[str] = field(default_factory=list)
     # Emails on the waitlist, earliest first.
@@ -78,6 +80,7 @@ EVENTS = [
         name="Design Sprint Bootcamp",
         note="at full capacity, with a waitlist behind it",
         capacity=2,
+        waitlist_enabled=True,
         starts_in=timedelta(days=4),
         confirmed=["mei.tan.2024@smu.edu.sg", "arjun.rao.2024@smu.edu.sg"],
         waitlisted=["sofia.lim.2024@smu.edu.sg", "calvin.ng.2024@smu.edu.sg"],
@@ -209,6 +212,7 @@ def upsert_event(db: Session, spec: EventSpec, now: datetime) -> Event:
         "venue_name": spec.venue_name,
         "room_number": spec.room_number,
         "join_link": spec.join_link,
+        "waitlist_enabled": spec.waitlist_enabled,
     }
     event = db.get(Event, event_id)
     if event is None:

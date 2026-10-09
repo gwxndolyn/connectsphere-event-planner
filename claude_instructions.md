@@ -66,11 +66,12 @@ All three Sprint 1 stories have working backends, tested against a real Postgres
 | SCRUM-6 — withdraw from a registration | Done | Done | TC-US7 15/15 |
 | SCRUM-20 — submit event request (US1) | Done | **Real screens, wired to API** | TC-US1 16/16 + 1 E2E |
 | SCRUM-11 — request clarification (US8a) | Done: storage (SCRUM-54), send endpoint (SCRUM-53), review queue (SCRUM-57) | **Real screens, wired to API** (SCRUM-57) | TC-US8 16/16 + 1 E2E |
+| SCRUM-10 — join a waitlist (US6a) | Done: availability rule (SCRUM-48) + join refusals (SCRUM-49) | Not started (SCRUM-52) | TC-US6A 9/9 |
 | SCRUM-72 — take up a place (US6b) | Done: offer notice (SCRUM-50) + accept (SCRUM-51) | Not started (SCRUM-76) | TC-US6B 10/10 |
 | SCRUM-74 — organiser responds (US8c) | Done: response endpoint + thread read (SCRUM-77) | Organiser response form done (SCRUM-78); thread view to do (SCRUM-58) | TC-US8-17 to 24 + E2E |
 | SCRUM-75 — more clarification rounds (US8d) | Done: rounds guard pinned as D15 (SCRUM-56) | No change needed | TC-US8-31 to 35 |
  
-Every endpoint in §3 exists, plus `POST /registrations/{id}/decline` (deviation 3 below) and `POST /registrations/{id}/accept` (deviation 13). Identity is two stubs: `X-Attendee-Id` for the Sprint 1 routes and `X-User-Id` (role-aware) for the event-request routes. The database is the tables in §2 plus `attendees` and `users`. Backend suite: 153 tests; E2E: 3 tests (health check, US1 journey, US8 clarification journey: ask and answer). **Supabase may lag `main`**: the SCRUM-40 and SCRUM-54 migrations (`20260930_1200_us1_request_schema`, `20261008_1200_us8_clarifications`) must be applied there by the named person — check with `alembic current`.
+Every endpoint in §3 exists, plus `POST /registrations/{id}/decline` (deviation 3 below) and `POST /registrations/{id}/accept` (deviation 13). Identity is two stubs: `X-Attendee-Id` for the Sprint 1 routes and `X-User-Id` (role-aware) for the event-request routes. The database is the tables in §2 plus `attendees` and `users`. Backend suite: 168 tests; E2E: 3 tests (health check, US1 journey, US8 clarification journey: ask and answer). **Supabase may lag `main`**: the SCRUM-40 and SCRUM-54 migrations (`20260930_1200_us1_request_schema`, `20261008_1200_us8_clarifications`) must be applied there by the named person — check with `alembic current`.
  
 ### Get it running
  
@@ -148,10 +149,11 @@ Each is implemented and defensible; each departs from the contract in §2/§3 an
 | 13 | `POST /registrations/{id}/accept` (US6b) isn't in §3's original list, and adds `409 OFFER_EXPIRED` for an offer past `offer_expires_at` that the manual expiry (D2) hasn't swept yet — accepting it could overbook, since a lapsed offer no longer holds its seat | `app/registration/service.py` |
 | 14 | New error code `NO_OPEN_CLARIFICATION` (409, with the request's current `status`) when the organiser answers outside `awaiting_clarification`, including a second answer to the same round | `app/event/clarification_service.py` |
 | 15 | `GET /me/registrations` has a third section, `offered`, not in §3's original shape: live offers with `offer_expires_at`, so the attendee sees the place on screen (D5). It's additive; the notifier also now receives the `registration_id` to accept with | `app/registration/service.py`, `app/notification/service.py` |
+| 16 | US6a (SCRUM-48, 49): `EVENT_FULL`'s `waitlist_available` can now be `false` (message "This event is full."), and `POST /events/{id}/waitlist` has two new 409 codes: `WAITLIST_NOT_ENABLED` (the event's waitlist is off; checked first) and `SEATS_AVAILABLE` (places remain, so register instead) | `app/registration/service.py` |
  
 ### Open decisions still unanswered
  
-§6 defines D1–D6 and a Sprint 1 default for each. All six are coded to their defaults and marked in the code; **none has been confirmed by the team**. D7 is new and not in §6. D8–D12 came from US1 and D13–D15 from US8; all are marked `DECISION-PENDING` in the code.
+§6 defines D1–D6 and a Sprint 1 default for each. All six are coded to their defaults and marked in the code; **none has been confirmed by the team**. D7 is new and not in §6. D8–D12 came from US1 and D13–D15 from US8 and D16–D17 from US6a; all are marked `DECISION-PENDING` in the code.
  
 | id | Question | What we assumed |
 |---|---|---|
@@ -170,6 +172,8 @@ Each is implemented and defensible; each departs from the contract in §2/§3 an
 | D13 | Which sections can a clarification request tag? | SCRUM-11 only gives examples (attendance, layout, equipment). Assumed seven, grouping the US1 fields: `details`, `schedule`, `attendance`, `layout`, `accessibility`, `equipment`, `registration`. One list in `CLARIFICATION_SECTIONS`, mirrored by the migration's CHECK |
 | D14 | Which coordinator may ask for clarification? | Any active coordinator. US10 (SCRUM-13) assigns a coordinator to a request; tighten this to the assigned one then |
 | D15 | When may a coordinator send another clarification round? | From `submitted` or `under_review`, no limit; the new round is `max(round) + 1`. `awaiting_clarification`, `approved`, `rejected` → `409 CLARIFICATION_NOT_ALLOWED`. `awaiting_clarification` is blocked on purpose: the organiser's reply answers the latest open round, so a second open question would never get its own answer. Past the request stage (`planning` → `completed`) and drafts stay `404` under D11. `CLARIFIABLE_STATUSES` in `clarification_service.py` |
+| D16 | Does joining a waitlist need registration to be open? | Yes. US6a AC 1's "reached its registration capacity" presumes it, so `join_waitlist` applies register's gates (`_check_registration_open`): `403 REGISTRATION_NOT_ENABLED` unless confirmed with registration enabled, `403 REGISTRATION_CLOSED` outside the window |
+| D17 | What happens to people already queued if an event's waitlist is switched off? | They keep their place and still get offers: `offer_freed_seat` ignores `waitlist_enabled`, because US6a only governs joining |
  
 ### Environment
  
@@ -185,7 +189,7 @@ Each is implemented and defensible; each departs from the contract in §2/§3 an
 ### What's next in Sprint 2
  
 1. **Wire the Sprint 1 screens** (event list, register, my events, withdraw). Every endpoint exists, and US1 built the plumbing: `api/client.ts` sends an identity header and turns 404/409/422 into structured errors. Swap `useEventRegistry`'s functions for `apiClient` calls, send `X-Attendee-Id` (the seed prints an attendee id), handle the §3 codes (`EVENT_FULL`, `ALREADY_REGISTERED`, `REGISTRATION_CLOSED`, `MISSING_REQUIRED_FIELD`), and add loading/error states. **No Jira ticket yet — create one.** Do it **before US6's frontend**: the join-waitlist prompt hangs off the register screen's real `EVENT_FULL` response.
-2. **US6 (SCRUM-10).** Backend mostly exists from Sprint 1. Still missing: honour `waitlist_enabled` (column added in SCRUM-40, default `false` — the seed's waitlist events may need it set to `true`), Accepting an offer exists since SCRUM-51 (`POST /registrations/{id}/accept`, §3); an email-only waitlist entry (D3) can't accept, because it has no attendee to match. Settle D3/D6/D7.
+2. **US6 (SCRUM-10).** Backend mostly exists from Sprint 1. US6a's backend is done (SCRUM-48, 49): the waitlist is offered and joinable only when the event is full **and** `waitlist_enabled` (default `false`; the seed turns it on for Design Sprint Bootcamp). SCRUM-52 is the frontend, and should key the join prompt off `EVENT_FULL`'s `waitlist_available`. Accepting an offer exists since SCRUM-51 (`POST /registrations/{id}/accept`, §3); an email-only waitlist entry (D3) can't accept, because it has no attendee to match. Settle D3/D6/D7.
 3. **US8 (SCRUM-11) and US10 (SCRUM-13)** build on the US1 request: statuses, `users`/roles and `X-User-Id` exist. The seed has a **coordinator** since SCRUM-54; US10 still needs to seed an **operations manager**. US8a is done end to end: coordinators pick a request from the review queue (`GET /api/v1/event-requests`) and send through `POST /api/v1/event-requests/{id}/clarifications` (§3), which stores the question and sets `awaiting_clarification` in one transaction (`clarification_service.send_request`). Screen: `frontend/src/features/eventRequest/ClarificationReviewPage.tsx`; a new role-specific screen should follow its pattern (`App.tsx` picks the page by `devRole`). SCRUM-55 hooks the organiser notification into `send_request`. 8c's backend is done (SCRUM-77): the owner answers with `POST …/clarifications/response`, which stores a `response` row for the open round and sets `under_review`, so the next round passes the guard; anyone who can read the request reads the thread with `GET …/clarifications`. The organiser answers in the app since SCRUM-78 (an awaiting-clarification request opens the question and a response box in `EventRequestsPage.tsx`); SCRUM-58's thread view is still to do. Section labels and value formatting for both screens live in `frontend/src/features/eventRequest/clarificationSections.ts` — reuse it rather than copying the list. Later rounds (8d, SCRUM-56) are allowed from `under_review` with no limit and refused while a round is open or once decided (D15). Nothing yet moves a request to `under_review` or `approved` — agree who does. US10 moving an event to `planning` will hide it from staff under D11; widen that rule in US10 if the coordinator needs to keep reading it.
 4. **One end-to-end test** that registers, views and withdraws against the live backend, once item 1 is done. The E2E job already migrates and seeds.
 5. **Then Supabase Auth** (§9), replacing both header stubs — after the wiring, so a failure can only be in one half. It brings RLS policies with it.
@@ -234,7 +238,7 @@ An event request **is** an `events` row in an early status (deviation 7). Migrat
 alter type event_status add value 'under_review' after 'submitted';  -- + awaiting_clarification,
                                                                       --   approved, rejected, planning, completed
 alter table events
-  add column waitlist_enabled       boolean not null default false,   -- for US6
+  add column waitlist_enabled       boolean not null default false,   -- US6a: offered only when full and true
   add column event_category         text,          -- D8
   add column purpose                text,
   add column preferred_dates        date[],        -- sorted on submit
@@ -424,7 +428,7 @@ Body: `{"answers": {"dietary": "vegetarian"}}`
 | Outcome | Status | Body |
 |---|---|---|
 | Registered | `201` | `{"registration_id", "status": "confirmed", "event": {"name", "start_at", "end_at", "venue_name" or "join_link"}}` |
-| Event full → waitlist offered | `409` | `{"code": "EVENT_FULL", "waitlist_available": true, "message": "..."}` |
+| Event full | `409` | `{"code": "EVENT_FULL", "waitlist_available": true \| false, "message": "..."}`. `true` only when `waitlist_enabled` (US6a, SCRUM-48) |
 | Already registered | `409` | `{"code": "ALREADY_REGISTERED"}` |
 | Not confirmed / registration disabled | `403` | `{"code": "REGISTRATION_NOT_ENABLED"}` |
 | Outside registration window | `403` | `{"code": "REGISTRATION_CLOSED"}` |
@@ -434,9 +438,23 @@ The success body must carry **date, time and venue** — the AC names all three 
  
 The full-event case is a **409, not a silent waitlist join.** The AC says the attendee is *offered* a waitlist place, which means they must accept. Joining is a second, explicit call:
  
-### `POST /events/{event_id}/waitlist` — SCRUM-27
+### `POST /events/{event_id}/waitlist` — SCRUM-27, SCRUM-49 (US6a)
  
 Body: `{"email": "calvin.ng.2024@smu.edu.sg"}` → `201 {"registration_id", "status": "waitlisted", "position": 4}`
+
+Joinable only when `registration_service.waitlist_available` holds: no seats left (an unexpired offer holds its seat) **and** `waitlist_enabled`. Checked in this order:
+
+| Outcome | Status | Body |
+|---|---|---|
+| Joined | `201` | as above; `position` is the confirmation (US6a AC 3) |
+| Unknown event | `404` | `{"code": "NOT_FOUND"}` |
+| Not confirmed / registration disabled | `403` | `{"code": "REGISTRATION_NOT_ENABLED"}` (D16) |
+| Outside registration window | `403` | `{"code": "REGISTRATION_CLOSED"}` (D16) |
+| Email already has an active row | `409` | `{"code": "ALREADY_REGISTERED"}` |
+| Event's waitlist is off | `409` | `{"code": "WAITLIST_NOT_ENABLED"}` (deviation 16) |
+| Places remain | `409` | `{"code": "SEATS_AVAILABLE"}` (deviation 16) |
+
+No registration row and no `attendance_log` row on any refusal.
  
 ### `GET /me/registrations` — SCRUM-30, SCRUM-31
  
@@ -692,6 +710,24 @@ Backend: `tests/event/test_event_request_clarifications.py` (01–08, storage, S
 
 The E2E test drives the browser: organiser submits a request → switch to coordinator → open it from the queue → send with nothing chosen and see both inputs flagged → tick Attendance and Room layout, comment, send → see the confirmation → switch back to organiser, see `awaiting clarification`, open the request and see the question → send a blank response and see it flagged → answer → see `under review` → switch to coordinator and see `under review` in the queue (SCRUM-78).
 
+### SCRUM-10 / US6a — Join a waiting list for a full event
+
+ACs: (1) the waitlist is offered only when the event is full and supports one; (2) not when places remain or it isn't supported; (3) after joining, the attendee is confirmed with their position.
+
+Backend: `tests/registration/test_waitlist_rules.py` (SCRUM-48, 49). `make_event` defaults to `waitlist_enabled=True`, like `registration_enabled=True`, so the US3/US7/US6B waitlist tests keep their meaning; these tests pass `False` where they need it.
+
+| ID | Given | When | Then |
+|---|---|---|---|
+| TC-US6A-01 | Full event, waitlist enabled | Attendee registers | `409 EVENT_FULL`, `waitlist_available: true`, "You may join the waitlist" (AC 1) |
+| TC-US6A-02 | Full event, waitlist disabled | Attendee registers | `409 EVENT_FULL`, `waitlist_available: false`, "This event is full." (AC 2) |
+| TC-US6A-03 | Full (one seat held by an unexpired offer), enabled | Join | `201 waitlisted`, position 1, `waitlisted` log row (AC 1, 3) |
+| TC-US6A-04 | Places remain, enabled | Join | `409 SEATS_AVAILABLE` (AC 2) |
+| TC-US6A-05 | Waitlist disabled, full or with places | Join | `409 WAITLIST_NOT_ENABLED` (AC 2) |
+| TC-US6A-06 | Each refusal from 04, 05 | Join | No registration row, no attendance log (AC 2) |
+| TC-US6A-07 | Full, enabled | Two emails join a minute apart | Positions 1 and 2 (AC 3) |
+| TC-US6A-08 | Full, enabled, but cancelled / registration disabled / not open / closed | Join | `403 REGISTRATION_NOT_ENABLED` / `REGISTRATION_CLOSED`; nothing stored (D16) |
+| TC-US6A-09 | — | Run the seed | Only Design Sprint Bootcamp has `waitlist_enabled` |
+
 ### SCRUM-72 / US6b — Take up an available place after a withdrawal
 
 > *As a waiting-listed Attendee, I want to be told when a place becomes available and be able to take it up, so that I get to attend the event I was waiting for.*
@@ -772,6 +808,14 @@ Each Jira subtask is done when its tests pass. The subtasks have no descriptions
 | SCRUM-47 | Confirmation with reference | E2E journey | #29 |
 
 Access and identity (TC-US1-13, 14, 15) span SCRUM-41–44.
+
+### SCRUM-10 (US6a)
+
+| Subtask | Work | Done when | PR |
+|---|---|---|---|
+| SCRUM-48 | `waitlist_available` helper (full and `waitlist_enabled`); `EVENT_FULL` uses it; seed enables the bootcamp's waitlist | TC-US6A-01, 02, 09 (AC 1, 2) | |
+| SCRUM-49 | `POST /events/{id}/waitlist` refuses with `WAITLIST_NOT_ENABLED` / `SEATS_AVAILABLE`, takes register's gates (D16), keeps the position confirmation | TC-US6A-03 to 08 (AC 1–3); no migration | |
+| SCRUM-52 | Join-waitlist prompt on the register screen | Frontend | |
 
 ### SCRUM-72 (US6b)
 
