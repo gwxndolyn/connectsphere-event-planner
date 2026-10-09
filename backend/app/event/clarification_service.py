@@ -8,6 +8,7 @@ from app.core.exceptions import DomainError
 from app.event.clarification_schemas import (
     ClarificationOut,
     ClarificationRequestWrite,
+    ClarificationResponseWrite,
     ClarificationSentOut,
 )
 from app.event.models import (
@@ -17,7 +18,7 @@ from app.event.models import (
     EventRequestClarification,
     EventStatus,
 )
-from app.event.request_service import SUBMITTED_REQUEST_STATUSES
+from app.event.request_service import SUBMITTED_REQUEST_STATUSES, event_request_service
 from app.user.models import User
 
 # SCRUM-11 AC 2. Later rounds (8d, SCRUM-56) also start from under_review, once the
@@ -28,9 +29,9 @@ CLARIFIABLE_STATUSES = (EventStatus.SUBMITTED, EventStatus.UNDER_REVIEW)
 class ClarificationService:
     """An event request's clarification thread (US8).
 
-    `send_request` is the whole SCRUM-53 transition. `add_request` is the storage underneath it
-    (SCRUM-54): no status checks and no commit, so the message and the status change land in
-    one transaction.
+    `send_request` is the whole SCRUM-53 transition and `send_response` the SCRUM-77 one.
+    `add_request` is the storage underneath (SCRUM-54): no status checks and no commit, so the
+    message and the status change land in one transaction.
     """
 
     def send_request(
@@ -84,6 +85,58 @@ class ClarificationService:
         db.add(clarification)
         db.flush()
         return ClarificationOut.model_validate(clarification)
+
+    def send_response(
+        self,
+        db: Session,
+        request_id: uuid.UUID,
+        organiser: User,
+        body: ClarificationResponseWrite,
+        now: datetime,
+    ) -> ClarificationSentOut:
+        """The owner answers the open round (US8c AC 1) and the request returns to review (AC 2)."""
+        event = db.scalars(
+            select(Event).where(Event.id == request_id).with_for_update()
+        ).one_or_none()
+        # Another organiser's request is a 404, never a 403 (§1a rules).
+        if event is None or event.created_by_user_id != organiser.id:
+            raise DomainError(404, "NOT_FOUND")
+        if event.status != EventStatus.AWAITING_CLARIFICATION:
+            raise DomainError(409, "NO_OPEN_CLARIFICATION", status=event.status.value)
+        comment = body.comment.strip()
+        if not comment:
+            raise DomainError(422, "MISSING_REQUIRED_FIELD", fields=["comment"])
+
+        # Awaiting clarification means the latest round has a question and no reply yet; the
+        # (event_id, round, kind) unique constraint backs that up.
+        open_round = db.scalar(
+            select(func.max(EventRequestClarification.round)).where(
+                EventRequestClarification.event_id == event.id,
+                EventRequestClarification.kind == ClarificationKind.REQUEST,
+            )
+        )
+        if open_round is None:
+            raise RuntimeError(f"event request {event.id} awaits clarification but has no question")
+        response = EventRequestClarification(
+            event_id=event.id,
+            round=open_round,
+            kind=ClarificationKind.RESPONSE,
+            sections=None,
+            comment=comment,
+            author_user_id=organiser.id,
+            created_at=now,
+        )
+        db.add(response)
+        event.status = EventStatus.UNDER_REVIEW
+        db.flush()
+        result = ClarificationSentOut(clarification=ClarificationOut.model_validate(response), status=event.status)
+        db.commit()
+        return result
+
+    def read_thread(self, db: Session, request_id: uuid.UUID, reader: User) -> list[ClarificationOut]:
+        """The thread for anyone who may read the request itself: owner, or staff per D11."""
+        event_request_service.get(db, request_id, reader)  # raises 404 when not readable
+        return self.list_thread(db, request_id)
 
     def list_thread(self, db: Session, event_id: uuid.UUID) -> list[ClarificationOut]:
         """Every message, oldest round first, each question before its reply."""
