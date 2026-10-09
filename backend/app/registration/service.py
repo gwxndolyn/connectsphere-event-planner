@@ -209,6 +209,46 @@ class RegistrationService:
             attendee=attendee,
         )
 
+    def accept_offer(
+        self, db: Session, registration_id: uuid.UUID, attendee: Attendee, now: datetime
+    ) -> RegisterResponse:
+        """The offer holder takes up the seat (SCRUM-51, US6b AC 2): offered → confirmed.
+        Anyone not holding a live offer is refused and keeps their status (AC 3)."""
+        registration = db.get(Registration, registration_id)
+        # Email-only waitlist entries (D3) have no attendee to match, so they 404 here too.
+        if registration is None or registration.attendee_id != attendee.id:
+            raise DomainError(404, "NOT_FOUND")
+
+        event = db.scalars(select(Event).where(Event.id == registration.event_id).with_for_update()).one()
+        db.refresh(registration, with_for_update=True)
+
+        if registration.status != RegistrationStatus.OFFERED:
+            raise DomainError(409, "NO_ACTIVE_OFFER")
+        # A lapsed offer no longer holds its seat (seats_remaining ignores it), so someone else
+        # may already have it. Refuse rather than overbook; the expiry sweep (D2) cleans it up.
+        if registration.offer_expires_at is None or registration.offer_expires_at <= now:
+            raise DomainError(409, "OFFER_EXPIRED")
+        if now >= event.start_at:
+            raise DomainError(403, "EVENT_STARTED")
+
+        registration.status = RegistrationStatus.CONFIRMED
+        registration.offer_expires_at = None
+        registration.updated_at = now
+        db.add(
+            AttendanceLog(
+                registration_id=registration.id,
+                event_id=event.id,
+                attendee_id=attendee.id,
+                action="registered",
+                occurred_at=now,
+                note="accepted waitlist offer",
+            )
+        )
+        db.flush()
+        response = self._confirmation(registration, event)
+        db.commit()
+        return response
+
     def withdraw(
         self,
         db: Session,
@@ -346,6 +386,9 @@ class RegistrationService:
         )
         db.commit()
 
+        return self._confirmation(registration, event)
+
+    def _confirmation(self, registration: Registration, event: Event) -> RegisterResponse:
         return RegisterResponse(
             registration_id=registration.id,
             status=registration.status,
