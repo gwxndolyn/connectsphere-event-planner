@@ -66,10 +66,10 @@ All three Sprint 1 stories have working backends, tested against a real Postgres
 | SCRUM-6 — withdraw from a registration | Done | Done | TC-US7 15/15 |
 | SCRUM-20 — submit event request (US1) | Done | **Real screens, wired to API** | TC-US1 16/16 + 1 E2E |
 | SCRUM-11 — request clarification (US8a) | Done: storage (SCRUM-54), send endpoint (SCRUM-53), review queue (SCRUM-57) | **Real screens, wired to API** (SCRUM-57) | TC-US8 16/16 + 1 E2E |
-| SCRUM-72 — take up a place (US6b) | Accept endpoint done (SCRUM-51); vacancy notice (SCRUM-50) still to check | Not started (SCRUM-76) | TC-US6B 7/7 so far |
+| SCRUM-72 — take up a place (US6b) | Done: offer notice (SCRUM-50) + accept (SCRUM-51) | Not started (SCRUM-76) | TC-US6B 10/10 |
 | SCRUM-74 — organiser responds (US8c) | Response endpoint + thread read done (SCRUM-77) | Not started (SCRUM-78, 58) | TC-US8-17 to 24 |
  
-Every endpoint in §3 exists, plus `POST /registrations/{id}/decline` (deviation 3 below) and `POST /registrations/{id}/accept` (deviation 13). Identity is two stubs: `X-Attendee-Id` for the Sprint 1 routes and `X-User-Id` (role-aware) for the event-request routes. The database is the tables in §2 plus `attendees` and `users`. Backend suite: 132 tests; E2E: 3 tests (health check, US1 journey, US8a coordinator journey). **Supabase may lag `main`**: the SCRUM-40 and SCRUM-54 migrations (`20260930_1200_us1_request_schema`, `20261008_1200_us8_clarifications`) must be applied there by the named person — check with `alembic current`.
+Every endpoint in §3 exists, plus `POST /registrations/{id}/decline` (deviation 3 below) and `POST /registrations/{id}/accept` (deviation 13). Identity is two stubs: `X-Attendee-Id` for the Sprint 1 routes and `X-User-Id` (role-aware) for the event-request routes. The database is the tables in §2 plus `attendees` and `users`. Backend suite: 135 tests; E2E: 3 tests (health check, US1 journey, US8a coordinator journey). **Supabase may lag `main`**: the SCRUM-40 and SCRUM-54 migrations (`20260930_1200_us1_request_schema`, `20261008_1200_us8_clarifications`) must be applied there by the named person — check with `alembic current`.
  
 ### Get it running
  
@@ -146,6 +146,7 @@ Each is implemented and defensible; each departs from the contract in §2/§3 an
 | 12 | New error code `CLARIFICATION_NOT_ALLOWED` (409, with the request's current `status`) when a coordinator asks for clarification outside `submitted`/`under_review` | `app/event/clarification_service.py` |
 | 13 | `POST /registrations/{id}/accept` (US6b) isn't in §3's original list, and adds `409 OFFER_EXPIRED` for an offer past `offer_expires_at` that the manual expiry (D2) hasn't swept yet — accepting it could overbook, since a lapsed offer no longer holds its seat | `app/registration/service.py` |
 | 14 | New error code `NO_OPEN_CLARIFICATION` (409, with the request's current `status`) when the organiser answers outside `awaiting_clarification`, including a second answer to the same round | `app/event/clarification_service.py` |
+| 15 | `GET /me/registrations` has a third section, `offered`, not in §3's original shape: live offers with `offer_expires_at`, so the attendee sees the place on screen (D5). It's additive; the notifier also now receives the `registration_id` to accept with | `app/registration/service.py`, `app/notification/service.py` |
  
 ### Open decisions still unanswered
  
@@ -445,9 +446,12 @@ Body: `{"email": "calvin.ng.2024@smu.edu.sg"}` → `201 {"registration_id", "sta
     "venue_name": "SMU SCIS Seminar Room 2-1", "joining_info": "Room 2-1",
     "delivery_mode": "in_person"
   }],
-  "waitlisted": [{ "...": "same fields", "waitlist_position": 4 }]
+  "waitlisted": [{ "...": "same fields", "waitlist_position": 4 }],
+  "offered": [{ "...": "same fields", "offer_expires_at": "2026-10-02T01:00:00Z" }]
 }
 ```
+
+`offered` (SCRUM-50, deviation 15) lists places held for the attendee after someone withdrew, until `offer_expires_at`; accept with `POST /registrations/{registration_id}/accept`. A lapsed offer isn't listed, since it can no longer be accepted.
  
 Sorting, filtering and section order are all server-side — the mockup must not re-sort. See `TC-US11-04` through `TC-US11-07`.
  
@@ -677,7 +681,7 @@ The E2E test drives the browser: organiser submits a request → switch to coord
 
 > *As a waiting-listed Attendee, I want to be told when a place becomes available and be able to take it up, so that I get to attend the event I was waiting for.*
 
-Backend: `tests/registration/test_accept_offer.py`. IDs are `TC-US6B-…` so they can't collide with US6a's tests, written in parallel. AC 1 (notify the next person) is the Sprint 1 offer flow, TC-US7-07, 08.
+Backend: `tests/registration/test_accept_offer.py` (01–07 accept, SCRUM-51; 08–10 offer notice, SCRUM-50). TC-US7-08's notification now also carries the `registration_id`, and TC-US11-10's empty response includes `"offered": []`. IDs are `TC-US6B-…` so they can't collide with US6a's tests, written in parallel. AC 1 (notify the next person) is the Sprint 1 offer flow, TC-US7-07, 08.
 
 | ID | Given | When | Then |
 |---|---|---|---|
@@ -688,6 +692,9 @@ Backend: `tests/registration/test_accept_offer.py`. IDs are `TC-US6B-…` so the
 | TC-US6B-05 | B's offer has passed `offer_expires_at` | B accepts | `409 OFFER_EXPIRED`; unchanged |
 | TC-US6B-06 | B accepted | B lists `GET /me/registrations` | B under `confirmed`, not `waitlisted` |
 | TC-US6B-07 | B's offer | No identity; event already started | `401`; `403 EVENT_STARTED` |
+| TC-US6B-08 | Full event, C queued | A withdraws, C lists `GET /me/registrations` | C's row moves from `waitlisted` to `offered`, with `offer_expires_at` (AC 1) |
+| TC-US6B-09 | Same | A withdraws; C accepts with the id from the notification | Notification goes to C with the `registration_id`; accept `200 confirmed` (AC 1, 2) |
+| TC-US6B-10 | B's offer has lapsed | B lists `GET /me/registrations` | Not under `offered` (or `waitlisted`) |
 
 ### Cross-cutting
  
@@ -756,8 +763,8 @@ Access and identity (TC-US1-13, 14, 15) span SCRUM-41–44.
 | Subtask | Work | Done when | PR |
 |---|---|---|---|
 | SCRUM-51 | Accept an offer: `offered` → `confirmed` | TC-US6B-01 to 07 (AC 2, 3) | |
-| SCRUM-50 | Notify the next waitlisted attendee on a vacancy | AC 1 — check against TC-US7-07, 08 | |
-| SCRUM-76 | Offer + "Accept place" on the attendee's screen | Needs the Sprint 1 screens wired to the API | |
+| SCRUM-50 | Notify the next waitlisted attendee on a vacancy: on-screen `offered` section + id in the notice | TC-US6B-08 to 10, TC-US7-07, 08 (AC 1) | |
+| SCRUM-76 | Offer + "Accept place" on the attendee's screen | Render `offered` from `GET /me/registrations`; needs the Sprint 1 screens wired to the API | |
 
 ### SCRUM-74 (US8c)
 
