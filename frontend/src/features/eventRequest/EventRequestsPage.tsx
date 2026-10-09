@@ -1,9 +1,18 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { ApiError, apiClient } from "../../api/client";
-import type { EventRequest, EventRequestsResponse, EventRequestWrite } from "./types";
+import { sectionLabel, statusLabel } from "./clarificationSections";
+import type {
+  Clarification,
+  ClarificationSent,
+  ClarificationThread,
+  EventRequest,
+  EventRequestsResponse,
+  EventRequestWrite,
+} from "./types";
 import "./eventRequests.css";
+import "./clarifications.css";
 
-type Screen = "list" | "form" | "confirmation";
+type Screen = "list" | "form" | "confirmation" | "respond" | "responded";
 type RequestField = keyof EventRequestWrite;
 
 const FIELD_LABELS: Record<RequestField, string> = {
@@ -72,6 +81,7 @@ function errorMessage(error: unknown): string {
   if (error.code === "EVENT_REQUEST_LOCKED") return "This request has been submitted and can no longer be edited.";
   if (error.code === "MISSING_REQUIRED_FIELD") return "Complete the fields marked below before submitting.";
   if (error.code === "INVALID_EVENT_REQUEST") return "Review the fields marked below and try again.";
+  if (error.code === "NO_OPEN_CLARIFICATION") return "This clarification has already been answered.";
   return `The backend rejected the request (${error.status}).`;
 }
 
@@ -86,6 +96,11 @@ export function EventRequestsPage() {
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  // US8c: the coordinator's open question, and the organiser's answer to it (SCRUM-78).
+  const [openQuestion, setOpenQuestion] = useState<Clarification | null>(null);
+  const [answer, setAnswer] = useState("");
+  const [answerInvalid, setAnswerInvalid] = useState(false);
+  const [responded, setResponded] = useState<ClarificationSent | null>(null);
 
   useEffect(() => {
     let current = true;
@@ -118,6 +133,20 @@ export function EventRequestsPage() {
   async function openRequest(request: EventRequest) {
     setError(null);
     setNotice("");
+    if (request.status === "awaiting_clarification") {
+      try {
+        const thread = await apiClient.get<ClarificationThread>(`/api/v1/event-requests/${request.id}/clarifications`);
+        const questions = thread.clarifications.filter((message) => message.kind === "request");
+        setActiveRequest(request);
+        setOpenQuestion(questions[questions.length - 1] ?? null);
+        setAnswer("");
+        setAnswerInvalid(false);
+        setScreen("respond");
+      } catch (reason) {
+        setError(errorMessage(reason));
+      }
+      return;
+    }
     if (request.status !== "draft") {
       setActiveRequest(request);
       setScreen("confirmation");
@@ -220,13 +249,50 @@ export function EventRequestsPage() {
     void submitRequest();
   }
 
+  async function sendResponse(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!activeRequest) return;
+    setSaving(true);
+    setError(null);
+    setAnswerInvalid(false);
+    try {
+      const result = await apiClient.post<ClarificationSent>(
+        `/api/v1/event-requests/${activeRequest.id}/clarifications/response`,
+        { comment: answer },
+      );
+      const updated = { ...activeRequest, status: result.status };
+      setRequests((current) => current.map((request) => (request.id === updated.id ? updated : request)));
+      setActiveRequest(updated);
+      setResponded(result);
+      setScreen("responded");
+    } catch (reason) {
+      if (reason instanceof ApiError && reason.code === "MISSING_REQUIRED_FIELD") {
+        setError("Write a response before sending it.");
+        setAnswerInvalid(true);
+      } else {
+        setError(errorMessage(reason));
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
   function backToList() {
     setScreen("list");
     setActiveRequest(null);
+    setOpenQuestion(null);
+    setResponded(null);
     setError(null);
     setNotice("");
   }
 
+  const headings: Record<Screen, string> = {
+    list: "My event requests",
+    form: "Event request",
+    confirmation: "Submission confirmed",
+    respond: "Clarification requested",
+    responded: "Response sent",
+  };
   const dateFieldInvalid = missingFields.includes("preferred_dates");
 
   return (
@@ -234,7 +300,7 @@ export function EventRequestsPage() {
       <div className="request-page__heading">
         <div>
           <p className="request-page__eyebrow">EVENT MANAGEMENT / REQUESTS</p>
-          <h1>{screen === "list" ? "My event requests" : screen === "form" ? "Event request" : "Submission confirmed"}</h1>
+          <h1>{headings[screen]}</h1>
         </div>
         {screen === "list" && (
           <button className="request-button request-button--primary" type="button" onClick={openNewRequest}>
@@ -273,7 +339,7 @@ export function EventRequestsPage() {
                   <strong>{request.name || "Untitled event request"}</strong>
                   <span>{request.event_category || "Category not set"}</span>
                 </span>
-                <span className={`request-status request-status--${request.status}`}>{request.status.replaceAll("_", " ")}</span>
+                <span className={`request-status request-status--${request.status}`}>{statusLabel(request.status)}</span>
                 {request.request_reference && <code className="request-row__reference">{request.request_reference}</code>}
                 <span className="request-row__arrow" aria-hidden="true">›</span>
               </button>
@@ -431,6 +497,68 @@ export function EventRequestsPage() {
             </button>
           </div>
         </form>
+      )}
+
+      {screen === "respond" && activeRequest && (
+        <form className="request-form" noValidate onSubmit={(event) => void sendResponse(event)}>
+          <div className="clarify-summary">
+            <strong>{activeRequest.name || "Untitled event request"}</strong>
+            {activeRequest.request_reference && <code>{activeRequest.request_reference}</code>}
+            <span className={`request-status request-status--${activeRequest.status}`}>{statusLabel(activeRequest.status)}</span>
+          </div>
+
+          {openQuestion ? (
+            <section className="clarify-question" aria-labelledby="clarify-question-title">
+              <h2 id="clarify-question-title">The coordinator asks</h2>
+              <ul className="clarify-sent-sections" aria-label="Sections in question">
+                {(openQuestion.sections ?? []).map((key) => (
+                  <li key={key}>{sectionLabel(key)}</li>
+                ))}
+              </ul>
+              <blockquote>{openQuestion.comment}</blockquote>
+              <p className="clarify-question__meta">
+                Round {openQuestion.round} · {new Date(openQuestion.created_at).toLocaleString()}
+              </p>
+            </section>
+          ) : (
+            <p className="request-notice">The coordinator's question couldn't be loaded.</p>
+          )}
+
+          <label className={`request-field request-field--wide${answerInvalid ? " request-field--invalid" : ""}`}>
+            Your response
+            <textarea
+              aria-invalid={answerInvalid}
+              rows={5}
+              value={answer}
+              onChange={(event) => {
+                setAnswer(event.target.value);
+                setAnswerInvalid(false);
+              }}
+            />
+          </label>
+          <div className="request-form__actions">
+            <button className="request-button request-button--quiet" type="button" onClick={backToList}>
+              Cancel
+            </button>
+            <button className="request-button request-button--primary" type="submit" disabled={saving}>
+              {saving ? "Sending…" : "Send response"}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {screen === "responded" && activeRequest && responded && (
+        <section className="request-confirmation" aria-labelledby="response-sent-title">
+          <span className="request-confirmation__mark" aria-hidden="true">✓</span>
+          <p className="request-page__eyebrow">ROUND {responded.clarification.round}</p>
+          <h2 id="response-sent-title">Response sent</h2>
+          <p>
+            {activeRequest.name || "Your request"} is back <strong>{statusLabel(responded.status)}</strong>.
+          </p>
+          <button className="request-button request-button--primary" type="button" onClick={backToList}>
+            Back to my requests
+          </button>
+        </section>
       )}
 
       {screen === "confirmation" && activeRequest && (
