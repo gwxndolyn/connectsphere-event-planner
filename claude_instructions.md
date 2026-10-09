@@ -65,9 +65,9 @@ All three Sprint 1 stories have working backends, tested against a real Postgres
 | SCRUM-5 — view my upcoming events | Done | Done | TC-US11 11/11 |
 | SCRUM-6 — withdraw from a registration | Done | Done | TC-US7 15/15 |
 | SCRUM-20 — submit event request (US1) | Done | **Real screens, wired to API** | TC-US1 16/16 + 1 E2E |
-| SCRUM-11 — request clarification (US8a) | Done: storage (SCRUM-54) + send endpoint (SCRUM-53) | Not started (SCRUM-57) | TC-US8 14/14 |
+| SCRUM-11 — request clarification (US8a) | Done: storage (SCRUM-54), send endpoint (SCRUM-53), review queue (SCRUM-57) | **Real screens, wired to API** (SCRUM-57) | TC-US8 16/16 + 1 E2E |
  
-Every endpoint in §3 exists, plus `POST /registrations/{id}/decline` (deviation 3 below). Identity is two stubs: `X-Attendee-Id` for the Sprint 1 routes and `X-User-Id` (role-aware) for the event-request routes. The database is the tables in §2 plus `attendees` and `users`. Backend suite: 110 tests; E2E: 2 tests (health check, US1 journey). **Supabase may lag `main`**: the SCRUM-40 and SCRUM-54 migrations (`20260930_1200_us1_request_schema`, `20261008_1200_us8_clarifications`) must be applied there by the named person — check with `alembic current`.
+Every endpoint in §3 exists, plus `POST /registrations/{id}/decline` (deviation 3 below). Identity is two stubs: `X-Attendee-Id` for the Sprint 1 routes and `X-User-Id` (role-aware) for the event-request routes. The database is the tables in §2 plus `attendees` and `users`. Backend suite: 112 tests; E2E: 3 tests (health check, US1 journey, US8a coordinator journey). **Supabase may lag `main`**: the SCRUM-40 and SCRUM-54 migrations (`20260930_1200_us1_request_schema`, `20261008_1200_us8_clarifications`) must be applied there by the named person — check with `alembic current`.
  
 ### Get it running
  
@@ -85,7 +85,7 @@ python -m app.seed                     # seven events, attendees, the organiser 
 uvicorn app.main:app --reload          # http://localhost:8000/docs
  
 cd ../frontend
-cp .env.example .env                   # REQUIRED: holds VITE_DEV_USER_ID (the seeded organiser)
+cp .env.example .env                   # REQUIRED: VITE_DEV_USER_ID (organiser) + VITE_DEV_COORDINATOR_ID
 npm install && npm run dev             # http://localhost:5173 — restart after editing .env
  
 cd ../e2e && npm ci && npx playwright install chromium
@@ -94,7 +94,7 @@ npm test                               # backend must be running; don't also run
 
 **Windows (PowerShell):** activate with `.venv\Scripts\activate`; copy with `Copy-Item .env.example .env`. Create `.env` files by copying or in VS Code, not with `echo >` — PowerShell writes UTF-16, which Vite can't read.
  
-`/docs` is the quickest way to see the Sprint 1 product work: withdraw a seeded registration from the full event and watch the seat pass to the next person in the queue. The seed script prints the `X-Attendee-Id` and registration ids you need, plus `VITE_DEV_USER_ID` (organiser `6c200a77-b7cc-5fb1-9d51-81a0abeba24b`, deterministic). For US1, open **Event requests** in the app, or call the event-request endpoints in `/docs` with that id in `X-User-Id`. For US8, act as the seeded coordinator (`2aac679a-f014-5437-b43a-d150447a6336`, also deterministic).
+`/docs` is the quickest way to see the Sprint 1 product work: withdraw a seeded registration from the full event and watch the seat pass to the next person in the queue. The seed script prints the `X-Attendee-Id` and registration ids you need, plus `VITE_DEV_USER_ID` (organiser `6c200a77-b7cc-5fb1-9d51-81a0abeba24b`, deterministic). For US1, open **Event requests** in the app, or call the event-request endpoints in `/docs` with that id in `X-User-Id`. For US8, switch **Acting as** in the header to **Coordinator** and open **Event requests** for the review queue; in `/docs` use the seeded coordinator's id (`2aac679a-f014-5437-b43a-d150447a6336`, also deterministic).
  
 ### When something looks broken
  
@@ -103,6 +103,7 @@ npm test                               # backend must be running; don't also run
 - **Passes locally, fails in CI** → check Python is 3.12, and see the lockfile note under Environment.
 - **The page says "backend unreachable"** → the API isn't running, or your origin isn't in `CORS_ORIGINS`.
 - **Event requests says "Set VITE_DEV_USER_ID…"** → `frontend/.env` doesn't exist (only `.env.example` does). Copy it and restart `npm run dev`.
+- **The review queue says "Set VITE_DEV_COORDINATOR_ID…"** → your `frontend/.env` predates SCRUM-57. Copy that line from `.env.example` and restart `npm run dev`.
 - **CORS errors even on `/api/events/health`** → something else is answering on port 8000 (open the health URL directly; "no Route matched" means another app), or a terminal still has a leftover `CORS_ORIGINS`. Close all terminals and start fresh.
 - **`401` on `/api/v1/me/event-requests`** → the organiser isn't in the database uvicorn is using. Run `alembic upgrade head` and `python -m app.seed`; check no terminal has a leftover `DATABASE_URL` (`echo $env:DATABASE_URL`).
 - **`python -m app.seed` fails with `relation … does not exist`** → you skipped `alembic upgrade head`.
@@ -159,7 +160,7 @@ Each is implemented and defensible; each departs from the contract in §2/§3 an
 | D9 | What timezone are preferred times in? | Asia/Singapore local time (`time` without zone); converted when a request becomes an event |
 | D10 | What's the request reference format? | `ER-<year>-<6-digit sequence>`, e.g. `ER-2026-000123`, from `event_request_reference_seq`; one formatter function |
 | D11 | Who can read a submitted request? | Owner, coordinators and operations managers, **only while in a request status** (submitted → rejected). Other organisers 404. Drafts owner-only |
-| D12 | How are users identified before Supabase Auth? | `X-User-Id` header stub, alongside `X-Attendee-Id` |
+| D12 | How are users identified before Supabase Auth? | `X-User-Id` header stub, alongside `X-Attendee-Id`. The frontend's **Acting as** switch (header) sends the seeded organiser's or coordinator's id from `frontend/.env`; the choice is kept in `localStorage` |
 | D13 | Which sections can a clarification request tag? | SCRUM-11 only gives examples (attendance, layout, equipment). Assumed seven, grouping the US1 fields: `details`, `schedule`, `attendance`, `layout`, `accessibility`, `equipment`, `registration`. One list in `CLARIFICATION_SECTIONS`, mirrored by the migration's CHECK |
 | D14 | Which coordinator may ask for clarification? | Any active coordinator. US10 (SCRUM-13) assigns a coordinator to a request; tighten this to the assigned one then |
  
@@ -178,7 +179,7 @@ Each is implemented and defensible; each departs from the contract in §2/§3 an
  
 1. **Wire the Sprint 1 screens** (event list, register, my events, withdraw). Every endpoint exists, and US1 built the plumbing: `api/client.ts` sends an identity header and turns 404/409/422 into structured errors. Swap `useEventRegistry`'s functions for `apiClient` calls, send `X-Attendee-Id` (the seed prints an attendee id), handle the §3 codes (`EVENT_FULL`, `ALREADY_REGISTERED`, `REGISTRATION_CLOSED`, `MISSING_REQUIRED_FIELD`), and add loading/error states. **No Jira ticket yet — create one.** Do it **before US6's frontend**: the join-waitlist prompt hangs off the register screen's real `EVENT_FULL` response.
 2. **US6 (SCRUM-10).** Backend mostly exists from Sprint 1. Still missing: honour `waitlist_enabled` (column added in SCRUM-40, default `false` — the seed's waitlist events may need it set to `true`), and **an accept-offer endpoint** (offers can only be declined or expire today). Settle D3/D6/D7.
-3. **US8 (SCRUM-11) and US10 (SCRUM-13)** build on the US1 request: statuses, `users`/roles and `X-User-Id` exist. The seed has a **coordinator** since SCRUM-54; US10 still needs to seed an **operations manager**. US8a's backend is done: `POST /api/v1/event-requests/{id}/clarifications` (§3) stores the question and sets `awaiting_clarification` in one transaction (`clarification_service.send_request`). SCRUM-55 hooks the organiser notification into `send_request`; SCRUM-77 adds the reply as a `response` row for the same round and sets `under_review`, which lets the next round through the guard; SCRUM-56 refines what's allowed for later rounds. Nothing yet moves a request to `under_review` or `approved` — agree who does. US10 moving an event to `planning` will hide it from staff under D11; widen that rule in US10 if the coordinator needs to keep reading it.
+3. **US8 (SCRUM-11) and US10 (SCRUM-13)** build on the US1 request: statuses, `users`/roles and `X-User-Id` exist. The seed has a **coordinator** since SCRUM-54; US10 still needs to seed an **operations manager**. US8a is done end to end: coordinators pick a request from the review queue (`GET /api/v1/event-requests`) and send through `POST /api/v1/event-requests/{id}/clarifications` (§3), which stores the question and sets `awaiting_clarification` in one transaction (`clarification_service.send_request`). Screen: `frontend/src/features/eventRequest/ClarificationReviewPage.tsx`; a new role-specific screen should follow its pattern (`App.tsx` picks the page by `devRole`). SCRUM-55 hooks the organiser notification into `send_request`; SCRUM-77 adds the reply as a `response` row for the same round and sets `under_review`, which lets the next round through the guard; SCRUM-56 refines what's allowed for later rounds. Nothing yet moves a request to `under_review` or `approved` — agree who does. US10 moving an event to `planning` will hide it from staff under D11; widen that rule in US10 if the coordinator needs to keep reading it.
 4. **One end-to-end test** that registers, views and withdraws against the live backend, once item 1 is done. The E2E job already migrates and seeds.
 5. **Then Supabase Auth** (§9), replacing both header stubs — after the wiring, so a failure can only be in one half. It brings RLS policies with it.
 6. **Smaller, worth doing:** fix the root README (missing `alembic upgrade head`, the frontend `.env` copy, a CI section naming a `ci.yml` that doesn't exist, TODO team list); lock the backend's dependencies; review the Dependabot PRs; make the notification log visible under uvicorn; delete merged branches; turn on branch protection for `main`.
@@ -476,6 +477,7 @@ Router: `app/event/request_router.py`; logic: `app/event/request_service.py`. **
 |---|---|
 | `POST /api/v1/event-requests` | Create a draft from partial data → `201` |
 | `GET /api/v1/me/event-requests` | Caller's requests, newest first → `{"event_requests": [...]}` |
+| `GET /api/v1/event-requests` | Staff review queue: every request from `submitted` to `rejected`, oldest submission first. Coordinator or operations manager only (SCRUM-57) |
 | `GET /api/v1/event-requests/{id}` | Read one (owner; staff per D11) |
 | `PATCH /api/v1/event-requests/{id}` | Update a draft; only fields sent are changed |
 | `POST /api/v1/event-requests/{id}/submit` | Validate and submit |
@@ -608,7 +610,7 @@ The E2E test drives the browser: save a draft → submit with a field missing �
 
 > *As an Event Coordinator, I want to send a clarification request back to the Event Organiser on specific parts of their submission, so that ambiguous requirements are called out before planning proceeds.*
 
-Backend: `tests/event/test_event_request_clarifications.py` (01–08, storage, SCRUM-54) and `tests/event/test_event_request_clarification_api.py` (09–14, endpoint, SCRUM-53).
+Backend: `tests/event/test_event_request_clarifications.py` (01–08, storage, SCRUM-54) and `tests/event/test_event_request_clarification_api.py` (09–14, endpoint, SCRUM-53; 15–16, review queue, SCRUM-57). E2E: `e2e/tests/clarification-request.spec.ts`.
 
 | ID | Given | When | Then |
 |---|---|---|---|
@@ -626,6 +628,10 @@ Backend: `tests/event/test_event_request_clarifications.py` (01–08, storage, S
 | TC-US8-12 | Draft, confirmed event, unknown id | Coordinator sends | `404 NOT_FOUND` |
 | TC-US8-13 | No identity, organiser, ops manager, attendee, inactive coordinator | Send | `401`, then `403` for each; status unchanged |
 | TC-US8-14 | Submitted request | Send with missing or unknown sections | `422`; status stays `submitted`, nothing stored |
+| TC-US8-15 | Requests across statuses, plus a draft and a confirmed event | Coordinator lists the review queue | Only request-stage statuses, oldest submission first |
+| TC-US8-16 | — | Coordinator, ops manager, organiser, no identity list the queue | `200`, `200`, `403`, `401` |
+
+The E2E test drives the browser: organiser submits a request → switch to coordinator → open it from the queue → send with nothing chosen and see both inputs flagged → tick Attendance and Room layout, comment, send → see the confirmation → switch back and see `awaiting clarification` on the organiser's list.
 
 ### Cross-cutting
  
@@ -695,7 +701,7 @@ Access and identity (TC-US1-13, 14, 15) span SCRUM-41–44.
 |---|---|---|---|
 | SCRUM-54 | Thread table, `clarification_service`, seeded coordinator | TC-US8-01 to 08; one Alembic head | #34 |
 | SCRUM-53 | Endpoint + guard + Submitted/Under Review → Awaiting Clarification | TC-US8-09 to 14 (AC 2, 3) | #35 |
-| SCRUM-57 | Coordinator section selector + comment UI | | |
+| SCRUM-57 | Coordinator section selector + comment UI, review queue, **Acting as** switch | TC-US8-15, 16; E2E journey | |
 
 **Build order** (dependencies are real — SCRUM-23 and SCRUM-24 unblock everything):
  
