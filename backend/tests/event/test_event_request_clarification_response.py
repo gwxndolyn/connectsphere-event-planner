@@ -197,3 +197,58 @@ async def test_tc_us8_24_thread_is_hidden_from_other_organisers_and_attendees(
         assert response.status_code == 404
         assert response.json() == {"code": "NOT_FOUND"}
     assert (await thread(client, None, awaiting.id)).status_code == 401
+
+
+async def three_rounds(client: AsyncClient, organiser: User, coordinator: User, event: Event) -> list[dict]:
+    """Question → reply → question → reply → question, each with its own comment (8d AC 1)."""
+    sent = []
+    for round in (1, 2, 3):
+        question = await client.post(
+            f"/api/v1/event-requests/{event.id}/clarifications",
+            headers=auth(coordinator),
+            json={"sections": ["attendance"], "comment": f"Question {round}"},
+        )
+        assert question.status_code == 201
+        sent.append(question.json())
+        if round < 3:
+            reply = await answer(client, organiser, event.id, {"comment": f"Answer {round}"})
+            assert reply.status_code == 201
+            sent.append(reply.json())
+    return sent
+
+
+async def test_tc_us8_31_coordinator_can_ask_again_after_every_answer(
+    client: AsyncClient, db: Session, organiser: User, coordinator: User
+) -> None:
+    event = make_request(db, organiser)
+
+    sent = await three_rounds(client, organiser, coordinator, event)
+
+    assert [(s["clarification"]["kind"], s["clarification"]["round"]) for s in sent] == [
+        ("request", 1),
+        ("response", 1),
+        ("request", 2),
+        ("response", 2),
+        ("request", 3),
+    ]
+    assert [s["status"] for s in sent] == ["awaiting_clarification", "under_review"] * 2 + ["awaiting_clarification"]
+    db.refresh(event)
+    assert event.status == EventStatus.AWAITING_CLARIFICATION
+
+
+async def test_tc_us8_32_thread_keeps_every_round_in_order(
+    client: AsyncClient, db: Session, organiser: User, coordinator: User
+) -> None:
+    event = make_request(db, organiser)
+    await three_rounds(client, organiser, coordinator, event)
+
+    response = await thread(client, coordinator, event.id)
+
+    assert response.status_code == 200
+    assert [(m["round"], m["kind"], m["comment"]) for m in response.json()["clarifications"]] == [
+        (1, "request", "Question 1"),
+        (1, "response", "Answer 1"),
+        (2, "request", "Question 2"),
+        (2, "response", "Answer 2"),
+        (3, "request", "Question 3"),
+    ]
