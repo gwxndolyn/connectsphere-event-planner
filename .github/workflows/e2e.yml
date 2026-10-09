@@ -30,6 +30,7 @@ jobs:
     env:
       DATABASE_URL: postgresql+psycopg://connectsphere:connectsphere@localhost:5432/connectsphere
       VITE_DEV_USER_ID: 6c200a77-b7cc-5fb1-9d51-81a0abeba24b
+      VITE_DEV_COORDINATOR_ID: 2aac679a-f014-5437-b43a-d150447a6336
     steps:
       - uses: actions/checkout@v4
 

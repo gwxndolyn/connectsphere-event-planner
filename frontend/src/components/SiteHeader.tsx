@@ -1,3 +1,4 @@
+import type { DevRole } from "../api/client";
 import "./SiteHeader.css";
 
 interface SiteHeaderProps {
@@ -5,9 +6,11 @@ interface SiteHeaderProps {
   onSearchChange: (value: string) => void;
   view: "discovery" | "my-events" | "event-requests";
   onNavigate: (view: "discovery" | "my-events" | "event-requests") => void;
+  devRole: DevRole;
+  onDevRoleChange: (role: DevRole) => void;
 }
 
-export function SiteHeader({ search, onSearchChange, view, onNavigate }: SiteHeaderProps) {
+export function SiteHeader({ search, onSearchChange, view, onNavigate, devRole, onDevRoleChange }: SiteHeaderProps) {
   return (
     <header className="site-header">
       <div className="site-header__bar">
@@ -61,6 +64,14 @@ export function SiteHeader({ search, onSearchChange, view, onNavigate }: SiteHea
         >
           Event requests
         </button>
+        {/* Dev-only stand-in for login (D12): picks which seeded user's X-User-Id is sent. */}
+        <label className="site-header__role">
+          Acting as
+          <select value={devRole} onChange={(event) => onDevRoleChange(event.target.value as DevRole)}>
+            <option value="organiser">Organiser</option>
+            <option value="coordinator">Coordinator</option>
+          </select>
+        </label>
       </div>
     </header>
   );

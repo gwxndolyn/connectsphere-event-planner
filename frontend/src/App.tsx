@@ -1,6 +1,8 @@
 import { useState } from "react";
+import { getDevRole, setDevRole, type DevRole } from "./api/client";
 import { SiteHeader } from "./components/SiteHeader";
 import { EventHealthCheck } from "./features/event/EventHealthCheck";
+import { ClarificationReviewPage } from "./features/eventRequest/ClarificationReviewPage";
 import { EventRequestsPage } from "./features/eventRequest/EventRequestsPage";
 import { EventsBoard } from "./features/registration/EventsBoard";
 import { mockEvents } from "./features/registration/mockEvents";
@@ -13,6 +15,7 @@ function App() {
   const registry = useEventRegistry(mockEvents);
   const [view, setView] = useState<View>("discovery");
   const [search, setSearch] = useState("");
+  const [devRole, setDevRoleState] = useState<DevRole>(getDevRole);
 
   return (
     <div>
@@ -24,10 +27,15 @@ function App() {
         }}
         view={view}
         onNavigate={setView}
+        devRole={devRole}
+        onDevRoleChange={(role) => {
+          setDevRole(role);
+          setDevRoleState(role);
+        }}
       />
 
       {view === "event-requests" ? (
-        <EventRequestsPage />
+        devRole === "coordinator" ? <ClarificationReviewPage key="coordinator" /> : <EventRequestsPage key="organiser" />
       ) : view === "discovery" ? (
         <EventsBoard registry={registry} search={search} />
       ) : (
