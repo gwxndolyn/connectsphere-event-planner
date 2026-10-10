@@ -13,7 +13,8 @@ export const DEV_USER_IDS: Record<DevRole, string | undefined> = {
 // by X-Attendee-Id instead (§3). One seeded attendee for now; Supabase Auth replaces both stubs.
 export const DEV_ATTENDEE_ID: string | undefined = import.meta.env.VITE_DEV_ATTENDEE_ID;
 
-export type Identity = "user" | "attendee";
+// "none": no identity header, for routes that take none (joining a waitlist by email, D7).
+export type Identity = "user" | "attendee" | "none";
 
 interface RequestOptions extends RequestInit {
   identity?: Identity;
@@ -63,7 +64,7 @@ async function request<T>(path: string, { identity = "user", ...options }: Reque
   if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   if (identity === "attendee") {
     if (DEV_ATTENDEE_ID && !headers.has("X-Attendee-Id")) headers.set("X-Attendee-Id", DEV_ATTENDEE_ID);
-  } else {
+  } else if (identity === "user") {
     const devUserId = DEV_USER_IDS[devRole];
     if (devUserId && !headers.has("X-User-Id")) {
       headers.set("X-User-Id", devUserId);

@@ -19,7 +19,8 @@ function badgeFor(event: EventAvailability) {
 function seatsText(event: EventAvailability, waitlisted: boolean, waitlistPosition?: number): string {
   if (waitlisted) return waitlistPosition ? `You're on the waitlist (#${waitlistPosition})` : "You're on the waitlist";
   if (event.alreadyRegistered) return "You're registered";
-  if (event.isFull) return "Full";
+  // US6a AC 3: a full event without a waitlist offers nothing, so the board tells them apart.
+  if (event.isFull) return event.waitlistAvailable ? "Full · waitlist open" : "Full";
   return `${event.seatsRemaining} ${event.seatsRemaining === 1 ? "seat" : "seats"} left`;
 }
 

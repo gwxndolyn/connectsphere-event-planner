@@ -91,3 +91,21 @@ async def test_available_events_requires_an_attendee_header(client: AsyncClient,
 
     assert response.status_code == 401
     assert response.json() == {"code": "UNAUTHENTICATED"}
+
+
+@pytest.mark.parametrize(
+    ("capacity", "waitlist_enabled", "expected"),
+    [(1, True, True), (1, False, False), (2, True, False)],
+    ids=["full, waitlist enabled", "full, waitlist disabled", "places left, waitlist enabled"],
+)
+async def test_tc_us6a_10_available_events_say_whether_the_waitlist_is_offered(
+    client: AsyncClient, db: Session, capacity: int, waitlist_enabled: bool, expected: bool
+) -> None:
+    """SCRUM-52: the board shows "Join the waitlist" only where SCRUM-48's rule offers it."""
+    attendee = make_attendee(db)
+    event = make_event(db, capacity=capacity, waitlist_enabled=waitlist_enabled)
+    make_registration(db, event, make_attendee(db))
+
+    response = await client.get("/api/v1/events/available", headers=auth(attendee))
+
+    assert response.json()["events"][0]["waitlist_available"] is expected

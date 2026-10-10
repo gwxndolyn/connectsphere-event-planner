@@ -20,6 +20,8 @@ export interface EventAvailability {
   capacity: number;
   seatsRemaining: number;
   isFull: boolean;
+  // Full and the event takes a waitlist (US6a): the dialog offers "Join the waitlist".
+  waitlistAvailable: boolean;
   alreadyRegistered: boolean;
   registrationFields: RegistrationField[];
 }
@@ -37,6 +39,13 @@ export interface RegistrationConfirmation {
   registrationId: string;
   status: string;
   event: ConfirmedEvent;
+}
+
+/** The result of joining a waitlist: the position is the confirmation (US6a AC 3). */
+export interface WaitlistConfirmation {
+  registrationId: string;
+  status: string;
+  position: number;
 }
 
 export type MyRegistrationStatus = "confirmed" | "waitlisted" | "offered";

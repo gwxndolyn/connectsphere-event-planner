@@ -6,6 +6,7 @@ import type {
   MyRegistrations,
   MyRegistrationStatus,
   RegistrationConfirmation,
+  WaitlistConfirmation,
   WithdrawalResult,
 } from "./types";
 
@@ -31,6 +32,7 @@ interface AvailableEventOut {
   capacity: number;
   seats_remaining: number;
   is_full: boolean;
+  waitlist_available: boolean;
   already_registered: boolean;
   registration_fields: RegistrationFieldOut[];
 }
@@ -45,6 +47,12 @@ interface RegisterResponseOut {
     venue_name: string | null;
     join_link: string | null;
   };
+}
+
+interface WaitlistJoinResponseOut {
+  registration_id: string;
+  status: string;
+  position: number;
 }
 
 interface MyRegistrationOut {
@@ -90,6 +98,7 @@ function toEvent(event: AvailableEventOut): EventAvailability {
     capacity: event.capacity,
     seatsRemaining: event.seats_remaining,
     isFull: event.is_full,
+    waitlistAvailable: event.waitlist_available,
     alreadyRegistered: event.already_registered,
     registrationFields: event.registration_fields.map((field) => ({
       key: field.field_key,
@@ -118,8 +127,8 @@ function toMyRegistration(row: MyRegistrationOut, status: MyRegistrationStatus):
   };
 }
 
-// Every call here is an attendee route, identified by X-Attendee-Id. SCRUM-52 (join waitlist,
-// email-only per D7) and SCRUM-76 (accept an offer) add their calls alongside these.
+// Attendee routes, identified by X-Attendee-Id, except joining a waitlist, which takes only an
+// email (D7). SCRUM-76 (accept an offer) adds its call alongside these.
 export const registrationApi = {
   async listAvailable(): Promise<EventAvailability[]> {
     const body = await apiClient.get<{ events: AvailableEventOut[] }>("/api/v1/events/available", "attendee");
@@ -154,6 +163,11 @@ export const registrationApi = {
     };
   },
 
+  async joinWaitlist(eventId: string, email: string): Promise<WaitlistConfirmation> {
+    const body = await apiClient.post<WaitlistJoinResponseOut>(`/api/v1/events/${eventId}/waitlist`, { email }, "none");
+    return { registrationId: body.registration_id, status: body.status, position: body.position };
+  },
+
   async withdraw(registrationId: string): Promise<WithdrawalResult> {
     const body = await apiClient.post<WithdrawResponseOut>(
       `/api/v1/registrations/${registrationId}/withdraw`,
@@ -184,6 +198,10 @@ export function registrationErrorMessage(error: unknown, fieldLabels: Record<str
       return "This event filled up before your registration went through.";
     case "ALREADY_REGISTERED":
       return "You're already registered for this event.";
+    case "WAITLIST_NOT_ENABLED":
+      return "This event doesn't have a waitlist.";
+    case "SEATS_AVAILABLE":
+      return "A seat is free now — you can register instead.";
     case "REGISTRATION_CLOSED":
       return "Registration for this event isn't open right now.";
     case "REGISTRATION_NOT_ENABLED":
