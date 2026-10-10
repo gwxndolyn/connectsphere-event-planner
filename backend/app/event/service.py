@@ -66,6 +66,7 @@ class EventService:
                     capacity=event.capacity,
                     seats_remaining=max(seats_remaining, 0),
                     is_full=seats_remaining <= 0,
+                    waitlist_available=registration_service.waitlist_available(db, event, now),
                     already_registered=event.id in registered_event_ids,
                     registration_fields=[
                         RegistrationFieldOut(

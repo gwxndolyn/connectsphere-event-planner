@@ -25,6 +25,8 @@ class AvailableEventOut(BaseModel):
     capacity: int
     seats_remaining: int
     is_full: bool
+    # US6a (SCRUM-52): full and waitlist enabled, the same rule as EVENT_FULL's flag (SCRUM-48).
+    waitlist_available: bool
     already_registered: bool
     registration_fields: list[RegistrationFieldOut]
 

@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { registrationApi } from "./api";
-import type { EventAvailability, MyRegistrations, RegistrationConfirmation, WithdrawalResult } from "./types";
+import type {
+  EventAvailability,
+  MyRegistrations,
+  RegistrationConfirmation,
+  WaitlistConfirmation,
+  WithdrawalResult,
+} from "./types";
 
 const NO_REGISTRATIONS: MyRegistrations = { confirmed: [], waitlisted: [], offered: [] };
 
@@ -13,8 +19,8 @@ function loadBoth() {
  * (SCRUM-25), register (SCRUM-26), My Events (SCRUM-30/31) and withdraw (SCRUM-34). Both lists
  * are re-read after every change, so seat counts and sections always match the server.
  *
- * SCRUM-52 (join waitlist) and SCRUM-76 (accept an offer) add their actions here the same way:
- * call `registrationApi`, then `refresh()`.
+ * Joining a waitlist (SCRUM-52) works the same way; SCRUM-76 (accept an offer) adds its action
+ * here too: call `registrationApi`, then `refresh()`.
  */
 export function useEventRegistry() {
   const [events, setEvents] = useState<EventAvailability[]>([]);
@@ -54,11 +60,17 @@ export function useEventRegistry() {
     return confirmation;
   }
 
+  async function joinWaitlist(eventId: string, email: string): Promise<WaitlistConfirmation> {
+    const confirmation = await registrationApi.joinWaitlist(eventId, email);
+    await refresh();
+    return confirmation;
+  }
+
   async function withdraw(registrationId: string): Promise<WithdrawalResult> {
     const result = await registrationApi.withdraw(registrationId);
     await refresh();
     return result;
   }
 
-  return { events, myRegistrations, loading, error, refresh, register, withdraw };
+  return { events, myRegistrations, loading, error, refresh, register, joinWaitlist, withdraw };
 }

@@ -19,7 +19,7 @@ interface EventsBoardProps {
 }
 
 export function EventsBoard({ registry, search }: EventsBoardProps) {
-  const { events, myRegistrations, loading, error, register } = registry;
+  const { events, myRegistrations, loading, error, register, joinWaitlist, refresh } = registry;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("all");
 
@@ -94,6 +94,8 @@ export function EventsBoard({ registry, search }: EventsBoardProps) {
           event={selectedEvent}
           waitlisted={waitlistPositions.has(selectedEvent.id)}
           onRegister={(answers) => register(selectedEvent.id, answers)}
+          onJoinWaitlist={(email) => joinWaitlist(selectedEvent.id, email)}
+          onRefresh={refresh}
           onClose={() => setSelectedId(null)}
         />
       )}

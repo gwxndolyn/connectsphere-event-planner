@@ -335,6 +335,13 @@
   outline-offset: 1px;
 }
 
+.reg-form__hint {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: -8px;
+  margin-bottom: 16px;
+}
+
 .reg-form__error {
   font-size: 13px;
   font-weight: 600;
