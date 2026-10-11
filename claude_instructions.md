@@ -1,8 +1,8 @@
-# ConnectSphere — Development Spec (Sprint 1 + Sprint 2)
+# ConnectSphere — Development Spec (Sprint 1–3)
  
 **Source of truth:** Jira project `SCRUM` (SPM ConnectSphere) — https://smu-team-kk38iw8n.atlassian.net
 **Generated:** 2026-09-19 from Jira issues SCRUM-2, SCRUM-5, SCRUM-6 and their subtasks.
-**Updated:** 2026-09-30 for Sprint 2 — US1 Submit Event Request (SCRUM-20) and the Epic 1 groundwork it laid.
+**Updated:** 2026-10-11 — end of Sprint 2; Sprint 3 scope added.
 **Stack:** FastAPI (Python) backend · Supabase (Postgres) · React/Vite frontend. Every screen calls the real API: the Sprint 1 attendee screens since SCRUM-79, the Event requests screens since US1.
  
 ---
@@ -38,14 +38,56 @@ Everything in Epic 1 (Event Management) and Epic 2 (Venue & Resources) is out of
 
 ### Sprint 2 scope (27 Sep – 11 Oct)
 
-| Jira | Story | Owner (Jira) | Points |
-|---|---|---|---|
-| SCRUM-20 | US1 — Submit Event Request (Epic 1) | Chloe | 8 |
-| SCRUM-10 | US6 — Join a Waiting List (Epic 3) | Gwendolyn | 3 |
-| SCRUM-11 | US8 — Request Clarification (Epic 1) | Nicholas | 5 |
-| SCRUM-13 | US10 — Assign a Coordinator (Epic 1) | Matthew | 5 |
+| Jira | Story | Owner (Jira) | Points | Status |
+|---|---|---|---|---|
+| SCRUM-20 | US1 — Submit Event Request | Chloe | 8 | Done |
+| SCRUM-10 | US6a — Join a waiting list for a full event | Gwendolyn | 3 | Done |
+| SCRUM-72 | US6b — Take up an available place after a withdrawal | Gwendolyn | 3 | Done |
+| SCRUM-11 | US8a — Send a clarification request on specific sections | Nicholas | 5 | Done |
+| SCRUM-73 | US8b — Notify Organiser of a clarification request | Nicholas | 2 | Done |
+| SCRUM-74 | US8c — See the Organiser's response and resume review | Nicholas | 5 | Done |
+| SCRUM-75 | US8d — Send additional rounds of clarification | Nicholas | 2 | Done |
+| | **Total** | | **28** | |
+
+US10a–d (SCRUM-13, 67, 68, 69) did not start and moved to Sprint 3.
 
 US1, US8 and US10 move the same event request through one status lifecycle, so SCRUM-40 laid shared groundwork for all three (statuses, request fields, `users` with roles, the `X-User-Id` stub) — see §2 and §3. Status per ticket lives in Jira, not here.
+
+### Sprint 3 scope (11 – 25 Oct)
+
+| Jira | Story | Owner | Points |
+|---|---|---|---|
+| SCRUM-81 | US16a — Log in and log out | Calvin | 3 |
+| SCRUM-82 | US16b — Role-based access | Calvin | 3 |
+| SCRUM-94 | US26 — Record and review an equipment request | Calvin | 3 |
+| SCRUM-9 | US5 — Check equipment availability | Calvin | 3 |
+| SCRUM-13 | US10a — Assign a Coordinator to an eligible event (Coordinator Lead) | Matthew | 3 |
+| SCRUM-67 | US10b — See Coordinator workload when assigning | Matthew | 2 |
+| SCRUM-68 | US10c — Notify Coordinator and Organiser of an assignment | Matthew | 2 |
+| SCRUM-69 | US10d — View an event's Coordinator assignment history | Matthew | 3 |
+| SCRUM-86 | US19 — Event Coordinator Lead's queue and oversight view | Matthew | 3 |
+| SCRUM-83 | US10e — Reassign an event to another coordinator | Nic | 3 |
+| SCRUM-84 | US17 — Approve or reject an event request | Nic | 3 |
+| SCRUM-96 | US28 — View registrations for my events | Nic | 3 |
+| SCRUM-87 | US20 — Manage the venue catalogue | Chloe | 5 |
+| SCRUM-89 | US22 — Submit a venue booking request | Chloe | 3 |
+| SCRUM-16 | US13 — Venue setup and turnaround buffer scheduling | Chloe | 5 |
+| SCRUM-7 | US2 — Search for suitable venues | Gwendolyn | 8 |
+| SCRUM-8 | US4 — Approve or reject a venue booking request | Gwendolyn | 5 |
+| | **Total** | | **60** |
+
+### Customer changes (Week 7)
+
+| CR | Change | Stories |
+|---|---|---|
+| CR-01 | Setup and turnaround time configured per venue; conflicts are flagged, not removed | US13 (SCRUM-16) |
+| CR-02 | A venue can become unavailable | US23a/b (SCRUM-90, 91) |
+| CR-03 | One event can use multiple venues | US24 (SCRUM-92) |
+| CR-04 | Venue holds expire | US25 (SCRUM-93); affects D2 |
+| CR-05 | An Event Coordinator Lead assigns and reassigns events from an unassigned queue | US10a–e, US19 |
+| CR-06 | A Safety Officer checks events | US30a/b (SCRUM-99, 100) |
+
+US23a/b, US24, US25 and US30a/b are in Sprint 4 in Jira.
  
 ---
  
@@ -55,7 +97,7 @@ Read this before writing code. It holds what the rest of the document can't: how
  
 **Per-ticket status does not live here.** Jira owns ticket state; git and the PR list own what merged. Duplicating either goes stale within hours — it already did once, when two of us edited this section on separate branches and produced a file that contradicted itself. Hence: **edit this section only in the PR that changes the code it describes**, and at sprint boundaries for the two summaries below.
  
-### Where things stand — mid Sprint 2 (30 Sep)
+### Where things stand — end of Sprint 2 (11 Oct)
  
 All three Sprint 1 stories have working backends, tested against a real Postgres. **US1 (SCRUM-20) is the first feature built end to end**: schema, API and React screens, with the screens calling the real API. **The Sprint 1 attendee screens call the real API since SCRUM-79** (`mockEvents.ts` and the localStorage registry are gone).
  
@@ -71,7 +113,7 @@ All three Sprint 1 stories have working backends, tested against a real Postgres
 | SCRUM-74 — organiser responds (US8c) | Done: response endpoint + thread read (SCRUM-77) | **Real screens, wired to API**: response form (SCRUM-78), thread view (SCRUM-58) | TC-US8-17 to 24 + E2E |
 | SCRUM-75 — more clarification rounds (US8d) | Done: rounds guard pinned as D15 (SCRUM-56) | No change needed | TC-US8-31 to 35 |
  
-Every endpoint in §3 exists, plus `POST /registrations/{id}/decline` (deviation 3 below) and `POST /registrations/{id}/accept` (deviation 13). Identity is two stubs: `X-Attendee-Id` for the Sprint 1 routes and `X-User-Id` (role-aware) for the event-request routes. The database is the tables in §2 plus `attendees` and `users`. Backend suite: 175 tests; E2E: 6 tests (health check, US1 journey, US8 clarification journey: ask, answer, read the thread, attendee journey: list, register, My events, withdraw; waitlist journey: leave, rejoin, see position; offer journey: freed place offered, accepted). **Supabase may lag `main`**: the SCRUM-40 and SCRUM-54 migrations (`20260930_1200_us1_request_schema`, `20261008_1200_us8_clarifications`) must be applied there by the named person — check with `alembic current`.
+Every endpoint in §3 exists, plus `POST /registrations/{id}/decline` (deviation 3 below) and `POST /registrations/{id}/accept` (deviation 13). Identity is two stubs: `X-Attendee-Id` for the Sprint 1 routes and `X-User-Id` (role-aware) for the event-request routes. The database is the tables in §2 plus `attendees` and `users`. Backend suite: 175 tests; E2E: 6 tests (health check, US1 journey, US8 clarification journey: ask, answer, read the thread, attendee journey: list, register, My events, withdraw; waitlist journey: leave, rejoin, see position; offer journey: freed place offered, accepted). **Supabase may lag `main`**: the SCRUM-40 and SCRUM-54 migrations (`20260930_1200_us1_request_schema`, `20261008_1200_us8_clarifications`) must be applied there by Calvin — check with `alembic current`.
  
 ### Get it running
  
@@ -128,6 +170,7 @@ npm test                               # backend must be running; don't also run
 - **Deviating from §2/§3 is allowed; doing it silently is not.** Add a `# DECISION-PENDING: <id>` at the code site and a line under "Deviations awaiting a decision" below.
 - **New screens call the real API** (changed in Sprint 2 — the Sprint 1 "mockups stay mockups" rule is retired; *needs team confirmation*). Build through `frontend/src/api/client.ts`, with TypeScript types that match the API's snake_case names. Don't add new mock data.
 - **Two identity headers, one per route family.** Sprint 1 routes take `X-Attendee-Id` (`get_current_attendee`); event-request routes take `X-User-Id` (`get_current_user` / `require_user_roles`). Every attendee has a `users` row with the **same id** and role `attendee`, so one id works in both. In the frontend, `apiClient` sends `X-User-Id` by default and `X-Attendee-Id` (from `VITE_DEV_ATTENDEE_ID`) when a call passes `identity` `"attendee"`, as every call in `features/registration/api.ts` does (SCRUM-79). Both stubs go when Supabase Auth lands (§9).
+- **New roles arrive with US16b (SCRUM-82):** `coordinator_lead`, `venue_staff`, `tech_support`, `safety_officer`. Until then the enum is `organiser`, `coordinator`, `operations_manager`, `attendee`.
 - **Another person's record is `404 NOT_FOUND`, never `403`.** Applies to drafts as well as registrations (TC-US7-02, TC-US1-13).
 - **Schema changes go in the first PR of a story, alone.** US1 split into schema → API → screens PRs; the API and screen PRs added no migration. Keeps one Alembic head and a reviewable migration.
 - **E2E runs against a migrated, seeded database.** `e2e.yml` runs `alembic upgrade head` and `python -m app.seed` before starting the backend. A new E2E test needing data should get it from the seed, not by assuming an empty database.
@@ -173,18 +216,18 @@ Each is implemented and defensible; each departs from the contract in §2/§3 an
 | D8 | What are the event category options? | Free text, non-empty, max 100 chars |
 | D9 | What timezone are preferred times in? | Asia/Singapore local time (`time` without zone); converted when a request becomes an event |
 | D10 | What's the request reference format? | `ER-<year>-<6-digit sequence>`, e.g. `ER-2026-000123`, from `event_request_reference_seq`; one formatter function |
-| D11 | Who can read a submitted request? | Owner, coordinators and operations managers, **only while in a request status** (submitted → rejected). Other organisers 404. Drafts owner-only |
+| D11 | Who can read a submitted request? | Owner, coordinators and Event Coordinator Leads (`operations_manager` in code until US16b), **only while in a request status** (submitted → rejected). Other organisers 404. Drafts owner-only |
 | D12 | How are users identified before Supabase Auth? | `X-User-Id` header stub, alongside `X-Attendee-Id`. The frontend's **Acting as** switch (header) sends the seeded organiser's or coordinator's id from `frontend/.env`; the choice is kept in `localStorage` |
 | D13 | Which sections can a clarification request tag? | SCRUM-11 only gives examples (attendance, layout, equipment). Assumed seven, grouping the US1 fields: `details`, `schedule`, `attendance`, `layout`, `accessibility`, `equipment`, `registration`. One list in `CLARIFICATION_SECTIONS`, mirrored by the migration's CHECK |
-| D14 | Which coordinator may ask for clarification? | Any active coordinator. US10 (SCRUM-13) assigns a coordinator to a request; tighten this to the assigned one then |
-| D15 | When may a coordinator send another clarification round? | From `submitted` or `under_review`, no limit; the new round is `max(round) + 1`. `awaiting_clarification`, `approved`, `rejected` → `409 CLARIFICATION_NOT_ALLOWED`. `awaiting_clarification` is blocked on purpose: the organiser's reply answers the latest open round, so a second open question would never get its own answer. Past the request stage (`planning` → `completed`) and drafts stay `404` under D11. `CLARIFIABLE_STATUSES` in `clarification_service.py` |
+| D14 | Which coordinator may ask for clarification? | Any active coordinator. US10a (SCRUM-13) assigns a coordinator to a request, using US16b's (SCRUM-82) roles; tighten this to the assigned one then |
+| D15 | When may a coordinator send another clarification round? | From `submitted` or `under_review`, no limit; the new round is `max(round) + 1`. `awaiting_clarification`, `approved`, `rejected` → `409 CLARIFICATION_NOT_ALLOWED`. `awaiting_clarification` is blocked on purpose: the organiser's reply answers the latest open round, so a second open question would never get its own answer. Past the request stage (`planning` → `completed`) and drafts stay `404` under D11. `CLARIFIABLE_STATUSES` in `clarification_service.py`. **Differs from SCRUM-75 AC 1, which allows another round while Awaiting Clarification. Confirm with the team.** |
 | D16 | Does joining a waitlist need registration to be open? | Yes. US6a AC 1's "reached its registration capacity" presumes it, so `join_waitlist` applies register's gates (`_check_registration_open`): `403 REGISTRATION_NOT_ENABLED` unless confirmed with registration enabled, `403 REGISTRATION_CLOSED` outside the window |
 | D17 | What happens to people already queued if an event's waitlist is switched off? | They keep their place and still get offers: `offer_freed_seat` ignores `waitlist_enabled`, because US6a only governs joining |
  
 ### Environment
  
 - **Supabase can lag `main`.** Check before blaming the code: `alembic current` against Supabase versus `alembic heads` in the repo. A missing table usually means an unapplied migration, not a bug.
-- **Row Level Security is on for every application table, with no policies** (migration `5733a3c705f7`). RLS on plus no policies means Supabase's anon and authenticated roles can read nothing; the backend is unaffected because it connects as the tables' owner, and owners bypass RLS. Keep the Data API disabled anyway — belt and braces. **Adding a table means enabling RLS on it in the same migration.** Policies come with Supabase Auth (§9), when the browser needs its own access.
+- **Row Level Security is on for every application table, with no policies** (migration `5733a3c705f7`). RLS on plus no policies means Supabase's anon and authenticated roles can read nothing; the backend is unaffected because it connects as the tables' owner, and owners bypass RLS. Keep the Data API disabled anyway — belt and braces. **Adding a table means enabling RLS on it in the same migration.** Policies are needed only if the Data API is ever enabled (§9).
 - **Backend tests need Postgres running**: `docker compose up -d postgres`. Without it every database test errors on connection, which looks alarming and isn't.
 - **Python 3.12**, pinned in `backend/.python-version` and matched by CI. A 3.13 virtualenv can pass locally and fail in CI.
 - **No dependency lock on the backend.** `pyproject.toml` uses open ranges, so two machines can resolve different versions. The frontend has `package-lock.json`; the backend has nothing equivalent. Suspect this when something works for one person only.
@@ -192,14 +235,13 @@ Each is implemented and defensible; each departs from the contract in §2/§3 an
 - **Env files are per machine and git-ignored.** Both `backend/.env` and `frontend/.env` must exist; after pulling a change to either `.env.example`, compare and copy the new lines across.
 - **The seed refuses a non-local database** unless run with `--yes`. Only the named Supabase person should ever pass it.
  
-### What's next in Sprint 2
+### What's next in Sprint 3
  
-1. ~~**Wire the Sprint 1 screens**~~ Done (SCRUM-79). `useEventRegistry` reads `GET /events/available` and `GET /me/registrations` and re-reads both after register and withdraw; response types and mappers live in `features/registration/api.ts`, with `registrationErrorMessage` for the §3 codes. `joinWaitlist` sits there since SCRUM-52 (identity `"none"`, D7), and `acceptOffer` since SCRUM-76: My events shows `offered` rows first under **Place available**, and `AcceptOfferDialog.tsx` confirms, accepts and shows the registration ticket. Gap for later, not a blocker: there's no attendee profile endpoint, so the UI can't show the attendee's name or prefill their email.
-2. **US6 (SCRUM-10).** Backend mostly exists from Sprint 1. US6a's backend is done (SCRUM-48, 49): the waitlist is offered and joinable only when the event is full **and** `waitlist_enabled` (default `false`; the seed turns it on for Design Sprint Bootcamp). SCRUM-52 built the frontend: a full event with `waitlist_available` (on `/events/available`, deviation 18) offers "Join the waitlist" with an email field and confirms the position; `EVENT_FULL`'s flag covers an event that fills while the dialog is open. **The email decides whether the place is linked to the attendee** (D3): their account's email puts it under My events; any other email makes an email-only entry that isn't listed there. Accepting an offer exists since SCRUM-51 (`POST /registrations/{id}/accept`, §3); an email-only waitlist entry (D3) can't accept, because it has no attendee to match. Settle D3/D6/D7.
-3. **US8 (SCRUM-11) and US10 (SCRUM-13)** build on the US1 request: statuses, `users`/roles and `X-User-Id` exist. The seed has a **coordinator** since SCRUM-54; US10 still needs to seed an **operations manager**. US8a is done end to end: coordinators pick a request from the review queue (`GET /api/v1/event-requests`) and send through `POST /api/v1/event-requests/{id}/clarifications` (§3), which stores the question and sets `awaiting_clarification` in one transaction (`clarification_service.send_request`). Screen: `frontend/src/features/eventRequest/ClarificationReviewPage.tsx`; a new role-specific screen should follow its pattern (`App.tsx` picks the page by `devRole`). SCRUM-55 hooks the organiser notification into `send_request`. 8c's backend is done (SCRUM-77): the owner answers with `POST …/clarifications/response`, which stores a `response` row for the open round and sets `under_review`, so the next round passes the guard; anyone who can read the request reads the thread with `GET …/clarifications`. The organiser answers in the app since SCRUM-78 (an awaiting-clarification request opens the question and a response box in `EventRequestsPage.tsx`); Both screens show the thread with `ClarificationThreadView.tsx` (SCRUM-58): the coordinator sees every round above the section cards, the organiser sees earlier rounds above the open question. Section labels and value formatting for both screens live in `frontend/src/features/eventRequest/clarificationSections.ts` — reuse it rather than copying the list. Later rounds (8d, SCRUM-56) are allowed from `under_review` with no limit and refused while a round is open or once decided (D15). Nothing yet moves a request to `under_review` or `approved` — agree who does. US10 moving an event to `planning` will hide it from staff under D11; widen that rule in US10 if the coordinator needs to keep reading it.
-4. **One end-to-end test** that registers, views and withdraws against the live backend, once item 1 is done. The E2E job already migrates and seeds.
-5. **Then Supabase Auth** (§9), replacing both header stubs — after the wiring, so a failure can only be in one half. It brings RLS policies with it.
-6. **Smaller, worth doing:** fix the root README (missing `alembic upgrade head`, the frontend `.env` copy, a CI section naming a `ci.yml` that doesn't exist, TODO team list); lock the backend's dependencies; review the Dependabot PRs; make the notification log visible under uvicorn; delete merged branches; turn on branch protection for `main`.
+1. **US16a, then US16b** — Supabase Auth per §9. Log in first, then role checks on the routes.
+2. **US20 venue catalogue's schema PR first.** It unblocks US2, US4, US13 and US22. Schema changes go in a story's first PR, alone (Rules).
+3. **US10a before US10e and US17.** The seed needs an **Event Coordinator Lead** for US10a. US10a moving an event to `planning` hides it from staff under D11, so widen D11 there if the coordinator must keep reading it. Nothing moves a request from Submitted to Under Review yet, and US17 (approve/reject) only acts on Under Review requests. Agree in US10a or US17 who makes that move (e.g. assigning the coordinator, or the coordinator opening the request).
+4. **Waitlist gap (D3):** an email-only waitlist entry can't accept an offer, because there's no attendee to match. Settle D3/D6/D7 before US16a links logins to users.
+5. **Smaller, worth doing:** fix the root README (missing `alembic upgrade head`, the frontend `.env` copy, a CI section naming a `ci.yml` that doesn't exist, TODO team list); lock the backend's dependencies; review the Dependabot PRs; make the notification log visible under uvicorn; delete merged branches; turn on branch protection for `main`.
 
 ---
 
@@ -831,24 +873,24 @@ Access and identity (TC-US1-13, 14, 15) span SCRUM-41–44.
 |---|---|---|---|
 | SCRUM-48 | `waitlist_available` helper (full and `waitlist_enabled`); `EVENT_FULL` uses it; seed enables the bootcamp's waitlist | TC-US6A-01, 02, 09 (AC 1, 2) | #43 |
 | SCRUM-49 | `POST /events/{id}/waitlist` refuses with `WAITLIST_NOT_ENABLED` / `SEATS_AVAILABLE`, takes register's gates (D16), keeps the position confirmation | TC-US6A-03 to 08 (AC 1–3); no migration | #43 |
-| SCRUM-79 | Attendee screens (board, register, My events, withdraw) call the API via `X-Attendee-Id`; mock removed; `event_id` on My Registrations rows so the board shows waitlist status; reseed withdraws app-made duplicates of seeded registrations | `npm run build` + `lint`; attendee E2E journey; TC-US11-12; `test_seed_reseed.py` | |
-| SCRUM-52 | Join-waitlist prompt (email field) on a full event with a waitlist; position confirmation; "Full · waitlist open" card; `waitlist_available` on `/events/available` | TC-US6A-10; waitlist E2E journey (AC 1–3) | |
+| SCRUM-79 | Attendee screens (board, register, My events, withdraw) call the API via `X-Attendee-Id`; mock removed; `event_id` on My Registrations rows so the board shows waitlist status; reseed withdraws app-made duplicates of seeded registrations | `npm run build` + `lint`; attendee E2E journey; TC-US11-12; `test_seed_reseed.py` | #45 |
+| SCRUM-52 | Join-waitlist prompt (email field) on a full event with a waitlist; position confirmation; "Full · waitlist open" card; `waitlist_available` on `/events/available` | TC-US6A-10; waitlist E2E journey (AC 1–3) | #46 |
 
 ### SCRUM-72 (US6b)
 
 | Subtask | Work | Done when | PR |
 |---|---|---|---|
-| SCRUM-51 | Accept an offer: `offered` → `confirmed` | TC-US6B-01 to 07 (AC 2, 3) | |
-| SCRUM-50 | Notify the next waitlisted attendee on a vacancy: on-screen `offered` section + id in the notice | TC-US6B-08 to 10, TC-US7-07, 08 (AC 1) | |
-| SCRUM-76 | Offer + "Accept place" on the attendee's screen | E2E: offer journey (AC 1, 2 in the browser) | |
+| SCRUM-51 | Accept an offer: `offered` → `confirmed` | TC-US6B-01 to 07 (AC 2, 3) | #37 |
+| SCRUM-50 | Notify the next waitlisted attendee on a vacancy: on-screen `offered` section + id in the notice | TC-US6B-08 to 10, TC-US7-07, 08 (AC 1) | #39 |
+| SCRUM-76 | Offer + "Accept place" on the attendee's screen | E2E: offer journey (AC 1, 2 in the browser) | #51 |
 
 ### SCRUM-74 (US8c)
 
 | Subtask | Work | Done when | PR |
 |---|---|---|---|
-| SCRUM-77 | Organiser response endpoint + thread read | TC-US8-17 to 24 (AC 1, 2) | |
-| SCRUM-78 | Organiser response form | E2E journey (answer step) | |
-| SCRUM-58 | Thread view (question + answer) | AC 1, 3 — E2E journey (thread step) | |
+| SCRUM-77 | Organiser response endpoint + thread read | TC-US8-17 to 24 (AC 1, 2) | #38 |
+| SCRUM-78 | Organiser response form | E2E journey (answer step) | #40 |
+| SCRUM-58 | Thread view (question + answer) | AC 1, 3 — E2E journey (thread step) | #50 |
 
 ### SCRUM-75 (US8d)
 
@@ -925,25 +967,25 @@ Say so and stop if the work drifts into any of these:
 - **Keep this file current:** every PR updates this document for what it changed (status row, rules, schema/API, deviations) before it merges, so everyone's Claude matches `main` after a pull.
 ---
  
-## 9. Supabase Auth — plan for a later sprint
+## 9. Supabase Auth — Sprint 3 (US16a SCRUM-81, US16b SCRUM-82)
  
-Out of scope for Sprint 1 (§7); written down so the `X-Attendee-Id` stub can be replaced without re-deciding any of it. Sequence it **after** the API wiring: wiring against the stub proves the endpoints, then only the identity mechanism changes. Doing both at once means a failure could be in either half.
+Scheduled for Sprint 3. The API wiring it waited for is done (SCRUM-79), so only the identity mechanism changes.
  
 Supabase Auth supplies **identity only**. FastAPI stays the only thing that touches the database, so no service or router changes — §3 already promises the change lands in one place:
  
 > "When auth lands, one function changes. Do not scatter attendee lookups through route bodies."
  
-That function is `get_current_attendee` in `app/user/dependencies.py`.
+That's one token check in `app/user/dependencies.py`; `get_current_user` and `get_current_attendee` both build on it.
  
 ### Dashboard
  
-Enable a provider under **Authentication → Providers**. Email/password is simplest; Google fits SMU accounts. With Google, **restrict the domain in our own code** — check the `email` claim ends in `@smu.edu.sg`; Supabase won't enforce it.
+Enable a provider under **Authentication → Providers**. **Email/password is the chosen provider (US16a).** Google stays optional; if added, **restrict the domain in our own code** — check the `email` claim ends in `@smu.edu.sg`; Supabase won't enforce it.
  
 Keys come from **Project Settings → API**. Current naming: **publishable** (`sb_publishable_…`, safe in the frontend) and **secret** (`sb_secret_…`, backend only, probably not needed). The old `anon` / `service_role` keys still work but are deprecated by the end of 2026.
  
 ### Frontend
  
-`@supabase/supabase-js`, created with `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`. Every request in `api/client.ts` carries `Authorization: Bearer <session.access_token>` in place of `X-Attendee-Id`. Read the session per request — tokens last an hour and supabase-js refreshes them, which a value cached at startup would miss. `VITE_*` values are compiled into the bundle and readable by anyone: the publishable key only.
+`@supabase/supabase-js`, created with `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`. Every request in `api/client.ts` carries `Authorization: Bearer <session.access_token>` in place of **both `X-User-Id` and `X-Attendee-Id`**. The **Acting as** toggle and `apiClient`'s `identity` option become dev-only. Read the session per request — tokens last an hour and supabase-js refreshes them, which a value cached at startup would miss. `VITE_*` values are compiled into the bundle and readable by anyone: the publishable key only.
  
 ### Backend
  
@@ -953,22 +995,22 @@ Supabase signs access tokens with **asymmetric keys** (RS256/ES256), so the back
 https://<project-ref>.supabase.co/auth/v1/.well-known/jwks.json
 ```
  
-Verify with `pyjwt[crypto]` and a cached `PyJWKClient`, checking `audience="authenticated"` and `issuer=<url>/auth/v1`. The claims we need are `sub` (stable Supabase user id) and `email`.
+Verify with `pyjwt[crypto]` and a cached `PyJWKClient`, checking `audience="authenticated"` and `issuer=<url>/auth/v1`. The claims we need are `sub` (stable Supabase user id) and `email`. One token check resolves the `users` row; `get_current_user` and `get_current_attendee` both build on it, and the role comes from `users.role`.
  
-### Linking to `attendees`
+### Linking to `users`
  
 Our rows have their own UUIDs, and seeded ones come from `uuid5`, so no Supabase user sits behind them. Add a column rather than repurposing the primary key:
  
 ```sql
-alter table attendees add column auth_user_id uuid unique;
+alter table users add column auth_user_id uuid unique;
 ```
  
-`get_current_attendee` then: verify token → look up by `auth_user_id` → else **look up by email and link it** → else create. Matching on email first keeps the seeded demo accounts working the moment the real person signs in, instead of creating duplicates.
+Every attendee has a `users` row with the same id, so linking `users` covers attendees too. The token check then: verify token → look up by `auth_user_id` → else **look up by email and link it** → else create as an attendee. Matching on email first keeps the seeded demo accounts working the moment the real person signs in, instead of creating duplicates.
  
 ### Consequences to keep in mind
  
 - **Tests must not reach the network.** Keep the dependency overridable, or inject the verifier so tests supply claims directly. The existing suite should need nothing beyond the fixture.
-- **RLS is already on, but policy-less — that becomes a blocker here.** Today nothing can read these tables except the owner, which is fine while FastAPI is the only client. The moment the browser holds a publishable key, it needs policies keyed on `auth.uid()`, and those policies are the only thing stopping one student reading another's registrations. Write them alongside the auth work, not after it.
+- RLS stays on with no policies. The browser only calls Supabase Auth and the Data API stays disabled, so the publishable key reads no tables. Policies are needed only if the Data API is ever enabled; until then FastAPI's role checks (US16b) are the access control. New tables still enable RLS in their migration.
 - **CORS already allows `Authorization`** (`allow_headers=["*"]`). Cookie-based sessions would instead need `allow_credentials=True` and specific origins.
  
 Sources: [Supabase JWTs](https://supabase.com/docs/guides/auth/jwts), [API keys](https://supabase.com/docs/guides/api/api-keys).
@@ -1004,3 +1046,30 @@ Sources: [Supabase JWTs](https://supabase.com/docs/guides/auth/jwts), [API keys]
 | TC-US1-11, 12 | SCRUM-20 | Draft → Submitted; no direct edits after submission |
 | TC-US1-13, 14, 15 | SCRUM-20 | (Access rules — D11, D12) |
 | TC-US1-16 | SCRUM-40 | Schema groundwork for Epic 1 |
+| TC-US8-02 … 04, 14 † | SCRUM-11 | AC 1: select the section(s) the clarification concerns and add a comment |
+| TC-US8-09, 11 | SCRUM-11 | AC 2: first request only while Submitted or Under Review |
+| TC-US8-09, 10 † | SCRUM-11 | AC 3: once sent, status becomes Awaiting Clarification |
+| TC-US8-01, 05 … 08 † | SCRUM-11 | (Storage groundwork — SCRUM-54) |
+| TC-US8-12, 13, 15, 16 † | SCRUM-11 | (Access rules and review queue — D11, D14) |
+| TC-US8-25, 29, 30 | SCRUM-73 | AC 1: Organiser notified with the Coordinator's comment |
+| TC-US8-25 | SCRUM-73 | AC 2: notification identifies the request and section(s) |
+| TC-US8-26 … 28 | SCRUM-73 | AC 3: no notification if the request isn't sent |
+| TC-US8-17, 18 | SCRUM-74 | AC 1: response appended to the thread, question still above it |
+| TC-US8-17 | SCRUM-74 | AC 2: status back to Under Review on response |
+| TC-US8-18 + E2E thread step | SCRUM-74 | AC 3: Coordinator views the full thread |
+| TC-US8-19 … 22, 24 † | SCRUM-74 | (Only an open round can be answered; access — deviation 14, D11) |
+| TC-US8-23, 31, 33 | SCRUM-75 | AC 1: further rounds, no limit (D15 refuses while a round is open, against AC 1's "Awaiting Clarification") |
+| TC-US8-33 … 35 | SCRUM-75 | AC 2: none once Approved, Rejected or later |
+| TC-US8-32 | SCRUM-75 | AC 3: rounds kept in order, earlier ones visible |
+| TC-US6A-01, 03, 10 | SCRUM-10 | AC 1: offered only when full and waitlists are supported |
+| TC-US6A-02, 04 … 06, 10 | SCRUM-10 | AC 2: not offered with places left or no waitlist |
+| TC-US6A-03, 07 | SCRUM-10 | AC 3: added to the waitlist, position confirmed |
+| TC-US6A-08, 09 | SCRUM-10 | (Registration gates — D16; seed) |
+| TC-US6B-08, 09 | SCRUM-72 | AC 1: next waitlisted Attendee notified a place is available |
+| TC-US6B-01, 06 †, 09 | SCRUM-72 | AC 2: accept the place; waiting-listed → registered |
+| TC-US6B-02, 03 † | SCRUM-72 | AC 3: no offer, no place; status stays waiting-listed |
+| TC-US6B-04, 05, 07, 10 † | SCRUM-72 | (Ownership, expiry, start cutoff — deviations 13, 15) |
+| TC-US11-12 | SCRUM-5 | (Rows carry `event_id` for the events board — SCRUM-79) |
+| `tests/registration/test_seed_reseed.py` (3 tests, no TC ID) | SCRUM-79 | (Reseeding works after app use) |
+
+† §4 doesn't tag an AC for these IDs; they're mapped by what the test checks.
