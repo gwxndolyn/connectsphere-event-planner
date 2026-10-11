@@ -5,6 +5,7 @@ import type { ConfirmedEvent } from "./types";
 type ConfirmationTicketProps = {
   event: ConfirmedEvent;
   onDone: () => void;
+  doneLabel?: string;
 } & (
   | { variant: "registered"; registrationId: string }
   // US6a AC 3: joining a waitlist is confirmed with the position.
@@ -13,7 +14,7 @@ type ConfirmationTicketProps = {
 
 /** The register confirmation (event, date, time and venue, per the AC, §3) or the waitlist one. */
 export function ConfirmationTicket(props: ConfirmationTicketProps) {
-  const { event, onDone } = props;
+  const { event, onDone, doneLabel = "Back to events" } = props;
   const isRegistered = props.variant === "registered";
 
   return (
@@ -75,7 +76,7 @@ export function ConfirmationTicket(props: ConfirmationTicketProps) {
       </div>
 
       <button type="button" className="button button--secondary ticket__done" onClick={onDone}>
-        Back to events
+        {doneLabel}
       </button>
     </div>
   );

@@ -110,6 +110,20 @@ function toEvent(event: AvailableEventOut): EventAvailability {
   };
 }
 
+function toConfirmation(body: RegisterResponseOut): RegistrationConfirmation {
+  return {
+    registrationId: body.registration_id,
+    status: body.status,
+    event: {
+      title: body.event.name,
+      startsAt: body.event.start_at,
+      endsAt: body.event.end_at,
+      venue: body.event.venue_name ?? undefined,
+      joinUrl: body.event.join_link ?? undefined,
+    },
+  };
+}
+
 function toMyRegistration(row: MyRegistrationOut, status: MyRegistrationStatus): MyRegistration {
   return {
     id: row.registration_id,
@@ -128,7 +142,7 @@ function toMyRegistration(row: MyRegistrationOut, status: MyRegistrationStatus):
 }
 
 // Attendee routes, identified by X-Attendee-Id, except joining a waitlist, which takes only an
-// email (D7). SCRUM-76 (accept an offer) adds its call alongside these.
+// email (D7).
 export const registrationApi = {
   async listAvailable(): Promise<EventAvailability[]> {
     const body = await apiClient.get<{ events: AvailableEventOut[] }>("/api/v1/events/available", "attendee");
@@ -150,22 +164,22 @@ export const registrationApi = {
       { answers },
       "attendee",
     );
-    return {
-      registrationId: body.registration_id,
-      status: body.status,
-      event: {
-        title: body.event.name,
-        startsAt: body.event.start_at,
-        endsAt: body.event.end_at,
-        venue: body.event.venue_name ?? undefined,
-        joinUrl: body.event.join_link ?? undefined,
-      },
-    };
+    return toConfirmation(body);
   },
 
   async joinWaitlist(eventId: string, email: string): Promise<WaitlistConfirmation> {
     const body = await apiClient.post<WaitlistJoinResponseOut>(`/api/v1/events/${eventId}/waitlist`, { email }, "none");
     return { registrationId: body.registration_id, status: body.status, position: body.position };
+  },
+
+  // US6b (SCRUM-76): the offer holder takes the place; the response is a registration confirmation.
+  async acceptOffer(registrationId: string): Promise<RegistrationConfirmation> {
+    const body = await apiClient.post<RegisterResponseOut>(
+      `/api/v1/registrations/${registrationId}/accept`,
+      {},
+      "attendee",
+    );
+    return toConfirmation(body);
   },
 
   async withdraw(registrationId: string): Promise<WithdrawalResult> {
@@ -212,6 +226,10 @@ export function registrationErrorMessage(error: unknown, fieldLabels: Record<str
       return "We couldn't find that event or registration. It may have been removed.";
     case "EVENT_STARTED":
       return "This event has already started, so you can't withdraw.";
+    case "NO_ACTIVE_OFFER":
+      return "This place is no longer being offered to you.";
+    case "OFFER_EXPIRED":
+      return "This offer has expired, so the place has moved on.";
     case "ALREADY_WITHDRAWN":
     case "REGISTRATION_NOT_ACTIVE":
       return "This registration is no longer active.";

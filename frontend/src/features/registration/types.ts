@@ -65,7 +65,7 @@ export interface MyRegistration {
   // Room number in person, join link online (TC-US11-02, 03).
   joiningInfo: string;
   waitlistPosition?: number;
-  // US6b: shown once SCRUM-76 builds "Accept place".
+  // US6b: the place is held until then; My events offers "Accept place" (SCRUM-76).
   offerExpiresAt?: string;
 }
 

@@ -32,6 +32,12 @@ export function formatEventTimeRange(event: Timed): string {
   return `${timeFormatter.format(new Date(event.startsAt))} – ${timeFormatter.format(new Date(event.endsAt))}`;
 }
 
+/** An instant with its day, e.g. an offer's deadline, which can fall on a later date (US6b). */
+export function formatInstantDateTime(iso: string): string {
+  const instant = new Date(iso);
+  return `${dateFormatter.format(instant)}, ${timeFormatter.format(instant)}`;
+}
+
 export function formatInstantTime(iso: string): string {
   return timeFormatter.format(new Date(iso));
 }
