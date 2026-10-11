@@ -1,9 +1,12 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { ApiError, apiClient } from "../../api/client";
+import { ClarificationThreadView } from "./ClarificationThreadView";
 import { SECTIONS, displayValue, sectionLabel, statusLabel } from "./clarificationSections";
 import type {
+  Clarification,
   ClarificationSection,
   ClarificationSent,
+  ClarificationThread,
   EventRequest,
   EventRequestsResponse,
 } from "./types";
@@ -29,6 +32,7 @@ export function ClarificationReviewPage() {
   const [requests, setRequests] = useState<EventRequest[]>([]);
   const [screen, setScreen] = useState<Screen>("queue");
   const [activeRequest, setActiveRequest] = useState<EventRequest | null>(null);
+  const [thread, setThread] = useState<Clarification[]>([]);
   const [selected, setSelected] = useState<ClarificationSection[]>([]);
   const [comment, setComment] = useState("");
   const [invalidFields, setInvalidFields] = useState<string[]>([]);
@@ -58,8 +62,12 @@ export function ClarificationReviewPage() {
   async function openRequest(request: EventRequest) {
     setError(null);
     try {
-      const latest = await apiClient.get<EventRequest>(`/api/v1/event-requests/${request.id}`);
+      const [latest, history] = await Promise.all([
+        apiClient.get<EventRequest>(`/api/v1/event-requests/${request.id}`),
+        apiClient.get<ClarificationThread>(`/api/v1/event-requests/${request.id}/clarifications`),
+      ]);
       setActiveRequest(latest);
+      setThread(history.clarifications);
       setSelected([]);
       setComment("");
       setInvalidFields([]);
@@ -93,6 +101,7 @@ export function ClarificationReviewPage() {
         current.map((request) => (request.id === activeRequest.id ? { ...request, status: result.status } : request)),
       );
       setActiveRequest({ ...activeRequest, status: result.status });
+      setThread((current) => [...current, result.clarification]);
       setSent(result);
       setScreen("sent");
     } catch (reason) {
@@ -106,6 +115,7 @@ export function ClarificationReviewPage() {
   function backToQueue() {
     setScreen("queue");
     setActiveRequest(null);
+    setThread([]);
     setSent(null);
     setError(null);
   }
@@ -166,6 +176,8 @@ export function ClarificationReviewPage() {
             {activeRequest.request_reference && <code>{activeRequest.request_reference}</code>}
             <span className={`request-status request-status--${activeRequest.status}`}>{statusLabel(activeRequest.status)}</span>
           </div>
+
+          {thread.length > 0 && <ClarificationThreadView messages={thread} />}
 
           <fieldset className={`clarify-sections${sectionsInvalid ? " clarify-sections--invalid" : ""}`} disabled={!canClarify}>
             <legend>Sections needing clarification</legend>

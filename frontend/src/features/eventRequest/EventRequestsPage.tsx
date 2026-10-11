@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { ApiError, apiClient } from "../../api/client";
+import { ClarificationThreadView } from "./ClarificationThreadView";
 import { sectionLabel, statusLabel } from "./clarificationSections";
 import type {
   Clarification,
@@ -98,6 +99,7 @@ export function EventRequestsPage() {
   const [saving, setSaving] = useState(false);
   // US8c: the coordinator's open question, and the organiser's answer to it (SCRUM-78).
   const [openQuestion, setOpenQuestion] = useState<Clarification | null>(null);
+  const [earlierRounds, setEarlierRounds] = useState<Clarification[]>([]);
   const [answer, setAnswer] = useState("");
   const [answerInvalid, setAnswerInvalid] = useState(false);
   const [responded, setResponded] = useState<ClarificationSent | null>(null);
@@ -137,8 +139,10 @@ export function EventRequestsPage() {
       try {
         const thread = await apiClient.get<ClarificationThread>(`/api/v1/event-requests/${request.id}/clarifications`);
         const questions = thread.clarifications.filter((message) => message.kind === "request");
+        const open = questions[questions.length - 1] ?? null;
         setActiveRequest(request);
-        setOpenQuestion(questions[questions.length - 1] ?? null);
+        setOpenQuestion(open);
+        setEarlierRounds(open ? thread.clarifications.filter((message) => message.round < open.round) : []);
         setAnswer("");
         setAnswerInvalid(false);
         setScreen("respond");
@@ -281,6 +285,7 @@ export function EventRequestsPage() {
     setScreen("list");
     setActiveRequest(null);
     setOpenQuestion(null);
+    setEarlierRounds([]);
     setResponded(null);
     setError(null);
     setNotice("");
@@ -506,6 +511,8 @@ export function EventRequestsPage() {
             {activeRequest.request_reference && <code>{activeRequest.request_reference}</code>}
             <span className={`request-status request-status--${activeRequest.status}`}>{statusLabel(activeRequest.status)}</span>
           </div>
+
+          {earlierRounds.length > 0 && <ClarificationThreadView messages={earlierRounds} title="Earlier rounds" />}
 
           {openQuestion ? (
             <section className="clarify-question" aria-labelledby="clarify-question-title">

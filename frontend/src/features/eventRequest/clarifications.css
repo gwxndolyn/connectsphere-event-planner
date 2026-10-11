@@ -139,3 +139,90 @@
   color: var(--text-muted);
   font-size: 12px;
 }
+
+.clarify-thread {
+  margin-bottom: 24px;
+}
+
+.clarify-thread h2 {
+  margin: 0 0 12px;
+  font-size: 16px;
+}
+
+.clarify-thread__rounds {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 16px;
+}
+
+.clarify-thread__round {
+  display: grid;
+  gap: 8px;
+}
+
+.clarify-thread__round-label {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.clarify-message {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: var(--surface);
+}
+
+.clarify-message--question {
+  border-left: 4px solid var(--accent);
+}
+
+/* Indented under its question, so the reply reads as an answer to it (AC 1). */
+.clarify-message--reply {
+  margin-left: 24px;
+  border-left: 4px solid var(--success);
+}
+
+.clarify-message header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+
+.clarify-message time {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.clarify-message .clarify-sent-sections {
+  justify-content: flex-start;
+  margin-bottom: 8px;
+}
+
+.clarify-message p {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.clarify-thread__waiting {
+  margin: 0 0 0 24px;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-style: italic;
+}
+
+@media (max-width: 640px) {
+  .clarify-message--reply,
+  .clarify-thread__waiting {
+    margin-left: 12px;
+  }
+}
