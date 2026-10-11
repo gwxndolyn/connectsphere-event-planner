@@ -1,6 +1,7 @@
 import { useState } from "react";
+import { AcceptOfferDialog } from "./AcceptOfferDialog";
 import { registrationErrorMessage } from "./api";
-import { formatEventDate, formatEventTimeRange, toTimed } from "./datetime";
+import { formatEventDate, formatEventTimeRange, formatInstantDateTime, toTimed } from "./datetime";
 import type { MyRegistration } from "./types";
 import type { useEventRegistry } from "./useEventRegistry";
 import { WithdrawDialog } from "./WithdrawDialog";
@@ -12,15 +13,17 @@ interface MyEventsViewProps {
 
 /**
  * The attendee's upcoming registrations, from `GET /me/registrations` (SCRUM-30/31): already
- * split into sections, sorted by start time and without ended events. `offered` rows are kept in
- * the registry but not shown until SCRUM-76 adds "Accept place".
+ * split into sections, sorted by start time and without ended events. A place offered after a
+ * withdrawal (US6b) comes first, with "Accept place" (SCRUM-76).
  */
 export function MyEventsView({ registry, onBrowse }: MyEventsViewProps) {
-  const { myRegistrations, loading, error, withdraw } = registry;
+  const { myRegistrations, loading, error, withdraw, acceptOffer } = registry;
   // Held separately from the registry: the row is gone once the withdrawal goes through,
   // but the confirmation still needs it to describe what happened.
   const [pending, setPending] = useState<MyRegistration | null>(null);
-  const { confirmed, waitlisted } = myRegistrations;
+  // Same reason: once accepted, the row moves from Place available to Confirmed.
+  const [accepting, setAccepting] = useState<MyRegistration | null>(null);
+  const { confirmed, waitlisted, offered } = myRegistrations;
 
   return (
     <section className="board">
@@ -34,7 +37,7 @@ export function MyEventsView({ registry, onBrowse }: MyEventsViewProps) {
         <p className="board__empty" role="alert">
           {registrationErrorMessage(error)}
         </p>
-      ) : confirmed.length + waitlisted.length === 0 ? (
+      ) : confirmed.length + waitlisted.length + offered.length === 0 ? (
         <div className="my-events__empty">
           <p>You haven't registered for any upcoming events yet.</p>
           <button type="button" className="button button--reserve" onClick={onBrowse}>
@@ -43,6 +46,8 @@ export function MyEventsView({ registry, onBrowse }: MyEventsViewProps) {
         </div>
       ) : (
         <>
+          {offered.length > 0 && <OfferedSection registrations={offered} onAccept={setAccepting} />}
+
           {confirmed.length > 0 && (
             <MyEventsSection
               heading="Confirmed"
@@ -61,6 +66,14 @@ export function MyEventsView({ registry, onBrowse }: MyEventsViewProps) {
             />
           )}
         </>
+      )}
+
+      {accepting && (
+        <AcceptOfferDialog
+          registration={accepting}
+          onConfirm={() => acceptOffer(accepting.id)}
+          onClose={() => setAccepting(null)}
+        />
       )}
 
       {pending && (
@@ -116,6 +129,43 @@ function MyEventsSection({ heading, registrations, onCancel, cancelLabel }: MyEv
                 onClick={() => onCancel(registration)}
               >
                 {cancelLabel}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+interface OfferedSectionProps {
+  registrations: MyRegistration[];
+  onAccept: (registration: MyRegistration) => void;
+}
+
+/** US6b AC 1–2: the next attendee in the queue sees the freed place, and until when it's held. */
+function OfferedSection({ registrations, onAccept }: OfferedSectionProps) {
+  return (
+    <div className="my-events__section my-events__section--offered">
+      <h2 className="my-events__heading">Place available</h2>
+      <ul className="my-events__list">
+        {registrations.map((registration) => {
+          const timed = toTimed(registration.date, registration.startTime, registration.endTime);
+          return (
+            <li key={registration.id} className="my-events__row my-events__row--offered">
+              <div className="my-events__info">
+                <p className="my-events__event-title">{registration.eventTitle}</p>
+                <p className="my-events__event-meta">
+                  {formatEventDate(timed)}, {formatEventTimeRange(timed)}
+                </p>
+                {registration.offerExpiresAt && (
+                  <p className="my-events__offer">
+                    A seat opened up for you. Held until {formatInstantDateTime(registration.offerExpiresAt)}.
+                  </p>
+                )}
+              </div>
+              <button type="button" className="button button--reserve" onClick={() => onAccept(registration)}>
+                Accept place
               </button>
             </li>
           );

@@ -1,4 +1,4 @@
-import { expect, type Page, test } from "@playwright/test";
+import { type APIRequestContext, expect, type Page, test } from "@playwright/test";
 
 // Runs as the seeded attendee Calvin (VITE_DEV_ATTENDEE_ID), who the seed confirms for Tech Talk.
 // He has no other open event to register for, so the test withdraws that seat, registers again,
@@ -7,9 +7,15 @@ import { expect, type Page, test } from "@playwright/test";
 const TECH_TALK = "Tech Talk: Agile at Scale";
 const BOOTCAMP = "Design Sprint Bootcamp";
 const CALVIN_EMAIL = "calvin.ng.2024@smu.edu.sg";
+// Seeded attendees on the Bootcamp (deterministic ids from app.seed): Mei holds a seat, Sofia is
+// first in the queue. The US6b test moves them through the API so Calvin gets the offer.
+const MEI_ID = "435d97da-c100-5efe-90e1-56fb6c514897";
+const SOFIA_ID = "1d5ff6e2-8378-55e2-acdf-838c152ddd20";
+const API_URL = process.env.E2E_API_URL || "http://localhost:8000";
 
-// Both tests act as Calvin, and the second briefly takes him off the Bootcamp waitlist that the
-// first one checks, so they run one after the other.
+// All three tests act as Calvin, and each leaves the Bootcamp in the state the next one expects,
+// so they run one after the other. The last (US6b) gives Calvin a Bootcamp seat, so a local rerun
+// needs a reseed first.
 test.describe.configure({ mode: "serial" });
 
 async function withdrawFromTechTalk(page: Page) {
@@ -116,4 +122,59 @@ test("attendee joins the waitlist of a full event and sees the position", async 
   // The place shows under My events, linked to him by the email.
   await header.getByRole("button", { name: "My events" }).click();
   await expect(waitlistedRow).toContainText("Position 2 on the waitlist");
+});
+
+/** Withdraws one of `attendeeId`'s registrations through the API, found by event name and section. */
+async function withdrawAs(
+  request: APIRequestContext,
+  attendeeId: string,
+  section: "confirmed" | "waitlisted",
+  eventName: string,
+) {
+  const headers = { "X-Attendee-Id": attendeeId };
+  const mine = await request.get(`${API_URL}/api/v1/me/registrations`, { headers });
+  expect(mine.ok()).toBe(true);
+  const rows: { registration_id: string; event_name: string }[] = (await mine.json())[section];
+  const row = rows.find((candidate) => candidate.event_name === eventName);
+  expect(row, `${eventName} under ${section}`).toBeDefined();
+  const withdrawn = await request.post(`${API_URL}/api/v1/registrations/${row!.registration_id}/withdraw`, { headers });
+  expect(withdrawn.ok()).toBe(true);
+}
+
+// US6b (SCRUM-76). Sofia leaves the queue, so Calvin is next; then Mei withdraws from the full
+// Bootcamp, so her seat is offered to him (AC 1). He sees it under My events and accepts (AC 2).
+test("attendee is offered a freed place and accepts it", async ({ page, request }) => {
+  const header = page.getByRole("banner");
+  await withdrawAs(request, SOFIA_ID, "waitlisted", BOOTCAMP);
+  await withdrawAs(request, MEI_ID, "confirmed", BOOTCAMP);
+
+  await page.goto("/");
+  await header.getByRole("button", { name: "My events" }).click();
+  const offeredSection = page
+    .locator(".my-events__section")
+    .filter({ has: page.getByRole("heading", { name: "Place available" }) });
+  const offeredRow = offeredSection.getByRole("listitem").filter({ hasText: BOOTCAMP });
+  await expect(offeredRow).toContainText("A seat opened up for you. Held until");
+  // It's an offer now, not a queue position.
+  await expect(
+    page
+      .locator(".my-events__section")
+      .filter({ has: page.getByRole("heading", { name: "Waitlisted" }) })
+      .getByRole("listitem")
+      .filter({ hasText: BOOTCAMP }),
+  ).toHaveCount(0);
+
+  await offeredRow.getByRole("button", { name: "Accept place" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByRole("heading", { name: "Take your place?" })).toBeVisible();
+  await dialog.getByRole("button", { name: "Accept place" }).click();
+  await expect(dialog.getByRole("heading", { name: "You're going!" })).toBeVisible();
+  await expect(dialog.getByText(BOOTCAMP)).toBeVisible();
+  await expect(dialog.locator(".ticket__code")).toHaveText(/^[0-9A-F]{8}$/);
+  await dialog.getByRole("button", { name: "Done" }).click();
+
+  // The place is his: it's under Confirmed and the offer is gone.
+  await expect(offeredSection).toHaveCount(0);
+  const confirmed = page.locator(".my-events__section").filter({ has: page.getByRole("heading", { name: "Confirmed" }) });
+  await expect(confirmed.getByRole("listitem").filter({ hasText: BOOTCAMP })).toBeVisible();
 });
