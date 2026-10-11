@@ -65,5 +65,14 @@ test("coordinator asks for clarification and the organiser answers it", async ({
 
   // Back with the coordinator, the request is under review again (8c AC 2).
   await page.getByLabel("Acting as").selectOption("coordinator");
-  await expect(page.getByRole("button", { name: new RegExp(eventName) })).toContainText("under review");
+  const coordinatorRow = page.getByRole("button", { name: new RegExp(eventName) });
+  await expect(coordinatorRow).toContainText("under review");
+
+  // Opening it shows the whole thread: the question, with the answer beneath it (8c AC 1, 3; SCRUM-58).
+  await coordinatorRow.click();
+  const round = page.getByRole("region", { name: "Clarification thread" }).getByRole("listitem", { name: "Round 1" });
+  await expect(round).toContainText("Coordinator asked");
+  await expect(round).toContainText("Is 40 the final headcount, and which layout do you need?");
+  await expect(round).toContainText("Organiser replied");
+  await expect(round).toContainText("Yes, 40 including speakers, in rows facing the stage.");
 });
