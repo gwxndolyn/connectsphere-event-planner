@@ -13,7 +13,7 @@ rather than inserting duplicates.
 import sys
 import uuid
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.engine import make_url
@@ -24,6 +24,7 @@ from app.core.database import SessionLocal
 from app.event.models import DeliveryMode, Event, EventStatus
 from app.registration.models import ACTIVE_STATUSES, Registration, RegistrationStatus
 from app.user.models import Attendee, User, UserRole
+from app.venue.models import Venue
 
 # Fixed namespace so slugs map to the same UUIDs on every machine and every run.
 SEED_NAMESPACE = uuid.UUID("3f2b0c54-9b1a-4f3e-9a7e-2c0d1b8e5a41")
@@ -145,6 +146,110 @@ EVENTS = [
 ]
 
 
+@dataclass
+class VenueSpec:
+    """A seeded venue for US20 and US2 search (SCRUM-87): varied capacity, tags and buffers."""
+
+    slug: str
+    name: str
+    location: str
+    capacity: int
+    facilities: list[str]
+    accessibility_features: list[str]
+    room_layouts: list[str]
+    opens_at: time
+    closes_at: time
+    setup_minutes: int
+    turnaround_minutes: int
+    is_active: bool = True
+
+
+# The first five are the rooms the events above use, so they stay active. The inactive venue is
+# one no seeded event names, so no demo event sits at a deactivated venue.
+VENUES = [
+    VenueSpec(
+        slug="scis-seminar-2-1",
+        name="SCIS Seminar Room 2-1",
+        location="School of Computing and Information Systems, Level 2",
+        capacity=40,
+        facilities=["projector", "screen", "wifi", "whiteboard", "power_outlets"],
+        accessibility_features=["wheelchair", "lift"],
+        room_layouts=["classroom", "theatre", "u_shape"],
+        opens_at=time(8, 0),
+        closes_at=time(22, 0),
+        setup_minutes=15,
+        turnaround_minutes=15,
+    ),
+    VenueSpec(
+        slug="mochtar-riady-auditorium",
+        name="Mochtar Riady Auditorium",
+        location="Administration Building, Level B1",
+        capacity=450,
+        facilities=["projector", "screen", "sound_system", "microphone", "stage", "wifi"],
+        accessibility_features=["wheelchair", "lift", "accessible_toilet", "hearing_loop"],
+        room_layouts=["theatre"],
+        opens_at=time(8, 0),
+        closes_at=time(23, 0),
+        setup_minutes=60,
+        turnaround_minutes=45,
+    ),
+    VenueSpec(
+        slug="connexion-studio-3-2",
+        name="SMU Connexion Studio 3-2",
+        location="SMU Connexion, Level 3",
+        capacity=30,
+        facilities=["wifi", "whiteboard", "screen", "video_conferencing"],
+        accessibility_features=["wheelchair", "lift"],
+        room_layouts=["boardroom", "u_shape", "classroom"],
+        opens_at=time(9, 0),
+        closes_at=time(21, 0),
+        # 0 is a valid buffer (US20 AC 4): back-to-back bookings with no setup or turnaround.
+        setup_minutes=0,
+        turnaround_minutes=0,
+    ),
+    VenueSpec(
+        slug="campus-green-lawn-c",
+        name="Campus Green, Lawn C",
+        location="SMU Campus Green",
+        capacity=200,
+        facilities=["power_outlets"],
+        accessibility_features=["step_free_entrance"],
+        room_layouts=["standing", "banquet"],
+        opens_at=time(7, 0),
+        closes_at=time(19, 0),
+        setup_minutes=90,
+        turnaround_minutes=60,
+    ),
+    VenueSpec(
+        slug="lks-library-seminar-3-4",
+        name="Li Ka Shing Library Seminar Room 3-4",
+        location="Li Ka Shing Library, Level 3",
+        capacity=60,
+        facilities=["projector", "screen", "wifi"],
+        accessibility_features=["wheelchair", "lift"],
+        room_layouts=["classroom", "theatre"],
+        opens_at=time(9, 0),
+        closes_at=time(18, 0),
+        setup_minutes=20,
+        turnaround_minutes=20,
+    ),
+    VenueSpec(
+        slug="soe-seminar-b1-1",
+        name="SOE Seminar Room B1-1",
+        location="School of Economics, Level B1",
+        capacity=50,
+        facilities=["projector", "screen"],
+        accessibility_features=["lift"],
+        room_layouts=["classroom", "cabaret"],
+        opens_at=time(9, 0),
+        closes_at=time(18, 0),
+        setup_minutes=20,
+        turnaround_minutes=15,
+        is_active=False,
+    ),
+]
+
+
 def upsert_attendee(db: Session, email: str) -> Attendee:
     attendee_id = seed_id("attendee", email)
     user = db.get(User, attendee_id)
@@ -224,6 +329,31 @@ def upsert_event(db: Session, spec: EventSpec, now: datetime) -> Event:
     return event
 
 
+def upsert_venue(db: Session, spec: VenueSpec) -> Venue:
+    venue_id = seed_id("venue", spec.slug)
+    values = {
+        "name": spec.name,
+        "location": spec.location,
+        "capacity": spec.capacity,
+        "facilities": spec.facilities,
+        "accessibility_features": spec.accessibility_features,
+        "room_layouts": spec.room_layouts,
+        "opens_at": spec.opens_at,
+        "closes_at": spec.closes_at,
+        "setup_minutes": spec.setup_minutes,
+        "turnaround_minutes": spec.turnaround_minutes,
+        "is_active": spec.is_active,
+    }
+    venue = db.get(Venue, venue_id)
+    if venue is None:
+        venue = Venue(id=venue_id, **values)
+        db.add(venue)
+    else:
+        for key, value in values.items():
+            setattr(venue, key, value)
+    return venue
+
+
 def upsert_registration(
     db: Session,
     event: Event,
@@ -291,6 +421,10 @@ def seed(db: Session, now: datetime | None = None) -> None:
             )
         db.flush()
 
+    for spec in VENUES:
+        upsert_venue(db, spec)
+    db.flush()
+
     db.commit()
 
 
@@ -305,7 +439,7 @@ def main() -> int:
     with SessionLocal() as db:
         seed(db)
 
-        print(f"\n{len(EVENTS)} events, {len(ATTENDEES)} attendees:\n")
+        print(f"\n{len(EVENTS)} events, {len(ATTENDEES)} attendees, {len(VENUES)} venues:\n")
         for spec in EVENTS:
             print(f"  {spec.name:<34} {spec.note}")
 

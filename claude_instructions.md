@@ -112,8 +112,9 @@ All three Sprint 1 stories have working backends, tested against a real Postgres
 | SCRUM-72 — take up a place (US6b) | Done: offer notice (SCRUM-50) + accept (SCRUM-51) | **Real screens, wired to API**: Place available + Accept place (SCRUM-76) | TC-US6B 10/10 + 1 E2E |
 | SCRUM-74 — organiser responds (US8c) | Done: response endpoint + thread read (SCRUM-77) | **Real screens, wired to API**: response form (SCRUM-78), thread view (SCRUM-58) | TC-US8-17 to 24 + E2E |
 | SCRUM-75 — more clarification rounds (US8d) | Done: rounds guard pinned as D15 (SCRUM-56) | No change needed | TC-US8-31 to 35 |
+| SCRUM-87 — venue catalogue (US20) | Schema + seed done (PR 1); CRUD endpoints next (PR 2) | Not started (PR 2) | TC-US20-01, 04, 07 (DB), 08, 09; see `docs/testing/US20-venue-catalogue.md` |
  
-Every endpoint in §3 exists, plus `POST /registrations/{id}/decline` (deviation 3 below) and `POST /registrations/{id}/accept` (deviation 13). Identity is two stubs: `X-Attendee-Id` for the Sprint 1 routes and `X-User-Id` (role-aware) for the event-request routes. The database is the tables in §2 plus `attendees` and `users`. Backend suite: 175 tests; E2E: 6 tests (health check, US1 journey, US8 clarification journey: ask, answer, read the thread, attendee journey: list, register, My events, withdraw; waitlist journey: leave, rejoin, see position; offer journey: freed place offered, accepted). **Supabase may lag `main`**: the SCRUM-40 and SCRUM-54 migrations (`20260930_1200_us1_request_schema`, `20261008_1200_us8_clarifications`) must be applied there by Calvin — check with `alembic current`.
+Every endpoint in §3 exists, plus `POST /registrations/{id}/decline` (deviation 3 below) and `POST /registrations/{id}/accept` (deviation 13). Identity is two stubs: `X-Attendee-Id` for the Sprint 1 routes and `X-User-Id` (role-aware) for the event-request routes. The database is the tables in §2 plus `attendees` and `users`. Backend suite: 191 tests; E2E: 6 tests (health check, US1 journey, US8 clarification journey: ask, answer, read the thread, attendee journey: list, register, My events, withdraw; waitlist journey: leave, rejoin, see position; offer journey: freed place offered, accepted). **Supabase may lag `main`**: the SCRUM-40 and SCRUM-54 migrations (`20260930_1200_us1_request_schema`, `20261008_1200_us8_clarifications`) must be applied there by Calvin — check with `alembic current`.
  
 ### Get it running
  
@@ -127,7 +128,7 @@ cp .env.example .env                   # keep DATABASE_URL on localhost
 alembic upgrade head                   # create the tables — the seed fails without this
 pytest                                 # whole suite, seconds (tests build their own DB)
  
-python -m app.seed                     # seven events, attendees, the organiser and a coordinator
+python -m app.seed                     # seven events, attendees, the organiser, a coordinator and six venues
 uvicorn app.main:app --reload          # http://localhost:8000/docs
  
 cd ../frontend
@@ -202,7 +203,7 @@ Each is implemented and defensible; each departs from the contract in §2/§3 an
  
 ### Open decisions still unanswered
  
-§6 defines D1–D6 and a Sprint 1 default for each. All six are coded to their defaults and marked in the code; **none has been confirmed by the team**. D7 is new and not in §6. D8–D12 came from US1 and D13–D15 from US8 and D16–D17 from US6a; all are marked `DECISION-PENDING` in the code.
+§6 defines D1–D6 and a Sprint 1 default for each. All six are coded to their defaults and marked in the code; **none has been confirmed by the team**. D7 is new and not in §6. D8–D12 came from US1 and D13–D15 from US8 and D16–D17 from US6a; D18 from US20; all are marked `DECISION-PENDING` in the code.
  
 | id | Question | What we assumed |
 |---|---|---|
@@ -223,6 +224,7 @@ Each is implemented and defensible; each departs from the contract in §2/§3 an
 | D15 | When may a coordinator send another clarification round? | From `submitted` or `under_review`, no limit; the new round is `max(round) + 1`. `awaiting_clarification`, `approved`, `rejected` → `409 CLARIFICATION_NOT_ALLOWED`. `awaiting_clarification` is blocked on purpose: the organiser's reply answers the latest open round, so a second open question would never get its own answer. Past the request stage (`planning` → `completed`) and drafts stay `404` under D11. `CLARIFIABLE_STATUSES` in `clarification_service.py`. **Differs from SCRUM-75 AC 1, which allows another round while Awaiting Clarification. Confirm with the team.** |
 | D16 | Does joining a waitlist need registration to be open? | Yes. US6a AC 1's "reached its registration capacity" presumes it, so `join_waitlist` applies register's gates (`_check_registration_open`): `403 REGISTRATION_NOT_ENABLED` unless confirmed with registration enabled, `403 REGISTRATION_CLOSED` outside the window |
 | D17 | What happens to people already queued if an event's waitlist is switched off? | They keep their place and still get offers: `offer_freed_seat` ignores `waitlist_enabled`, because US6a only governs joining |
+| D18 | Which tags can a venue's facilities, accessibility features and room layouts use? | SCRUM-87 only gives examples. Assumed fixed lists, so US2's filters and the venue form agree on spelling. Facilities: `projector`, `screen`, `sound_system`, `microphone`, `stage`, `wifi`, `whiteboard`, `video_conferencing`, `power_outlets`. Accessibility: `wheelchair`, `lift`, `accessible_toilet`, `hearing_loop`, `step_free_entrance`. Layouts: `theatre`, `classroom`, `banquet`, `boardroom`, `u_shape`, `cabaret`, `standing`. Constants in `app/venue/models.py`, mirrored by the migration's CHECKs |
  
 ### Environment
  
@@ -247,7 +249,7 @@ Each is implemented and defensible; each departs from the contract in §2/§3 an
 
 ## 2. Data model (Supabase / Postgres)
  
-Sprint 1 owns `registrations`, `registration_answers`, `attendance_log` and the seed data. `events` and `venues` are placeholders standing in for Epic 1 and Epic 2 output — keep the columns other epics will need, but do not build write paths for them.
+Sprint 1 owns `registrations`, `registration_answers`, `attendance_log` and the seed data. `events` is a placeholder standing in for Epic 1 output — keep the columns other epics will need, but do not build write paths for it. `venues` is real since SCRUM-87 (US20).
  
 ### `events` — seeded only this sprint (SCRUM-23)
  
@@ -350,6 +352,36 @@ alter table event_request_clarifications enable row level security;
 - `clarification_service.add_request` validates, stores sections in D13's order, and numbers the round (`max(round) + 1`). It **doesn't check the event's status or commit**: `send_request` (SCRUM-53) locks the event, guards the status, calls it and moves the request to `awaiting_clarification` in the same transaction. Whether a new round is allowed (8d) is that guard's job too.
 - `clarification_service.list_thread` returns the thread oldest round first, each question before its reply (SCRUM-58).
 - Downgrade refuses if any message exists.
+
+### `venues` — US20 venue catalogue (SCRUM-87)
+
+The columns are the "Venue fields" table agreed with US2 in SCRUM-87. Migration `20261013_1200_us20_venues`:
+
+```sql
+create table venues (
+  id                     uuid primary key default gen_random_uuid(),
+  name                   text not null,       -- check btrim(name) <> ''
+  location               text not null,       -- check btrim(location) <> ''
+  capacity               integer not null,    -- check capacity > 0
+  facilities             text[] not null default '{}',  -- check <@ the D18 list
+  accessibility_features text[] not null default '{}',  -- check <@ the D18 list
+  room_layouts           text[] not null default '{}',  -- check <@ the D18 list
+  opens_at               time not null,
+  closes_at              time not null,       -- check closes_at > opens_at
+  setup_minutes          integer not null default 0,    -- check >= 0; 0 is valid
+  turnaround_minutes     integer not null default 0,    -- check >= 0; 0 is valid
+  is_active              boolean not null default true
+);
+alter table venues enable row level security;
+```
+
+- One venue hosts one event at a time; there's no rooms table. Setup and turnaround belong to the venue only, and a booking can't override them (AC 7).
+- Each CHECK is named (`venues_capacity_positive`, `venues_hours_valid`, …) so PR 2's API can name the field in its error (AC 4). Hours can't cross midnight.
+- Tags come from D18's fixed lists. The database doesn't reject a duplicate tag, so PR 2's API trims and de-duplicates.
+- Events keep their free-text `venue_name` and `room_number` until US22's booking links an event to a venue.
+- The seed adds six venues with varied capacity, tags and buffers: one with 0/0 buffers, and one inactive (`SOE Seminar Room B1-1`, which no seeded event uses).
+- Downgrade refuses if any venue exists.
+- PR 2 (not built yet): writes need US16b's Venue Staff role, so guard them with a `DECISION-PENDING` stub until then; buffer edits are refused while the venue has approved future bookings. Test cases and the PR split: `docs/testing/US20-venue-catalogue.md`.
 
 ### `registrations` — the core table (SCRUM-24)
  
