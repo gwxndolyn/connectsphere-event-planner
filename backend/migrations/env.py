@@ -7,6 +7,7 @@ from sqlalchemy import create_engine, pool
 import app.event.models  # noqa: F401
 import app.registration.models  # noqa: F401
 import app.user.models  # noqa: F401
+import app.venue.models  # noqa: F401
 from app.core.config import settings
 from app.core.database import Base
 
