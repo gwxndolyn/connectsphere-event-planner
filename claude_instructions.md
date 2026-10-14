@@ -112,12 +112,13 @@ All three Sprint 1 stories have working backends, tested against a real Postgres
 | SCRUM-72 — take up a place (US6b) | Done: offer notice (SCRUM-50) + accept (SCRUM-51) | **Real screens, wired to API**: Place available + Accept place (SCRUM-76) | TC-US6B 10/10 + 1 E2E |
 | SCRUM-74 — organiser responds (US8c) | Done: response endpoint + thread read (SCRUM-77) | **Real screens, wired to API**: response form (SCRUM-78), thread view (SCRUM-58) | TC-US8-17 to 24 + E2E |
 | SCRUM-75 — more clarification rounds (US8d) | Done: rounds guard pinned as D15 (SCRUM-56) | No change needed | TC-US8-31 to 35 |
+| SCRUM-13 — assign a Coordinator (US10a) | Schema + seed done (PR 1); queue and assign endpoints next (PR 2) | Not started (PR 3) | TC-US10A-01 to 04 (DB) |
 | SCRUM-87 — venue catalogue (US20) | Done: schema + seed (PR 1, #53); endpoints, Venue Staff stub (D19), validation, buffer-lock stub (PR 2) | **Real screens, wired to API**: Venues list with filters, staff create/edit form (PR 2) | TC-US20-01 to 19 (07's booking half is TC-US22-01) + 2 E2E; see `docs/testing/US20-venue-catalogue.md` |
 | SCRUM-89 — request a venue booking (US22) | Schema done (PR 1, SCRUM-111): `venue_bookings`, the no-overlap exclusion constraint, the real buffer-lock query. Endpoints next (PR 2) | Not started (PR 3) | TC-US22-01 to 03 so far; all 21 in `docs/testing/US22-venue-booking.md` |
 | SCRUM-7 — search for suitable venues (US2) | Done: `GET /api/v1/venues/available` (hides live US22 bookings and `venue_blocks`), `venue_blocks` table, seeded slot | **Real screen, wired to API**: search form on Venues for Coordinator and Venue staff | TC-US2-01 to 16 (12 pytest + 4 E2E) + frontend unit and integration; see `docs/testing/US2-venue-search.md` |
 | SCRUM-81 — sign up, log in, log out (US16a) | Schema (SCRUM-101), token check (SCRUM-102) and sign-up profile endpoint (SCRUM-103) done; seeded Supabase logins in review (SCRUM-104, #56); login page next (SCRUM-105) | Not started (SCRUM-105, 106) | TC-US16A-01 to 26, 46 to 49; all 50 in `docs/testing/US16a-sign-up-log-in.md` |
  
-Every endpoint in §3 exists, plus `POST /registrations/{id}/decline` (deviation 3 below) and `POST /registrations/{id}/accept` (deviation 13). Identity is a Supabase access token (`Authorization: Bearer`, SCRUM-102), plus two dev stubs when `AUTH_DEV_HEADERS=true`: `X-Attendee-Id` for the Sprint 1 routes and `X-User-Id` (role-aware) for the event-request and venue routes. The frontend still uses the stubs until SCRUM-105. The database is the tables in §2 plus `attendees` and `users`. Backend suite: 394 tests; frontend suite (Vitest): 150 tests, 112 unit + 38 integration; E2E: 18 tests (health check, US1 journey, US8 clarification journey: ask, answer, read the thread, attendee journey: list, register, My events, withdraw; waitlist journey: leave, rejoin, see position; offer journey: freed place offered, accepted; US20 venue list and search; US20 venue staff journey: add with a field error, edit, deactivate; US1 draft round-trip: save, reload, reopen, edit, submit; events board: only open events listed, Open/Full tabs, search by title and venue, online event's join link; Acting as switch remembered across a reload; US2 venue search: seeded slot drops booked and blocked venues, filters and hours, no-match criteria and a marked bad time, organisers not offered search). **Supabase may lag `main`**: it was at `20261015_1200_us16a_auth_link` on 15 Oct (reseeded the same day). Migrations merged after that must be applied there by Calvin — check with `alembic current`. US22's `20261021_1200_us22_bookings` runs `CREATE EXTENSION IF NOT EXISTS btree_gist`; Supabase ships the extension, but if the migration fails on permissions, enable `btree_gist` under Database → Extensions and rerun it. US2's `20261022_1200_us2_venue_blocks` follows it.
+Every endpoint in §3 exists, plus `POST /registrations/{id}/decline` (deviation 3 below) and `POST /registrations/{id}/accept` (deviation 13). Identity is a Supabase access token (`Authorization: Bearer`, SCRUM-102), plus two dev stubs when `AUTH_DEV_HEADERS=true`: `X-Attendee-Id` for the Sprint 1 routes and `X-User-Id` (role-aware) for the event-request and venue routes. The frontend still uses the stubs until SCRUM-105. The database is the tables in §2 plus `attendees` and `users`. Backend suite: 398 tests; frontend suite (Vitest): 150 tests, 112 unit + 38 integration; E2E: 18 tests (health check, US1 journey, US8 clarification journey: ask, answer, read the thread, attendee journey: list, register, My events, withdraw; waitlist journey: leave, rejoin, see position; offer journey: freed place offered, accepted; US20 venue list and search; US20 venue staff journey: add with a field error, edit, deactivate; US1 draft round-trip: save, reload, reopen, edit, submit; events board: only open events listed, Open/Full tabs, search by title and venue, online event's join link; Acting as switch remembered across a reload; US2 venue search: seeded slot drops booked and blocked venues, filters and hours, no-match criteria and a marked bad time, organisers not offered search). **Supabase may lag `main`**: it was at `20261015_1200_us16a_auth_link` on 15 Oct (reseeded the same day). Migrations merged after that must be applied there by Calvin — check with `alembic current`. US22's `20261021_1200_us22_bookings` runs `CREATE EXTENSION IF NOT EXISTS btree_gist`; Supabase ships the extension, but if the migration fails on permissions, enable `btree_gist` under Database → Extensions and rerun it. US2's `20261022_1200_us2_venue_blocks` follows it.
  
 ### Get it running
  
@@ -131,7 +132,7 @@ cp .env.example .env                   # keep DATABASE_URL on localhost and AUTH
 alembic upgrade head                   # create the tables — the seed fails without this
 pytest                                 # whole suite, seconds (tests build their own DB)
  
-python -m app.seed                     # seven events, attendees, the organiser, a coordinator and six venues
+python -m app.seed                     # seven events, attendees, the organiser, a coordinator, two Coordinator Leads and six venues
 uvicorn app.main:app --reload          # http://localhost:8000/docs
  
 cd ../frontend
@@ -179,7 +180,7 @@ npm test                               # backend must be running; don't also run
 - **Deviating from §2/§3 is allowed; doing it silently is not.** Add a `# DECISION-PENDING: <id>` at the code site and a line under "Deviations awaiting a decision" below.
 - **New screens call the real API** (changed in Sprint 2 — the Sprint 1 "mockups stay mockups" rule is retired; *needs team confirmation*). Build through `frontend/src/api/client.ts`, with TypeScript types that match the API's snake_case names. Don't add new mock data.
 - **Two identity headers, one per route family.** Sprint 1 routes take `X-Attendee-Id` (`get_current_attendee`); event-request and venue routes take `X-User-Id` (`get_current_user` / `require_user_roles`). Every attendee has a `users` row with the **same id** and role `attendee`, so one id works in both. In the frontend, `apiClient` sends `X-User-Id` by default and `X-Attendee-Id` (from `VITE_DEV_ATTENDEE_ID`) when a call passes `identity` `"attendee"`, as every call in `features/registration/api.ts` does (SCRUM-79). Since SCRUM-102 both stubs work **only when `AUTH_DEV_HEADERS=true`** (local dev, tests via `conftest.py`, CI E2E); otherwise only `Authorization: Bearer <Supabase token>` identifies the caller. A token that fails verification is `401`, never a fallback to a stub.
-- **New roles arrive with US16b (SCRUM-82):** `coordinator_lead`, `venue_staff`, `tech_support`, `safety_officer`. Until then the enum is `organiser`, `coordinator`, `operations_manager`, `attendee`, and `operations_manager` stands in for Venue Staff on the venue routes (D19).
+- **New roles arrive with US16b (SCRUM-82):** `venue_staff`, `tech_support`, `safety_officer`. `coordinator_lead` was added early by US10a's migration (`20261022_1300_us10a_coordinator`) because SCRUM-13 needs it first, so SCRUM-82 must not add it again. Until then the enum is `organiser`, `coordinator`, `coordinator_lead`, `operations_manager`, `attendee`, and `operations_manager` stands in for Venue Staff on the venue routes (D19).
 - **Another person's record is `404 NOT_FOUND`, never `403`.** Applies to drafts as well as registrations (TC-US7-02, TC-US1-13).
 - **Schema changes go in the first PR of a story, alone.** US1 split into schema → API → screens PRs; the API and screen PRs added no migration. Keeps one Alembic head and a reviewable migration.
 - **E2E specs share one seeded database and run in parallel.** `attendee-registration.spec.ts` is the only spec that changes seeded registrations (serial within itself); others either only read seeded rows that it never touches (`events-board.spec.ts`, `venue-search.spec.ts`) or create their own uniquely named rows (`event-request*.spec.ts`, `clarification-request.spec.ts`, `venue-catalogue.spec.ts`). Keep a new spec in one of those two kinds, or it will flake against the attendee journeys.
@@ -266,7 +267,7 @@ Each is implemented and defensible; each departs from the contract in §2/§3 an
  
 1. **US16a, then US16b** — Supabase Auth per §9. Log in first, then role checks on the routes.
 2. **US20's venue catalogue is in** (schema PR 1, API and screens PR 2). US2 builds search on `GET /api/v1/venues`. US22 adds bookings: PR 1 (SCRUM-111) added `venue_bookings` and filled in `has_approved_future_bookings`; PR 2 adds the endpoints and closes US20's inactive-venue read gap; PR 3 the screens. US13 adds the flag-and-notify step for capacity or hours edits that PR 2 deferred.
-3. **US10a before US10e and US17.** The seed needs an **Event Coordinator Lead** for US10a. US10a moving an event to `planning` hides it from staff under D11, so widen D11 there if the coordinator must keep reading it. Nothing moves a request from Submitted to Under Review yet, and US17 (approve/reject) only acts on Under Review requests. Agree in US10a or US17 who makes that move (e.g. assigning the coordinator, or the coordinator opening the request).
+3. **US10a before US10e and US17.** US10a's schema PR added the Lead role and seeded two Leads; the queue/assign API and the screens follow. US10a moving an event to `planning` hides it from staff under D11, so widen D11 there if the coordinator must keep reading it. Nothing moves a request from Submitted to Under Review yet, and US17 (approve/reject) only acts on Under Review requests. Agree in US10a or US17 who makes that move (e.g. assigning the coordinator, or the coordinator opening the request).
 4. **Waitlist gap (D3):** an email-only waitlist entry can't accept an offer, because there's no attendee to match. Settle D3/D6/D7 before US16a links logins to users.
 5. **Smaller, worth doing:** fix the root README (missing `alembic upgrade head`, the frontend `.env` copy, TODO team list; its CI section is fixed); lock the backend's dependencies; review the Dependabot PRs; make the notification log visible under uvicorn; delete merged branches; turn on branch protection for `main`.
 
@@ -335,10 +336,26 @@ create sequence event_request_reference_seq;
 - All request fields are nullable so drafts can be partial (AC3). Mandatory-field checks happen at submit, in the service, not in the schema.
 - Downgrade refuses if it would discard lifecycle, request or user data.
 
+### `events.coordinator_id` — coordinator assignment (SCRUM-13, US10a)
+
+Migration `20261022_1300_us10a_coordinator`:
+
+```sql
+alter type user_role add value 'coordinator_lead' after 'coordinator';
+alter table events add column coordinator_id uuid references users(id);  -- null = unassigned
+create index ix_events_coordinator_id on events (coordinator_id);
+```
+
+- `coordinator_id` is null until the Event Coordinator Lead assigns someone; submitting a request never sets it (AC 1). No event had a coordinator before this column, so AC 9 (existing assignments kept) holds trivially.
+- The schema doesn't check that the user is an active coordinator: the assign service does (AC 4), because the role lives on `users`.
+- Downgrade drops the column and index but not the `coordinator_lead` enum value (Postgres can't drop one).
+- The seed adds two active Leads (`lead.one@smu.edu.sg`, `lead.two@smu.edu.sg`, ids printed by `python -m app.seed`), satisfying SCRUM-82 AC 7 early. Their supervisory scope is SCRUM-82's.
+
 ### `users` — role-aware identity (SCRUM-40)
 
 ```sql
 create type user_role as enum ('organiser', 'coordinator', 'operations_manager', 'attendee');
+-- later: 'coordinator_lead' added after 'coordinator' by US10a (see events.coordinator_id above)
 
 create table users (
   id          uuid primary key default gen_random_uuid(),
