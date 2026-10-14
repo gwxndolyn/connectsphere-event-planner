@@ -70,6 +70,8 @@ ATTENDEES = [
 EVENT_ORGANISER_EMAIL = "event.organiser@smu.edu.sg"
 EVENT_COORDINATOR_EMAIL = "event.coordinator@smu.edu.sg"
 VENUE_STAFF_EMAIL = "venue.staff@smu.edu.sg"
+# SCRUM-82 AC 7: more than one Lead, never a single hard-coded one.
+EVENT_COORDINATOR_LEAD_EMAILS = ("lead.one@smu.edu.sg", "lead.two@smu.edu.sg")
 
 EVENTS = [
     EventSpec(
@@ -385,6 +387,23 @@ def upsert_venue_staff(db: Session) -> User:
     return staff
 
 
+def upsert_coordinator_leads(db: Session) -> list[User]:
+    """US10a: the Event Coordinator Lead assigns coordinators; two exist so no one is special."""
+    leads = []
+    for email in EVENT_COORDINATOR_LEAD_EMAILS:
+        lead_id = seed_id("user", email)
+        lead = db.get(User, lead_id)
+        if lead is None:
+            lead = User(id=lead_id, email=email, role=UserRole.COORDINATOR_LEAD, is_active=True)
+            db.add(lead)
+        else:
+            lead.email = email
+            lead.role = UserRole.COORDINATOR_LEAD
+            lead.is_active = True
+        leads.append(lead)
+    return leads
+
+
 def upsert_event(db: Session, spec: EventSpec, now: datetime) -> Event:
     event_id = seed_id("event", spec.slug)
     start_at = now + spec.starts_in
@@ -564,6 +583,7 @@ def seed(db: Session, now: datetime | None = None) -> None:
     organiser = upsert_event_organiser(db)
     coordinator = upsert_event_coordinator(db)
     upsert_venue_staff(db)
+    upsert_coordinator_leads(db)
     attendees = {email: upsert_attendee(db, email) for email in ATTENDEES}
     db.flush()
 
@@ -617,6 +637,9 @@ def main() -> int:
         print(f"X-User-Id for {coordinator.email}:\n  {coordinator.id}\n")
         venue_staff = db.get(User, seed_id("user", "venue-staff"))
         print(f"VITE_DEV_VENUE_STAFF_ID for {venue_staff.email}:\n  {venue_staff.id}\n")
+        for email in EVENT_COORDINATOR_LEAD_EMAILS:
+            lead = db.get(User, seed_id("user", email))
+            print(f"X-User-Id for {lead.email} (Coordinator Lead):\n  {lead.id}\n")
         print("Registrations you can withdraw:")
         mine = db.scalars(select(Registration).where(Registration.attendee_id == calvin.id))
         for registration in mine:

@@ -115,6 +115,8 @@ class Event(Base):
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # DECISION-PENDING: reference format is provisional; uniqueness and sequence are schema-owned.
     request_reference: Mapped[str | None] = mapped_column(Text)
+    # NULL = unassigned (SCRUM-13). Set by the Event Coordinator Lead, never on submit.
+    coordinator_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), index=True)
 
 
 class EventRegistrationField(Base):

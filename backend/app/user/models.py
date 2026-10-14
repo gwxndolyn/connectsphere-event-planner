@@ -11,6 +11,7 @@ from app.core.database import Base, pg_enum
 class UserRole(enum.StrEnum):
     ORGANISER = "organiser"
     COORDINATOR = "coordinator"
+    COORDINATOR_LEAD = "coordinator_lead"
     OPERATIONS_MANAGER = "operations_manager"
     ATTENDEE = "attendee"
 
