@@ -24,6 +24,9 @@ class User(Base):
         pg_enum(UserRole, "user_role"), server_default=UserRole.ATTENDEE.value
     )
     is_active: Mapped[bool] = mapped_column(Boolean, server_default=text("true"))
+    # The Supabase Auth user id (token `sub`); null until the person first logs in or signs up (US16a).
+    auth_user_id: Mapped[uuid.UUID | None] = mapped_column(unique=True)
+    full_name: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

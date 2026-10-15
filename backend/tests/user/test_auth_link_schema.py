@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from app.user.models import User, UserRole
 from tests.conftest import BACKEND_DIR
 
-REVISION = "20261015_1200_us16a_auth_user_link"
+REVISION = "20261015_1200_us16a_auth_link"
 PREVIOUS_REVISION = "20261013_1200_us20_venues"
 
 
