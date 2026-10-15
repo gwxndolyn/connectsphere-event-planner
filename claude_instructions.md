@@ -113,8 +113,9 @@ All three Sprint 1 stories have working backends, tested against a real Postgres
 | SCRUM-74 — organiser responds (US8c) | Done: response endpoint + thread read (SCRUM-77) | **Real screens, wired to API**: response form (SCRUM-78), thread view (SCRUM-58) | TC-US8-17 to 24 + E2E |
 | SCRUM-75 — more clarification rounds (US8d) | Done: rounds guard pinned as D15 (SCRUM-56) | No change needed | TC-US8-31 to 35 |
 | SCRUM-87 — venue catalogue (US20) | Schema + seed done (PR 1); CRUD endpoints next (PR 2) | Not started (PR 2) | TC-US20-01, 04, 07 (DB), 08, 09; see `docs/testing/US20-venue-catalogue.md` |
+| SCRUM-81 — sign up, log in, log out (US16a) | Schema done (SCRUM-101): `users.auth_user_id`, `users.full_name`; token check next (SCRUM-102) | Not started (SCRUM-105, 106) | TC-US16A-01 to 04; all 45 in `docs/testing/US16a-sign-up-log-in.md` |
  
-Every endpoint in §3 exists, plus `POST /registrations/{id}/decline` (deviation 3 below) and `POST /registrations/{id}/accept` (deviation 13). Identity is two stubs: `X-Attendee-Id` for the Sprint 1 routes and `X-User-Id` (role-aware) for the event-request routes. The database is the tables in §2 plus `attendees` and `users`. Backend suite: 191 tests; E2E: 6 tests (health check, US1 journey, US8 clarification journey: ask, answer, read the thread, attendee journey: list, register, My events, withdraw; waitlist journey: leave, rejoin, see position; offer journey: freed place offered, accepted). **Supabase may lag `main`**: the SCRUM-40 and SCRUM-54 migrations (`20260930_1200_us1_request_schema`, `20261008_1200_us8_clarifications`) must be applied there by Calvin — check with `alembic current`.
+Every endpoint in §3 exists, plus `POST /registrations/{id}/decline` (deviation 3 below) and `POST /registrations/{id}/accept` (deviation 13). Identity is two stubs: `X-Attendee-Id` for the Sprint 1 routes and `X-User-Id` (role-aware) for the event-request routes. The database is the tables in §2 plus `attendees` and `users`. Backend suite: 199 tests; E2E: 6 tests (health check, US1 journey, US8 clarification journey: ask, answer, read the thread, attendee journey: list, register, My events, withdraw; waitlist journey: leave, rejoin, see position; offer journey: freed place offered, accepted). **Supabase may lag `main`**: it was brought up to `20261013_1200_us20_venues` and reseeded on 15 Oct. Migrations merged after that (from SCRUM-101: `20261015_1200_us16a_auth_link`) must be applied there by Calvin — check with `alembic current`.
  
 ### Get it running
  
@@ -324,9 +325,15 @@ create table users (
 );
 alter table users enable row level security;
 -- attendees.id references users.id: every attendee has a users row with the same id, role 'attendee'
+
+-- US16a (SCRUM-101), migration 20261015_1200_us16a_auth_link
+alter table users
+  add column auth_user_id uuid,        -- Supabase Auth user id (token `sub`); null until first login or sign-up
+  add constraint users_auth_user_id_key unique (auth_user_id),
+  add column full_name    text;        -- asked at sign-up (AC 6); null for seeded users
 ```
 
-Existing attendees were backfilled. Anything that creates an attendee (the seed's `upsert_attendee`, the test factory `make_attendee`) must create the `users` row first.
+Existing attendees were backfilled. Anything that creates an attendee (the seed's `upsert_attendee`, the test factory `make_attendee`) must create the `users` row first. The US16a downgrade refuses while any user is linked or named.
 
 ### `event_request_clarifications` — US8 clarification thread (SCRUM-54)
 
@@ -939,6 +946,19 @@ Access and identity (TC-US1-13, 14, 15) span SCRUM-41–44.
 | SCRUM-57 | Coordinator section selector + comment UI, review queue, **Acting as** switch | TC-US8-15, 16; E2E journey | #36 |
 | SCRUM-55 | Log-only organiser clarification notification after commit | TC-US8-25 to 30 (AC 1–3); no migration | #41 |
 
+### SCRUM-81 (US16a)
+
+Test cases in full: `docs/testing/US16a-sign-up-log-in.md`, mirroring the subtasks in Jira.
+
+| Subtask | Work | Done when | PR |
+|---|---|---|---|
+| SCRUM-101 | `users.auth_user_id` (unique) + `users.full_name`; downgrade refuses while any user is linked or named | TC-US16A-01 to 04; one Alembic head | #54 |
+| SCRUM-102 | Verify the Supabase token in `get_current_user` / `get_current_attendee`; header stubs only when `AUTH_DEV_HEADERS=true` | TC-US16A-05 to 17 | |
+| SCRUM-103 | `POST /api/v1/auth/profile`: Organiser or Attendee only; any existing email refused | TC-US16A-18 to 26 | |
+| SCRUM-104 | Seed Supabase Auth logins for the seeded users via the Admin API | TC-US16A-27 to 31 | |
+| SCRUM-105 | Login page, logout, session; Bearer token per request; **Acting as** dev-only | TC-US16A-32 to 39; lint + build; E2E | |
+| SCRUM-106 | Sign-up page | TC-US16A-40 to 45; lint + build; E2E | |
+
 **Build order** (dependencies are real — SCRUM-23 and SCRUM-24 unblock everything):
  
 ```
@@ -1031,11 +1051,16 @@ Verify with `pyjwt[crypto]` and a cached `PyJWKClient`, checking `audience="auth
  
 ### Linking to `users`
  
-Our rows have their own UUIDs, and seeded ones come from `uuid5`, so no Supabase user sits behind them. Add a column rather than repurposing the primary key:
+Our rows have their own UUIDs, and seeded ones come from `uuid5`, so no Supabase user sits behind them. A column links them rather than repurposing the primary key. **Done in SCRUM-101** (migration `20261015_1200_us16a_auth_link`; full DDL in §2):
  
 ```sql
-alter table users add column auth_user_id uuid unique;
+alter table users
+  add column auth_user_id uuid,
+  add constraint users_auth_user_id_key unique (auth_user_id),
+  add column full_name    text;
 ```
+
+There's deliberately no foreign key to `auth.users(id)`: the test database has no `auth` schema, and a FK would block deleting a user in Supabase.
  
 Every attendee has a `users` row with the same id, so linking `users` covers attendees too. The token check then: verify token → look up by `auth_user_id` → else **look up by email and link it** → else create as an attendee. Matching on email first keeps the seeded demo accounts working the moment the real person signs in, instead of creating duplicates.
  
