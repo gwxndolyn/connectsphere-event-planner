@@ -20,7 +20,8 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     # The Supabase user id (the token's `sub`). Null until the person first logs in or signs up, so
     # seeded users keep working. On users (§9): every attendee has a users row with the same id, so
-    # one link covers every role.
+    # one link covers every role. No foreign key to auth.users(id), on purpose: the test database has
+    # no auth schema, and a FK would block deleting a user in Supabase.
     op.add_column("users", sa.Column("auth_user_id", sa.Uuid(), nullable=True))
     op.create_unique_constraint("users_auth_user_id_key", "users", ["auth_user_id"])
     # Sign-up asks for a name (US16a AC 6); seeded users have none.

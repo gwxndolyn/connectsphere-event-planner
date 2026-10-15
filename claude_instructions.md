@@ -952,7 +952,7 @@ Test cases in full: `docs/testing/US16a-sign-up-log-in.md`, mirroring the subtas
 
 | Subtask | Work | Done when | PR |
 |---|---|---|---|
-| SCRUM-101 | `users.auth_user_id` (unique) + `users.full_name`; downgrade refuses while any user is linked or named | TC-US16A-01 to 04; one Alembic head | |
+| SCRUM-101 | `users.auth_user_id` (unique) + `users.full_name`; downgrade refuses while any user is linked or named | TC-US16A-01 to 04; one Alembic head | #54 |
 | SCRUM-102 | Verify the Supabase token in `get_current_user` / `get_current_attendee`; header stubs only when `AUTH_DEV_HEADERS=true` | TC-US16A-05 to 17 | |
 | SCRUM-103 | `POST /api/v1/auth/profile`: Organiser or Attendee only; any existing email refused | TC-US16A-18 to 26 | |
 | SCRUM-104 | Seed Supabase Auth logins for the seeded users via the Admin API | TC-US16A-27 to 31 | |
@@ -1051,11 +1051,16 @@ Verify with `pyjwt[crypto]` and a cached `PyJWKClient`, checking `audience="auth
  
 ### Linking to `users`
  
-Our rows have their own UUIDs, and seeded ones come from `uuid5`, so no Supabase user sits behind them. A column links them rather than repurposing the primary key. **Done in SCRUM-101** (migration `20261015_1200_us16a_auth_link`, with `full_name` for sign-up):
+Our rows have their own UUIDs, and seeded ones come from `uuid5`, so no Supabase user sits behind them. A column links them rather than repurposing the primary key. **Done in SCRUM-101** (migration `20261015_1200_us16a_auth_link`; full DDL in §2):
  
 ```sql
-alter table users add column auth_user_id uuid unique;
+alter table users
+  add column auth_user_id uuid,
+  add constraint users_auth_user_id_key unique (auth_user_id),
+  add column full_name    text;
 ```
+
+There's deliberately no foreign key to `auth.users(id)`: the test database has no `auth` schema, and a FK would block deleting a user in Supabase.
  
 Every attendee has a `users` row with the same id, so linking `users` covers attendees too. The token check then: verify token → look up by `auth_user_id` → else **look up by email and link it** → else create as an attendee. Matching on email first keeps the seeded demo accounts working the moment the real person signs in, instead of creating duplicates.
  
