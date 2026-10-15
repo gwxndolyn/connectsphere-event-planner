@@ -29,9 +29,13 @@ def alembic_config(connection: Connection) -> Config:
 @pytest.fixture
 def migration_connection(engine: Engine) -> Generator[Connection, None, None]:
     """A connection whose schema changes are rolled back afterwards: Postgres DDL is transactional,
-    so a test can migrate up and down without disturbing the schema the rest of the suite uses."""
+    so a test can migrate up and down without disturbing the schema the rest of the suite uses.
+    The DDL locks `users` until the rollback, which is fine because the suite runs serially."""
     with engine.connect() as connection:
         transaction = connection.begin()
+        # The downgrade guard refuses while any user is linked or named. Clear both columns so these
+        # tests don't depend on the database being unseeded; the rollback restores them.
+        connection.execute(text("update users set auth_user_id = null, full_name = null"))
         yield connection
         transaction.rollback()
 
@@ -76,7 +80,11 @@ def test_tc_us16a_01_migrations_have_one_head() -> None:
     config = Config(str(BACKEND_DIR / "alembic.ini"))
     config.set_main_option("script_location", str(BACKEND_DIR / "migrations"))
 
-    assert ScriptDirectory.from_config(config).get_heads() == [REVISION]
+    script = ScriptDirectory.from_config(config)
+
+    # One head, not "this revision is the head": later migrations must not turn this red.
+    assert len(script.get_heads()) == 1
+    assert REVISION in {revision.revision for revision in script.walk_revisions()}
 
 
 def test_tc_us16a_02_two_users_cannot_share_an_auth_account(db: Session) -> None:
