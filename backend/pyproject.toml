@@ -10,6 +10,8 @@ dependencies = [
     "psycopg[binary]>=3.2",
     "pydantic-settings>=2.6",
     "alembic>=1.14",
+    "pyjwt[crypto]>=2.10",
+    "certifi>=2024.2",
 ]
 
 [project.optional-dependencies]

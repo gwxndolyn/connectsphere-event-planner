@@ -16,6 +16,7 @@ from app.core.clock import get_now
 from app.core.database import get_db
 from app.main import app
 from app.notification.service import get_notifier
+from app.user.auth import auth_dev_headers_enabled
 from tests.factories import NOW
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -124,6 +125,9 @@ async def client(db: Session, notifier: FakeNotifier) -> AsyncGenerator[AsyncCli
     app.dependency_overrides[get_db] = lambda: db
     app.dependency_overrides[get_now] = lambda: NOW
     app.dependency_overrides[get_notifier] = lambda: notifier
+    # The existing tests identify callers with the X-User-Id / X-Attendee-Id stubs, as local dev and
+    # CI E2E do (TC-US16A-15). Token tests use their own clients (tests/user/test_token_identity.py).
+    app.dependency_overrides[auth_dev_headers_enabled] = lambda: True
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         yield client
     app.dependency_overrides.clear()
