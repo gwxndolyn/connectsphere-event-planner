@@ -15,6 +15,11 @@ class Settings(BaseSettings):
     # Keep the X-User-Id / X-Attendee-Id identity stubs working alongside tokens. On for local dev,
     # tests and CI E2E; off in production, where only a valid token identifies the caller.
     auth_dev_headers: bool = False
+    # The seed's Supabase logins (SCRUM-104). The secret key (sb_secret_…) is for admin calls from the
+    # backend only: never commit it, print it or send it to the browser. Without it the seed skips logins.
+    supabase_secret_key: str = ""
+    # One shared password for every seeded login (demo accounts only).
+    seed_auth_password: str = ""
 
 
 settings = Settings()
