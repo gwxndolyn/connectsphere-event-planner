@@ -1,6 +1,7 @@
 """US16a, PR 2 (SCRUM-102): the backend accepts a Supabase access token in place of the header stubs.
 Tokens here are signed with a key pair made for the test run, so nothing reaches the network (§9)."""
 
+import logging
 import time
 import uuid
 from collections.abc import AsyncGenerator
@@ -8,14 +9,16 @@ from collections.abc import AsyncGenerator
 import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import ec
+from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.orm import Session
 
 from app.core.clock import get_now
+from app.core.config import settings
 from app.core.database import get_db
 from app.main import app
 from app.notification.service import get_notifier
-from app.user.auth import TokenVerifier, auth_dev_headers_enabled, get_token_verifier
+from app.user.auth import TokenVerifier, _project_keys, auth_dev_headers_enabled, get_token_verifier
 from app.user.models import Attendee, User, UserRole
 from tests.factories import NOW
 
@@ -34,9 +37,19 @@ def make_token(
     expires_in: int = 3600,
     aud: str = "authenticated",
     iss: str = ISSUER,
+    email_verified: bool = True,
 ) -> str:
     now = int(time.time())
-    claims = {"sub": str(sub), "email": email, "aud": aud, "iss": iss, "iat": now, "exp": now + expires_in}
+    claims = {
+        "sub": str(sub),
+        "email": email,
+        "aud": aud,
+        "iss": iss,
+        "iat": now,
+        "exp": now + expires_in,
+        # Where Supabase says the email was confirmed ("Confirm email" is on).
+        "user_metadata": {"email_verified": email_verified},
+    }
     return jwt.encode(claims, key, algorithm="ES256", headers={"kid": "test-key"})
 
 
@@ -143,6 +156,32 @@ async def test_tc_us16a_06_staff_rows_are_never_linked_by_email(
     assert staff.auth_user_id is None
 
 
+async def test_tc_us16a_06_an_unverified_email_is_never_linked(token_client: AsyncClient, db: Session) -> None:
+    """Review on PR #55: a token for an email nobody confirmed must not take over an existing profile."""
+    organiser = make_user(db)
+
+    response = await create_draft(
+        token_client, bearer(make_token(uuid.uuid4(), organiser.email, email_verified=False))
+    )
+
+    assert response.status_code == 401
+    assert response.json() == {"code": "UNAUTHENTICATED"}
+    db.refresh(organiser)
+    assert organiser.auth_user_id is None
+
+
+async def test_tc_us16a_06_an_inactive_row_is_never_linked(token_client: AsyncClient, db: Session) -> None:
+    """Review on PR #55: a deactivated account isn't bound to whoever claims its email first."""
+    organiser = make_user(db, is_active=False)
+
+    response = await create_draft(token_client, bearer(make_token(uuid.uuid4(), organiser.email)))
+
+    assert response.status_code == 403
+    assert response.json() == {"code": "FORBIDDEN"}
+    db.refresh(organiser)
+    assert organiser.auth_user_id is None
+
+
 async def test_tc_us16a_07_an_email_already_linked_to_another_account_is_refused(
     token_client: AsyncClient, db: Session
 ) -> None:
@@ -182,6 +221,18 @@ async def test_tc_us16a_09_an_expired_token_is_unauthenticated(token_client: Asy
 
     assert response.status_code == 401
     assert response.json() == {"code": "UNAUTHENTICATED"}
+
+
+async def test_tc_us16a_09_a_token_that_just_expired_is_still_accepted(
+    token_client: AsyncClient, db: Session
+) -> None:
+    """10 seconds of leeway, so clock drift between Supabase and the server doesn't reject fresh tokens."""
+    organiser = make_user(db, auth_user_id=uuid.uuid4())
+    token = make_token(organiser.auth_user_id, organiser.email, expires_in=-3)
+
+    response = await token_client.get("/api/v1/me/event-requests", headers=bearer(token))
+
+    assert response.status_code == 200
 
 
 async def test_tc_us16a_10_a_token_signed_by_another_key_is_unauthenticated(
@@ -307,3 +358,72 @@ async def test_tc_us16a_17_an_organiser_token_on_an_attendee_route_is_unauthenti
 
     assert response.status_code == 401
     assert response.json() == {"code": "UNAUTHENTICATED"}
+
+
+async def test_tc_us16a_46_unreachable_keys_are_a_503_not_a_logout(
+    token_client: AsyncClient, db: Session, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Review on PR #55: if Supabase can't be reached, a 401 would make the frontend log everyone out."""
+
+    def unreachable(_token: str) -> object:
+        raise jwt.PyJWKClientConnectionError("Fail to fetch data from the url")
+
+    app.dependency_overrides[get_token_verifier] = lambda: TokenVerifier(issuer=ISSUER, key_for=unreachable)
+    organiser = make_user(db, auth_user_id=uuid.uuid4())
+
+    with caplog.at_level(logging.WARNING, logger="app.user"):
+        response = await token_client.get(
+            "/api/v1/me/event-requests", headers=bearer(make_token(organiser.auth_user_id, organiser.email))
+        )
+
+    assert response.status_code == 503
+    assert response.json() == {"code": "AUTH_UNAVAILABLE"}
+    assert "unreachable" in caplog.text.lower()
+
+
+async def test_tc_us16a_47_a_missing_supabase_url_is_a_server_error(
+    token_client: AsyncClient, db: Session, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Review on PR #55: a deployment mistake must be loud, not look like the user's bad token."""
+    app.dependency_overrides.pop(get_token_verifier)  # the production verifier
+    monkeypatch.setattr(settings, "supabase_url", "")
+    _project_keys.cache_clear()
+    organiser = make_user(db, auth_user_id=uuid.uuid4())
+
+    with caplog.at_level(logging.ERROR, logger="app.user"):
+        response = await token_client.get(
+            "/api/v1/me/event-requests", headers=bearer(make_token(organiser.auth_user_id, organiser.email))
+        )
+
+    _project_keys.cache_clear()
+    assert response.status_code == 500
+    assert response.json() == {"code": "AUTH_NOT_CONFIGURED"}
+    assert "SUPABASE_URL" in caplog.text
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_tc_us16a_48_startup_warns_while_the_header_stubs_are_on(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, enabled: bool
+) -> None:
+    monkeypatch.setattr(settings, "auth_dev_headers", enabled)
+
+    with caplog.at_level(logging.WARNING, logger="app.user"):
+        with TestClient(app):
+            pass
+
+    assert ("AUTH_DEV_HEADERS" in caplog.text) is enabled
+
+
+async def test_tc_us16a_49_a_refused_token_is_logged_without_the_token(
+    token_client: AsyncClient, db: Session, caplog: pytest.LogCaptureFixture
+) -> None:
+    organiser = make_user(db, auth_user_id=uuid.uuid4())
+    token = make_token(organiser.auth_user_id, organiser.email, key=OTHER_KEY)
+
+    with caplog.at_level(logging.WARNING, logger="app.user"):
+        response = await token_client.get("/api/v1/me/event-requests", headers=bearer(token))
+
+    assert response.status_code == 401
+    assert "InvalidSignatureError" in caplog.text
+    assert token not in caplog.text
+    assert token.split(".")[1] not in caplog.text
