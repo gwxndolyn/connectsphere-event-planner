@@ -12,6 +12,8 @@ dependencies = [
     "alembic>=1.14",
     "pyjwt[crypto]>=2.10",
     "certifi>=2024.2",
+    # The seed's Supabase Admin API calls (SCRUM-104); also used by the tests' client.
+    "httpx>=0.27",
 ]
 
 [project.optional-dependencies]
