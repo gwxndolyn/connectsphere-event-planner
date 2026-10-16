@@ -1,3 +1,6 @@
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -10,8 +13,16 @@ from app.event.request_router import router as event_request_router
 from app.registration.router import events_router as registration_events_router
 from app.registration.router import me_router as registration_me_router
 from app.registration.router import router as registration_router
+from app.user.auth import warn_if_dev_headers_enabled
 
-app = FastAPI(title="ConnectSphere Event Planner")
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    warn_if_dev_headers_enabled()
+    yield
+
+
+app = FastAPI(title="ConnectSphere Event Planner", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

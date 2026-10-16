@@ -1,18 +1,36 @@
+import logging
 import uuid
 from typing import Annotated
 
 from fastapi import Depends, Header
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.exceptions import DomainError
-from app.user.auth import InvalidToken, TokenVerifier, auth_dev_headers_enabled, get_token_verifier
+from app.user.auth import (
+    AuthNotConfigured,
+    AuthUnavailable,
+    InvalidToken,
+    TokenVerifier,
+    auth_dev_headers_enabled,
+    get_token_verifier,
+)
 from app.user.models import Attendee, User, UserRole
 
+logger = logging.getLogger(__name__)
+
 # Roles a first login may link to by email (TC-US16A-06). Staff rows are linked by the seed instead
-# (SCRUM-104): with "Confirm email" off, anyone can create a Supabase account for an unused email.
+# (SCRUM-104), so no login can claim a staff role through an email address.
 EMAIL_LINKABLE_ROLES = (UserRole.ORGANISER, UserRole.ATTENDEE)
+
+
+def _refuse(reason: str) -> DomainError:
+    """A 401 for a token, logged with the reason so "why am I getting 401" is answerable. Never log
+    the token itself (TC-US16A-49)."""
+    logger.warning("Token refused: %s", reason)
+    return DomainError(401, "UNAUTHENTICATED")
 
 
 def _bearer_token(authorization: str | None) -> str | None:
@@ -22,30 +40,52 @@ def _bearer_token(authorization: str | None) -> str | None:
         return None
     scheme, _, token = authorization.partition(" ")
     if scheme.lower() != "bearer" or not token.strip():
-        raise DomainError(401, "UNAUTHENTICATED")
+        raise _refuse("malformed Authorization header")
     return token.strip()
 
 
-def _user_for_token(db: Session, verifier: TokenVerifier, token: str) -> User:
-    """Verify the token, then find its user: by `auth_user_id`, else link an unlinked Organiser or
-    Attendee with the same email on first login (§9)."""
+def _verify(verifier: TokenVerifier, token: str):
     try:
-        claims = verifier.verify(token)
-    except InvalidToken:
-        raise DomainError(401, "UNAUTHENTICATED") from None
+        return verifier.verify(token)
+    except InvalidToken as error:
+        raise _refuse(f"invalid token ({error})") from None
+    except AuthUnavailable as error:
+        logger.warning("Supabase's public keys are unreachable (%s); answering 503", error)
+        raise DomainError(503, "AUTH_UNAVAILABLE") from None
+    except AuthNotConfigured as error:
+        logger.error("Supabase Auth is not configured: %s", error)
+        raise DomainError(500, "AUTH_NOT_CONFIGURED") from None
+
+
+def _user_for_token(db: Session, verifier: TokenVerifier, token: str) -> User:
+    """Verify the token, then find its user: by `auth_user_id`, else link an unlinked, active Organiser
+    or Attendee with the same, verified email on first login (§9)."""
+    claims = _verify(verifier, token)
 
     user = db.scalar(select(User).where(User.auth_user_id == claims.sub))
     if user is None and claims.email:
-        by_email = db.scalar(select(User).where(func.lower(User.email) == claims.email.lower()))
+        # Locked, so two simultaneous first logins can't both link the row.
+        by_email = db.scalar(
+            select(User).where(func.lower(User.email) == claims.email.lower()).with_for_update()
+        )
         if by_email is not None:
-            if by_email.auth_user_id is not None or by_email.role not in EMAIL_LINKABLE_ROLES:
-                # Linked to another account (TC-US16A-07), or staff (TC-US16A-06).
-                raise DomainError(401, "UNAUTHENTICATED")
+            if by_email.auth_user_id is not None:
+                raise _refuse("email belongs to another linked account")  # TC-US16A-07
+            if by_email.role not in EMAIL_LINKABLE_ROLES:
+                raise _refuse("staff rows are linked by the seed, not by email")  # TC-US16A-06
+            if not claims.email_verified:
+                raise _refuse("email not verified")  # TC-US16A-06
+            if not by_email.is_active:
+                raise DomainError(403, "FORBIDDEN")  # checked before linking (TC-US16A-06)
             by_email.auth_user_id = claims.sub
-            db.commit()
+            try:
+                db.commit()
+            except IntegrityError:
+                db.rollback()
+                raise _refuse("account linked by a concurrent login") from None
             user = by_email
     if user is None:
-        # Signed up in Supabase, but no profile yet (SCRUM-103 creates it).
+        # Signed up and confirmed in Supabase, but no profile yet (SCRUM-103 creates it).
         raise DomainError(403, "PROFILE_REQUIRED")
     if not user.is_active:
         raise DomainError(403, "FORBIDDEN")
