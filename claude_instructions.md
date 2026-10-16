@@ -118,7 +118,7 @@ All three Sprint 1 stories have working backends, tested against a real Postgres
 | SCRUM-87 — venue catalogue (US20) | Done: schema + seed (PR 1, #53); endpoints, Venue Staff stub (D19), validation, buffer-lock stub (PR 2) | **Real screens, wired to API**: Venues list with filters, staff create/edit form (PR 2) | TC-US20-01 to 19 (07's booking half is TC-US22-01) + 2 E2E; see `docs/testing/US20-venue-catalogue.md` |
 | SCRUM-89 — request a venue booking (US22) | Schema (PR 1, SCRUM-111): `venue_bookings`, the no-overlap exclusion constraint, the real buffer-lock query. Endpoints (PR 2, SCRUM-112): create with warnings, withdraw, Venue Staff's pending list, an event's bookings, the Venue Staff notice, the inactive-venue read for booked coordinators | **Real screens, wired to API** (PR 3, SCRUM-113): Request venue and the event's bookings with Withdraw on an Approved request in the coordinator's review queue; Venue staff's pending list on Venues (deviation 32) | TC-US22-01 to 21 + 3 E2E; see `docs/testing/US22-venue-booking.md` |
 | SCRUM-7 — search for suitable venues (US2) | Done: `GET /api/v1/venues/available` (hides live US22 bookings and `venue_blocks`), `venue_blocks` table, seeded slot | **Real screen, wired to API**: search form on Venues for Coordinator and Venue staff | TC-US2-01 to 16 (12 pytest + 4 E2E) + frontend unit and integration; see `docs/testing/US2-venue-search.md` |
-| SCRUM-81 — sign up, log in, log out (US16a) | Schema (SCRUM-101), token check (SCRUM-102) and sign-up profile endpoint (SCRUM-103) done; seeded Supabase logins in review (SCRUM-104, #56); login page next (SCRUM-105) | Not started (SCRUM-105, 106) | TC-US16A-01 to 26, 46 to 49; all 50 in `docs/testing/US16a-sign-up-log-in.md` |
+| SCRUM-81 — sign up, log in, log out (US16a) | Schema (SCRUM-101), token check (SCRUM-102), sign-up profile endpoint (SCRUM-103) and seeded Supabase logins (SCRUM-104) done; login page next (SCRUM-105) | Not started (SCRUM-105, 106) | TC-US16A-01 to 31, 46 to 49; all 50 in `docs/testing/US16a-sign-up-log-in.md` |
  
 Every endpoint in §3 exists, plus `POST /registrations/{id}/decline` (deviation 3 below) and `POST /registrations/{id}/accept` (deviation 13). Identity is a Supabase access token (`Authorization: Bearer`, SCRUM-102), plus two dev stubs when `AUTH_DEV_HEADERS=true`: `X-Attendee-Id` for the Sprint 1 routes and `X-User-Id` (role-aware) for the event-request and venue routes. The frontend still uses the stubs until SCRUM-105. The database is the tables in §2 plus `attendees` and `users`. Backend suite: 518 tests; frontend suite (Vitest): 195 tests, 143 unit + 52 integration; E2E: 22 tests (US10a journey: organiser submits, Lead assigns, organiser sees the coordinator; health check, US1 journey, US8 clarification journey: ask, answer, read the thread, attendee journey: list, register, My events, withdraw; waitlist journey: leave, rejoin, see position; offer journey: freed place offered, accepted; US20 venue list and search; US20 venue staff journey: add with a field error, edit, deactivate; US1 draft round-trip: save, reload, reopen, edit, submit; events board: only open events listed, Open/Full tabs, search by title and venue, online event's join link; Acting as switch remembered across a reload; US2 venue search: seeded slot drops booked and blocked venues, filters and hours, no-match criteria and a marked bad time, organisers not offered search; US22 venue booking: request then Venue staff's pending list, capacity error and layout warning, withdraw). **Supabase may lag `main`**: it was at `20261015_1200_us16a_auth_link` on 15 Oct (reseeded the same day). Migrations merged after that must be applied there by Calvin — check with `alembic current`. US22's `20261021_1200_us22_bookings` runs `CREATE EXTENSION IF NOT EXISTS btree_gist`; Supabase ships the extension, but if the migration fails on permissions, enable `btree_gist` under Database → Extensions and rerun it. US2's `20261022_1200_us2_venue_blocks` follows it.
  
@@ -134,7 +134,8 @@ cp .env.example .env                   # keep DATABASE_URL on localhost and AUTH
 alembic upgrade head                   # create the tables — the seed fails without this
 pytest                                 # whole suite, seconds (tests build their own DB)
  
-python -m app.seed                     # seven events, attendees, the organiser, a coordinator, two Coordinator Leads and six venues
+python -m app.seed                     # seven events, attendees, the organiser, a coordinator, two Coordinator Leads and six venues;
+                                       # with SUPABASE_SECRET_KEY + SEED_AUTH_PASSWORD set, also their Supabase logins
 uvicorn app.main:app --reload          # http://localhost:8000/docs
  
 cd ../frontend
@@ -1272,8 +1273,8 @@ Test cases in full: `docs/testing/US16a-sign-up-log-in.md`, mirroring the subtas
 |---|---|---|---|
 | SCRUM-101 | `users.auth_user_id` (unique) + `users.full_name`; downgrade refuses while any user is linked or named | TC-US16A-01 to 04; one Alembic head | #54 |
 | SCRUM-102 | Verify the Supabase token in `get_current_user` / `get_current_attendee` (`app/user/auth.py`); header stubs only when `AUTH_DEV_HEADERS=true`; email linking for active Organiser and Attendee rows with a verified email only; 503/500 for key outages and missing config; startup warning while the stubs are on | TC-US16A-05 to 17, 46 to 49 (`tests/user/test_token_identity.py`) | #55 |
-| SCRUM-103 | `POST /api/v1/auth/profile` (`app/user/router.py`, `service.py`, `schemas.py`; `get_token_claims` in `dependencies.py`): Organiser or Attendee only; any existing email refused; returns `{id, email, full_name, role}` | TC-US16A-18 to 26 (`tests/user/test_profile.py`) | |
-| SCRUM-104 | Seed Supabase Auth logins for the seeded users via the Admin API | TC-US16A-27 to 31 | |
+| SCRUM-103 | `POST /api/v1/auth/profile` (`app/user/router.py`, `service.py`, `schemas.py`; `get_token_claims` in `dependencies.py`): Organiser or Attendee only; any existing email refused; returns `{id, email, full_name, role}` | TC-US16A-18 to 26 (`tests/user/test_profile.py`) | #61 |
+| SCRUM-104 | Seed Supabase Auth logins for the seeded users via the Admin API (`app/user/supabase_admin.py`, `seed_auth_logins` in `app/seed.py`); skipped without `SUPABASE_SECRET_KEY` / `SEED_AUTH_PASSWORD` | TC-US16A-27 to 31 (`tests/user/test_seed_auth_logins.py`) | #56 |
 | SCRUM-105 | Login page, logout, session; Bearer token per request; **Acting as** dev-only | TC-US16A-32 to 39; lint + build; E2E | |
 | SCRUM-106 | Sign-up page | TC-US16A-40 to 45; lint + build; E2E | |
 
@@ -1396,6 +1397,10 @@ The key fetch is built on the first token, not at startup, and uses certifi's CA
 - RLS stays on with no policies. The browser only calls Supabase Auth and the Data API stays disabled, so the publishable key reads no tables. Policies are needed only if the Data API is ever enabled; until then FastAPI's role checks (US16b) are the access control. New tables still enable RLS in their migration.
 - **CORS already allows `Authorization`** (`allow_headers=["*"]`). Cookie-based sessions would instead need `allow_credentials=True` and specific origins.
  
+### Seeded logins (SCRUM-104)
+
+Staff can't sign up (US16a AC 7), so `python -m app.seed` creates a confirmed Supabase login for each seeded user (`SEEDED_LOGIN_EMAILS`: the organiser, the coordinator and the four demo attendees) through the Admin API, then links each row by `auth_user_id`. It needs `SUPABASE_URL`, `SUPABASE_SECRET_KEY` (`sb_secret_…`) and `SEED_AUTH_PASSWORD` in `backend/.env`; without them it prints that logins were skipped and seeds everything else as before. An account that already exists is found by email and reused, password unchanged. Every login is fetched before any row is linked, so an Admin API failure names the email and links nothing. Demo accounts only: they share one password.
+
 Sources: [Supabase JWTs](https://supabase.com/docs/guides/auth/jwts), [API keys](https://supabase.com/docs/guides/api/api-keys).
  
 ---
