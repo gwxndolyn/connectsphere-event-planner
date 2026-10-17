@@ -67,6 +67,7 @@ ATTENDEES = [
 ]
 EVENT_ORGANISER_EMAIL = "event.organiser@smu.edu.sg"
 EVENT_COORDINATOR_EMAIL = "event.coordinator@smu.edu.sg"
+VENUE_STAFF_EMAIL = "venue.staff@smu.edu.sg"
 
 EVENTS = [
     EventSpec(
@@ -301,6 +302,26 @@ def upsert_event_coordinator(db: Session) -> User:
     return coordinator
 
 
+def upsert_venue_staff(db: Session) -> User:
+    """US20 venue catalogue writes need Venue Staff."""
+    # DECISION-PENDING: D19 — operations_manager stands in for Venue Staff until US16b adds the role.
+    staff_id = seed_id("user", "venue-staff")
+    staff = db.get(User, staff_id)
+    if staff is None:
+        staff = User(
+            id=staff_id,
+            email=VENUE_STAFF_EMAIL,
+            role=UserRole.OPERATIONS_MANAGER,
+            is_active=True,
+        )
+        db.add(staff)
+    else:
+        staff.email = VENUE_STAFF_EMAIL
+        staff.role = UserRole.OPERATIONS_MANAGER
+        staff.is_active = True
+    return staff
+
+
 def upsert_event(db: Session, spec: EventSpec, now: datetime) -> Event:
     event_id = seed_id("event", spec.slug)
     start_at = now + spec.starts_in
@@ -407,6 +428,7 @@ def seed(db: Session, now: datetime | None = None) -> None:
     now = now or datetime.now(UTC)
     upsert_event_organiser(db)
     upsert_event_coordinator(db)
+    upsert_venue_staff(db)
     attendees = {email: upsert_attendee(db, email) for email in ATTENDEES}
     db.flush()
 
@@ -449,6 +471,8 @@ def main() -> int:
         print(f"VITE_DEV_USER_ID for {organiser.email}:\n  {organiser.id}\n")
         coordinator = db.get(User, seed_id("user", "event-coordinator"))
         print(f"X-User-Id for {coordinator.email}:\n  {coordinator.id}\n")
+        venue_staff = db.get(User, seed_id("user", "venue-staff"))
+        print(f"VITE_DEV_VENUE_STAFF_ID for {venue_staff.email}:\n  {venue_staff.id}\n")
         print("Registrations you can withdraw:")
         mine = db.scalars(select(Registration).where(Registration.attendee_id == calvin.id))
         for registration in mine:
