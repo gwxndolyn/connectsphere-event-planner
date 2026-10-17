@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.event.models import Event
 from app.seed import VENUES, seed, seed_id
+from app.user.models import User, UserRole
 from app.venue.models import ACCESSIBILITY_FEATURES, FACILITIES, ROOM_LAYOUTS, Venue
 from tests.factories import NOW
 
@@ -166,3 +167,13 @@ def test_tc_us20_09_seed_gives_us2_varied_venues(db: Session) -> None:
     count_before = len(list(db.scalars(select(Venue.id))))
     seed(db, now=NOW)
     assert len(list(db.scalars(select(Venue.id)))) == count_before
+
+
+def test_tc_us20_09_seed_has_a_venue_staff_user(db: Session) -> None:
+    # DECISION-PENDING: D19 — operations_manager stands in for Venue Staff until US16b (PR 2).
+    seed(db, now=NOW)
+
+    staff = db.get(User, seed_id("user", "venue-staff"))
+    assert staff is not None
+    assert staff.role == UserRole.OPERATIONS_MANAGER
+    assert staff.is_active is True
