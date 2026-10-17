@@ -2,11 +2,13 @@ const BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
 // Development identity stub (D12): no login until Supabase Auth, so the app acts as one of the
 // seeded users and sends their id as X-User-Id. The header's "Acting as" switch picks which.
-export type DevRole = "organiser" | "coordinator";
+// Venue staff is operations_manager in the backend until US16b (D19).
+export type DevRole = "organiser" | "coordinator" | "venue_staff";
 
 export const DEV_USER_IDS: Record<DevRole, string | undefined> = {
   organiser: import.meta.env.VITE_DEV_USER_ID,
   coordinator: import.meta.env.VITE_DEV_COORDINATOR_ID,
+  venue_staff: import.meta.env.VITE_DEV_VENUE_STAFF_ID,
 };
 
 // The Sprint 1 attendee routes (events board, register, withdraw, My Events) identify the caller
@@ -24,7 +26,8 @@ const DEV_ROLE_KEY = "connectsphere.devRole";
 
 function readStoredRole(): DevRole {
   try {
-    return localStorage.getItem(DEV_ROLE_KEY) === "coordinator" ? "coordinator" : "organiser";
+    const stored = localStorage.getItem(DEV_ROLE_KEY);
+    return stored === "coordinator" || stored === "venue_staff" ? stored : "organiser";
   } catch {
     return "organiser";
   }

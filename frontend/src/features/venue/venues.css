@@ -1,0 +1,163 @@
+/* Venue catalogue (US20). Buttons, fields and alerts reuse eventRequests.css's request-* classes. */
+
+.venue-filters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px 24px;
+  padding: 24px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.venue-filters__tags,
+.venue-tags {
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.venue-filters__tags {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+.venue-filters__tags legend,
+.venue-tags legend {
+  width: 100%;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.venue-tags {
+  padding: 24px 0;
+}
+
+.venue-tags legend {
+  font-size: 17px;
+}
+
+.venue-tags__options {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+.venue-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.venue-check input {
+  accent-color: var(--accent);
+}
+
+.venue-field-error {
+  color: var(--badge-text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.venue-form__wide {
+  grid-column: 1 / -1;
+}
+
+.venue-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+  margin: 24px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.venue-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.venue-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.venue-card__head h2 {
+  font-size: 17px;
+}
+
+.venue-card__location {
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.venue-card__facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.venue-card__facts dt {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.venue-card__facts dd {
+  margin: 2px 0 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.venue-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.venue-chips li {
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--chip-bg);
+  font-size: 12px;
+}
+
+.venue-badge {
+  flex: none;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--badge-bg);
+  color: var(--badge-text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.venue-card__actions {
+  display: flex;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 6px;
+}
+
+@media (max-width: 720px) {
+  .venue-filters {
+    grid-template-columns: 1fr;
+  }
+}
