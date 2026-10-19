@@ -234,7 +234,7 @@ Each is implemented and defensible; each departs from the contract in §2/§3 an
 | D16 | Does joining a waitlist need registration to be open? | Yes. US6a AC 1's "reached its registration capacity" presumes it, so `join_waitlist` applies register's gates (`_check_registration_open`): `403 REGISTRATION_NOT_ENABLED` unless confirmed with registration enabled, `403 REGISTRATION_CLOSED` outside the window |
 | D17 | What happens to people already queued if an event's waitlist is switched off? | They keep their place and still get offers: `offer_freed_seat` ignores `waitlist_enabled`, because US6a only governs joining |
 | D18 | Which tags can a venue's facilities, accessibility features and room layouts use? | SCRUM-87 only gives examples. Assumed fixed lists, so US2's filters and the venue form agree on spelling. Facilities: `projector`, `screen`, `sound_system`, `microphone`, `stage`, `wifi`, `whiteboard`, `video_conferencing`, `power_outlets`. Accessibility: `wheelchair`, `lift`, `accessible_toilet`, `hearing_loop`, `step_free_entrance`. Layouts: `theatre`, `classroom`, `banquet`, `boardroom`, `u_shape`, `cabaret`, `standing`. Constants in `app/venue/models.py`, mirrored by the migration's CHECKs |
-| D19 | Who stands in for Venue Staff before US16b adds the role? | `operations_manager`, one constant `VENUE_STAFF_ROLES` in `app/venue/service.py`; US16b changes it to `venue_staff`. The seed adds `venue.staff@smu.edu.sg` with that role, and **Acting as → Venue staff** sends its id. Side effect: the same user can read the event-request queue (D11), since `operations_manager` also stands in for the Coordinator Lead |
+| D19 | Who stands in for Venue Staff before US16b adds the role? | `operations_manager`, one constant `VENUE_STAFF_ROLES` in `app/venue/service.py`; US16b changes it to `venue_staff`. The seed adds `venue.staff@smu.edu.sg` with that role, and **Acting as → Venue staff** sends its id. Side effects run both ways, since `operations_manager` also stands in for the Coordinator Lead (D11). The venue staff user can read the event-request queue. Anyone acting as a Coordinator Lead can create, edit and deactivate venues. No Lead is seeded yet, but US10a will seed one, so **US16b (SCRUM-82) must split the two roles before US10a lands** |
  
 ### Environment
  
@@ -693,7 +693,7 @@ Write body (unknown fields rejected): `name`, `location`, `capacity`, `facilitie
 | Unknown id; inactive venue read by non-staff | `404` | `{"code": "NOT_FOUND"}` |
 | Missing/unknown identity; not Venue Staff or inactive | `401` / `403` | `UNAUTHENTICATED` / `FORBIDDEN` |
 
-Not built until bookings exist: AC 2's flag-and-notify step for capacity or hours edits (flag affected future bookings for review, notify Venue Staff and the assigned coordinators). Flagging lands in US13 (SCRUM-16) and the booking link in US22 (SCRUM-89).
+Not built until bookings exist: AC 2's flag-and-notify step for capacity or hours edits (flag affected future bookings for review, notify Venue Staff and the assigned coordinators). Flagging lands in US13 (SCRUM-16) and the booking link in US22 (SCRUM-89). **Gap for US22:** an inactive venue is `404` to non-staff, so once bookings exist, a coordinator whose event is booked at a deactivated venue can't open that venue. US22 must handle that.
 
 ---
 
