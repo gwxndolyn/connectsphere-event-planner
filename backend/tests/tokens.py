@@ -3,6 +3,8 @@ that checks them against that key. Nothing reaches the network (§9)."""
 
 import time
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 import jwt
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -27,15 +29,18 @@ def make_token(
     *,
     key: ec.EllipticCurvePrivateKey = SIGNING_KEY,
     expires_in: int = 3600,
+    aud: str = "authenticated",
+    iss: str = ISSUER,
     email_verified: bool = True,
 ) -> str:
     now = int(time.time())
     claims = {
         "sub": str(sub),
-        "aud": "authenticated",
-        "iss": ISSUER,
+        "aud": aud,
+        "iss": iss,
         "iat": now,
         "exp": now + expires_in,
+        # Where Supabase says the email was confirmed ("Confirm email" is on).
         "user_metadata": {"email_verified": email_verified},
     }
     if email is not None:
@@ -47,8 +52,10 @@ def bearer(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-def token_client(db: Session, notifier, *, dev_headers: bool = False) -> AsyncClient:
-    """A client whose app checks tokens against SIGNING_KEY. Clear `app.dependency_overrides` after."""
+@asynccontextmanager
+async def api_client(db: Session, notifier, *, dev_headers: bool = False) -> AsyncIterator[AsyncClient]:
+    """A client whose app checks tokens against SIGNING_KEY, with the header stubs on or off. Clears
+    the dependency overrides on exit, so no test file has to remember to."""
     app.dependency_overrides[get_db] = lambda: db
     app.dependency_overrides[get_now] = lambda: NOW
     app.dependency_overrides[get_notifier] = lambda: notifier
@@ -56,4 +63,8 @@ def token_client(db: Session, notifier, *, dev_headers: bool = False) -> AsyncCl
         issuer=ISSUER, key_for=lambda _token: SIGNING_KEY.public_key()
     )
     app.dependency_overrides[auth_dev_headers_enabled] = lambda: dev_headers
-    return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            yield client
+    finally:
+        app.dependency_overrides.clear()

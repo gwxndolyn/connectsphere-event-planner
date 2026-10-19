@@ -9,9 +9,9 @@ from httpx import AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.main import app
 from app.user.models import Attendee, User, UserRole
-from tests.tokens import OTHER_KEY, bearer, make_token, token_client
+from app.user import service as profile_service
+from tests.tokens import OTHER_KEY, api_client, bearer, make_token
 
 pytestmark = pytest.mark.anyio
 
@@ -21,17 +21,15 @@ PROFILE = "/api/v1/auth/profile"
 @pytest.fixture
 async def client(db: Session, notifier) -> AsyncGenerator[AsyncClient, None]:
     """Production settings: tokens only, header stubs off."""
-    async with token_client(db, notifier) as client:
+    async with api_client(db, notifier) as client:
         yield client
-    app.dependency_overrides.clear()
 
 
 @pytest.fixture
 async def dev_client(db: Session, notifier) -> AsyncGenerator[AsyncClient, None]:
     """Header stubs on, as in local dev and CI E2E."""
-    async with token_client(db, notifier, dev_headers=True) as client:
+    async with api_client(db, notifier, dev_headers=True) as client:
         yield client
-    app.dependency_overrides.clear()
 
 
 def new_email() -> str:
@@ -141,6 +139,32 @@ async def test_tc_us16a_23_a_second_call_for_the_same_account_is_refused(client:
     assert db.scalar(select(func.count()).select_from(User).where(User.auth_user_id == sub)) == 1
 
 
+async def test_tc_us16a_23_a_call_that_loses_the_race_is_409(
+    client: AsyncClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review on PR #61: two simultaneous calls both pass the duplicate check; the database rejects the
+    second. Simulated by making only the first check miss the row that's already there."""
+    sub = uuid.uuid4()
+    existing = make_user(db, UserRole.ORGANISER, auth_user_id=sub)
+    db.commit()  # the endpoint's rollback must not take the setup with it
+    real_check = profile_service.conflicting_user
+    calls = []
+
+    def first_check_misses(*args):
+        calls.append(args)
+        return None if len(calls) == 1 else real_check(*args)
+
+    monkeypatch.setattr(profile_service, "conflicting_user", first_check_misses)
+
+    response = await client.post(
+        PROFILE, headers=bearer(make_token(sub, existing.email)), json={"full_name": "Late", "role": "organiser"}
+    )
+
+    assert (response.status_code, response.json()) == (409, {"code": "EMAIL_ALREADY_REGISTERED"})
+    assert len(calls) == 2  # checked again after the database refused the insert
+    assert users_with(db, existing.email) == 1
+
+
 @pytest.mark.parametrize(
     ("body", "missing"),
     [
@@ -194,3 +218,18 @@ async def test_tc_us16a_26_the_dev_header_stubs_do_not_create_profiles(dev_clien
     )
 
     assert response.status_code == 401
+
+
+async def test_tc_us16a_26_an_unverified_email_cannot_create_a_profile(client: AsyncClient, db: Session) -> None:
+    """Review on PR #61: otherwise someone could take another person's address before they sign up, and
+    the real owner would get 409. Same answer as #55's linking path gives an unverified email."""
+    email = new_email()
+
+    response = await client.post(
+        PROFILE,
+        headers=bearer(make_token(uuid.uuid4(), email, email_verified=False)),
+        json={"full_name": "Not Yet Confirmed", "role": "organiser"},
+    )
+
+    assert (response.status_code, response.json()) == (401, {"code": "UNAUTHENTICATED"})
+    assert users_with(db, email) == 0
