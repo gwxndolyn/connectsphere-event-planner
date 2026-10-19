@@ -29,14 +29,14 @@ def create_profile(db: Session, claims: TokenClaims, body: ProfileWrite) -> User
         # Email/password sign-ups always carry one; without it there's no profile to make.
         logger.warning("Token refused: no email claim to create a profile from")
         raise DomainError(401, "UNAUTHENTICATED")
+    if not claims.email_verified:
+        # Otherwise anyone could take an address before its owner signs up (TC-US16A-26). The same
+        # answer #55's linking path gives an unverified email.
+        logger.warning("Token refused: email not verified, so no profile")
+        raise DomainError(401, "UNAUTHENTICATED")
 
     # Any existing row for this account or email, seeded staff included (TC-US16A-21 to 23).
-    existing = db.scalar(
-        select(User.id).where(
-            or_(User.auth_user_id == claims.sub, func.lower(User.email) == claims.email.lower())
-        )
-    )
-    if existing is not None:
+    if conflicting_user(db, claims) is not None:
         raise DomainError(409, "EMAIL_ALREADY_REGISTERED")
 
     user = User(email=claims.email, role=SIGN_UP_ROLES[role], full_name=full_name, auth_user_id=claims.sub)
@@ -48,8 +48,20 @@ def create_profile(db: Session, claims: TokenClaims, body: ProfileWrite) -> User
             db.add(Attendee(id=user.id, email=user.email))
         db.commit()
     except IntegrityError:
-        # A simultaneous call for the same account or email passed the check above first.
         db.rollback()
+        # A simultaneous call for the same account or email passed the check above first. Any other
+        # integrity failure is a bug, so it isn't hidden behind a 409 (TC-US16A-23).
+        if conflicting_user(db, claims) is None:
+            raise
         raise DomainError(409, "EMAIL_ALREADY_REGISTERED") from None
     db.refresh(user)
     return user
+
+
+def conflicting_user(db: Session, claims: TokenClaims):
+    """The id of a `users` row that already has this account or (any case) this email, if any."""
+    return db.scalar(
+        select(User.id).where(
+            or_(User.auth_user_id == claims.sub, func.lower(User.email) == claims.email.lower())
+        )
+    )
