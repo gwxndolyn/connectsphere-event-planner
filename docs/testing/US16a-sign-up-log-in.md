@@ -64,10 +64,10 @@
 | TC-US16A-20 | 7 | A valid token | Role is `coordinator`, `operations_manager`, another staff role, or unknown | `422 INVALID_ROLE`; nothing is created | SCRUM-103 |
 | TC-US16A-21 | 7 | The token's email belongs to an unlinked seeded staff row | Profile created as `organiser` | `409 EMAIL_ALREADY_REGISTERED`; the staff row is unchanged and not linked | SCRUM-103 |
 | TC-US16A-22 | 6 | The token's email belongs to any existing `users` row | Profile created | `409 EMAIL_ALREADY_REGISTERED` | SCRUM-103 |
-| TC-US16A-23 | 6 | A profile already exists for this `sub` | The endpoint is called again | `409 EMAIL_ALREADY_REGISTERED`; still one row | SCRUM-103 |
+| TC-US16A-23 | 6 | A profile already exists for this `sub`, or a simultaneous call wins the race | The endpoint is called again | `409 EMAIL_ALREADY_REGISTERED`; still one row | SCRUM-103 |
 | TC-US16A-24 | 6 | A valid token | `full_name` and/or `role` missing or blank | `422 MISSING_REQUIRED_FIELD` listing each missing field; nothing is created | SCRUM-103 |
 | TC-US16A-25 | 6 | The body includes `email` or `auth_user_id` | Profile created | `422`; identity can't be set from the body | SCRUM-103 |
-| TC-US16A-26 | 6 | No token, or an invalid one | Profile created | `401 UNAUTHENTICATED` | SCRUM-103 |
+| TC-US16A-26 | 6 | No token, an invalid one, or one whose email isn't verified | Profile created | `401 UNAUTHENTICATED`; nothing is created | SCRUM-103 |
 | TC-US16A-27 | 7 | Secret key and password set | Seed runs | One confirmed auth account per seeded user; each `users` row gets its `auth_user_id` | SCRUM-104 |
 | TC-US16A-28 | 7 | Auth accounts already exist | Seed runs again | Accounts found by email and reused; no duplicates; links unchanged | SCRUM-104 |
 | TC-US16A-29 | — | No secret key | Seed runs | Seeds as today; output says auth logins were skipped | SCRUM-104 |

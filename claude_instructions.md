@@ -670,16 +670,18 @@ The whole thread, `{"clarifications": [...]}`, oldest round first and each quest
 
 ### `POST /api/v1/auth/profile` — SCRUM-103 (US16a)
 
-Called on a confirmed user's **first login**, after the token check answered `403 PROFILE_REQUIRED`. **Token only**: the dev header stubs never apply (`get_token_claims`). Body: `{"full_name": "...", "role": "organiser" | "attendee"}`, unknown fields rejected. `auth_user_id` and `email` come from the token, never the body. An `attendee` also gets its `attendees` row with the same id.
+Called on a confirmed user's **first login**, after the token check answered `403 PROFILE_REQUIRED`. **Token only**: the dev header stubs never apply (`get_token_claims`). Body: `{"full_name": "...", "role": "organiser" | "attendee"}` (lowercase; `"Organiser"` is `INVALID_ROLE`), unknown fields rejected. The token's email must be verified (`user_metadata.email_verified`), as for #55's linking. `auth_user_id` and `email` come from the token, never the body. An `attendee` also gets its `attendees` row with the same id.
 
 | Outcome | Status | Body |
 |---|---|---|
 | Created | `201` | `{"id", "email", "full_name", "role"}`, so the frontend knows which home screen to show |
 | `full_name` and/or `role` missing or blank | `422` | `{"code": "MISSING_REQUIRED_FIELD", "fields": [...]}` |
 | Role not `organiser` or `attendee` | `422` | `{"code": "INVALID_ROLE"}` (deviation 23) |
-| A `users` row already has this account or email (seeded staff included), or a simultaneous call won | `409` | `{"code": "EMAIL_ALREADY_REGISTERED"}` (deviation 23) |
+| A `users` row already has this account or email (seeded staff included), or a simultaneous call won (checked again after the database refuses the insert; any other integrity error is re-raised) | `409` | `{"code": "EMAIL_ALREADY_REGISTERED"}` (deviation 23) |
 | `email` or `auth_user_id` in the body | `422` | FastAPI's unknown-field error |
-| No token, or an invalid one | `401` | `{"code": "UNAUTHENTICATED"}` (and `503`/`500` as for any token, deviation 19) |
+| No token, an invalid one, or one whose email isn't verified | `401` | `{"code": "UNAUTHENTICATED"}` (and `503`/`500` as for any token, deviation 19) |
+
+Open for SCRUM-105: a retry after a lost `201` gets `409` today (TC-US16A-23), which the login page can't tell from someone else's address. Decide there whether the same account should get its existing profile back instead.
 
 ---
 
