@@ -13,6 +13,7 @@ from app.user.auth import (
     AuthNotConfigured,
     AuthUnavailable,
     InvalidToken,
+    TokenClaims,
     TokenVerifier,
     auth_dev_headers_enabled,
     get_token_verifier,
@@ -44,7 +45,7 @@ def _bearer_token(authorization: str | None) -> str | None:
     return token.strip()
 
 
-def _verify(verifier: TokenVerifier, token: str):
+def _verify(verifier: TokenVerifier, token: str) -> TokenClaims:
     try:
         return verifier.verify(token)
     except InvalidToken as error:
@@ -55,6 +56,18 @@ def _verify(verifier: TokenVerifier, token: str):
     except AuthNotConfigured as error:
         logger.error("Supabase Auth is not configured: %s", error)
         raise DomainError(500, "AUTH_NOT_CONFIGURED") from None
+
+
+def get_token_claims(
+    authorization: Annotated[str | None, Header()] = None,
+    verifier: TokenVerifier = Depends(get_token_verifier),
+) -> TokenClaims:
+    """A verified token's claims, for the one route that runs before a `users` row exists: creating
+    the profile (SCRUM-103). Token only; the dev header stubs never apply here."""
+    token = _bearer_token(authorization)
+    if token is None:
+        raise _refuse("no token")
+    return _verify(verifier, token)
 
 
 def _user_for_token(db: Session, verifier: TokenVerifier, token: str) -> User:

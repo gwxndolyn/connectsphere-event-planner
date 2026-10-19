@@ -2,60 +2,22 @@
 Tokens here are signed with a key pair made for the test run, so nothing reaches the network (§9)."""
 
 import logging
-import time
 import uuid
 from collections.abc import AsyncGenerator
 
 import jwt
 import pytest
-from cryptography.hazmat.primitives.asymmetric import ec
 from fastapi.testclient import TestClient
-from httpx import ASGITransport, AsyncClient
+from httpx import AsyncClient
 from sqlalchemy.orm import Session
 
-from app.core.clock import get_now
 from app.core.config import settings
-from app.core.database import get_db
 from app.main import app
-from app.notification.service import get_notifier
-from app.user.auth import TokenVerifier, _project_keys, auth_dev_headers_enabled, get_token_verifier
+from app.user.auth import TokenVerifier, _project_keys, get_token_verifier
 from app.user.models import Attendee, User, UserRole
-from tests.factories import NOW
+from tests.tokens import ISSUER, OTHER_KEY, api_client, bearer, make_token
 
 pytestmark = pytest.mark.anyio
-
-ISSUER = "https://test-project.supabase.co/auth/v1"
-SIGNING_KEY = ec.generate_private_key(ec.SECP256R1())
-OTHER_KEY = ec.generate_private_key(ec.SECP256R1())
-
-
-def make_token(
-    sub: uuid.UUID,
-    email: str,
-    *,
-    key: ec.EllipticCurvePrivateKey = SIGNING_KEY,
-    expires_in: int = 3600,
-    aud: str = "authenticated",
-    iss: str = ISSUER,
-    email_verified: bool = True,
-) -> str:
-    now = int(time.time())
-    claims = {
-        "sub": str(sub),
-        "email": email,
-        "aud": aud,
-        "iss": iss,
-        "iat": now,
-        "exp": now + expires_in,
-        # Where Supabase says the email was confirmed ("Confirm email" is on).
-        "user_metadata": {"email_verified": email_verified},
-    }
-    return jwt.encode(claims, key, algorithm="ES256", headers={"kid": "test-key"})
-
-
-def bearer(token: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {token}"}
-
 
 def make_user(db: Session, role: UserRole = UserRole.ORGANISER, **fields) -> User:
     user = User(email=f"{uuid.uuid4().hex[:12]}@smu.edu.sg", role=role, **fields)
@@ -71,31 +33,18 @@ def make_attendee_user(db: Session, **fields) -> User:
     return user
 
 
-def client_for(db: Session, notifier, *, dev_headers: bool) -> AsyncClient:
-    app.dependency_overrides[get_db] = lambda: db
-    app.dependency_overrides[get_now] = lambda: NOW
-    app.dependency_overrides[get_notifier] = lambda: notifier
-    app.dependency_overrides[get_token_verifier] = lambda: TokenVerifier(
-        issuer=ISSUER, key_for=lambda _token: SIGNING_KEY.public_key()
-    )
-    app.dependency_overrides[auth_dev_headers_enabled] = lambda: dev_headers
-    return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
-
-
 @pytest.fixture
 async def token_client(db: Session, notifier) -> AsyncGenerator[AsyncClient, None]:
     """Production settings: tokens only, header stubs off."""
-    async with client_for(db, notifier, dev_headers=False) as client:
+    async with api_client(db, notifier) as client:
         yield client
-    app.dependency_overrides.clear()
 
 
 @pytest.fixture
 async def dev_client(db: Session, notifier) -> AsyncGenerator[AsyncClient, None]:
     """Local dev, tests and CI E2E: tokens and header stubs both work."""
-    async with client_for(db, notifier, dev_headers=True) as client:
+    async with api_client(db, notifier, dev_headers=True) as client:
         yield client
-    app.dependency_overrides.clear()
 
 
 async def create_draft(client: AsyncClient, headers: dict[str, str]):
