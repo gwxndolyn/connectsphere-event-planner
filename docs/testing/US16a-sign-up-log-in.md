@@ -59,15 +59,15 @@
 | TC-US16A-15 | — | Dev headers on | The existing suite runs; header stubs are used | All existing tests pass unchanged. An invalid token with a valid `X-User-Id` is `401`: a bad token never falls back to the stub | SCRUM-102 |
 | TC-US16A-16 | 1 | An attendee's valid token | `GET /api/v1/me/registrations` | It returns that attendee's registrations | SCRUM-102 |
 | TC-US16A-17 | — | An organiser's valid token (no `attendees` row) | An attendee-only route | `401 UNAUTHENTICATED`, as today | SCRUM-102 |
-| TC-US16A-18 | 6 | A valid token for a new account | Profile created as `organiser` with a name | `201`; a `users` row with role `organiser`, `full_name`, and `auth_user_id`/`email` from the token | SCRUM-103 |
+| TC-US16A-18 | 6 | A valid token for a new account | Profile created as `organiser` with a name | `201` with `{id, email, full_name, role}`; a `users` row with role `organiser`, `full_name`, and `auth_user_id`/`email` from the token | SCRUM-103 |
 | TC-US16A-19 | 6 | A valid token for a new account | Profile created as `attendee` | `201`; `users` and `attendees` rows share one id; `GET /me/registrations` returns empty sections | SCRUM-103 |
 | TC-US16A-20 | 7 | A valid token | Role is `coordinator`, `operations_manager`, another staff role, or unknown | `422 INVALID_ROLE`; nothing is created | SCRUM-103 |
 | TC-US16A-21 | 7 | The token's email belongs to an unlinked seeded staff row | Profile created as `organiser` | `409 EMAIL_ALREADY_REGISTERED`; the staff row is unchanged and not linked | SCRUM-103 |
 | TC-US16A-22 | 6 | The token's email belongs to any existing `users` row | Profile created | `409 EMAIL_ALREADY_REGISTERED` | SCRUM-103 |
-| TC-US16A-23 | 6 | A profile already exists for this `sub` | The endpoint is called again | `409 EMAIL_ALREADY_REGISTERED`; still one row | SCRUM-103 |
-| TC-US16A-24 | 6 | A valid token | `full_name` missing or blank | `422 MISSING_REQUIRED_FIELD`, `fields: ["full_name"]`; nothing is created | SCRUM-103 |
+| TC-US16A-23 | 6 | A profile already exists for this `sub`, or a simultaneous call wins the race | The endpoint is called again | `409 EMAIL_ALREADY_REGISTERED`; still one row | SCRUM-103 |
+| TC-US16A-24 | 6 | A valid token | `full_name` and/or `role` missing or blank | `422 MISSING_REQUIRED_FIELD` listing each missing field; nothing is created | SCRUM-103 |
 | TC-US16A-25 | 6 | The body includes `email` or `auth_user_id` | Profile created | `422`; identity can't be set from the body | SCRUM-103 |
-| TC-US16A-26 | 6 | No token, or an invalid one | Profile created | `401 UNAUTHENTICATED` | SCRUM-103 |
+| TC-US16A-26 | 6 | No token, an invalid one, or one whose email isn't verified | Profile created | `401 UNAUTHENTICATED`; nothing is created | SCRUM-103 |
 | TC-US16A-27 | 7 | Secret key and password set | Seed runs | One confirmed auth account per seeded user; each `users` row gets its `auth_user_id` | SCRUM-104 |
 | TC-US16A-28 | 7 | Auth accounts already exist | Seed runs again | Accounts found by email and reused; no duplicates; links unchanged | SCRUM-104 |
 | TC-US16A-29 | — | No secret key | Seed runs | Seeds as today; output says auth logins were skipped | SCRUM-104 |
