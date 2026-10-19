@@ -113,7 +113,7 @@ All three Sprint 1 stories have working backends, tested against a real Postgres
 | SCRUM-74 — organiser responds (US8c) | Done: response endpoint + thread read (SCRUM-77) | **Real screens, wired to API**: response form (SCRUM-78), thread view (SCRUM-58) | TC-US8-17 to 24 + E2E |
 | SCRUM-75 — more clarification rounds (US8d) | Done: rounds guard pinned as D15 (SCRUM-56) | No change needed | TC-US8-31 to 35 |
 | SCRUM-87 — venue catalogue (US20) | Schema + seed done (PR 1); CRUD endpoints next (PR 2) | Not started (PR 2) | TC-US20-01, 04, 07 (DB), 08, 09; see `docs/testing/US20-venue-catalogue.md` |
-| SCRUM-81 — sign up, log in, log out (US16a) | Schema (SCRUM-101) and token check (SCRUM-102) done; sign-up endpoint next (SCRUM-103) | Not started (SCRUM-105, 106) | TC-US16A-01 to 17; all 45 in `docs/testing/US16a-sign-up-log-in.md` |
+| SCRUM-81 — sign up, log in, log out (US16a) | Schema (SCRUM-101), token check (SCRUM-102) and sign-up profile endpoint (SCRUM-103) done; seeded Supabase logins in review (SCRUM-104, #56); login page next (SCRUM-105) | Not started (SCRUM-105, 106) | TC-US16A-01 to 26, 46 to 49; all 50 in `docs/testing/US16a-sign-up-log-in.md` |
  
 Every endpoint in §3 exists, plus `POST /registrations/{id}/decline` (deviation 3 below) and `POST /registrations/{id}/accept` (deviation 13). Identity is a Supabase access token (`Authorization: Bearer`, SCRUM-102), plus two dev stubs when `AUTH_DEV_HEADERS=true`: `X-Attendee-Id` for the Sprint 1 routes and `X-User-Id` (role-aware) for the event-request routes. The frontend still uses the stubs until SCRUM-105. The database is the tables in §2 plus `attendees` and `users`. Backend suite: 221 tests; E2E: 6 tests (health check, US1 journey, US8 clarification journey: ask, answer, read the thread, attendee journey: list, register, My events, withdraw; waitlist journey: leave, rejoin, see position; offer journey: freed place offered, accepted). **Supabase may lag `main`**: it was at `20261015_1200_us16a_auth_link` on 15 Oct (reseeded the same day). Migrations merged after that must be applied there by Calvin — check with `alembic current`.
  
@@ -206,6 +206,7 @@ Each is implemented and defensible; each departs from the contract in §2/§3 an
 | 18 | `GET /events/available` gains `waitlist_available` per event (SCRUM-52, additive): `registration_service.waitlist_available`, the same rule and name as `EVENT_FULL`'s flag, so the board offers "Join the waitlist" up front instead of after a failed register (TC-US6A-10) | `app/event/service.py`, `app/event/schemas.py` |
 | 19 | New error codes for tokens (SCRUM-102): `PROFILE_REQUIRED` (403), a valid Supabase token with no `users` row, so signed up and confirmed but no profile yet (TC-US16A-12; §9 first said such a caller is created as an attendee; the first login creates the profile instead, SCRUM-103); `AUTH_UNAVAILABLE` (503), Supabase's keys unreachable, so the frontend doesn't log everyone out (TC-US16A-46); `AUTH_NOT_CONFIGURED` (500), `SUPABASE_URL` unset (TC-US16A-47) | `app/user/dependencies.py`, `app/user/auth.py` |
 | 20 | First login links an unlinked row by email **only for an active Organiser or Attendee, and only when the token says the email is verified** (SCRUM-102, TC-US16A-06; PR #55 review). Supabase "Confirm email" is **on**, so a token only exists for an email its owner confirmed (US16a AC 6 changed 16 Oct). Staff rows are never linked by email; the seed links them (SCRUM-104) | `app/user/dependencies.py` |
+| 23 | New error codes for `POST /api/v1/auth/profile` (SCRUM-103): `INVALID_ROLE` (422), a role other than `organiser` or `attendee` (US16a AC 7); `EMAIL_ALREADY_REGISTERED` (409), any `users` row already has this account's id or email, seeded staff included, also returned when a simultaneous call wins the race. Numbered 23 because #60 (US20) takes 21 and 22 | `app/user/service.py` |
  
 ### Open decisions still unanswered
  
@@ -667,6 +668,19 @@ Role `organiser`, and only the request's owner. Body: `{"comment": "..."}`. Logi
 
 The whole thread, `{"clarifications": [...]}`, oldest round first and each question before its reply (AC 1, 3). Readable by whoever may read the request (owner, or staff per D11); anyone else gets `404 NOT_FOUND`.
 
+### `POST /api/v1/auth/profile` — SCRUM-103 (US16a)
+
+Called on a confirmed user's **first login**, after the token check answered `403 PROFILE_REQUIRED`. **Token only**: the dev header stubs never apply (`get_token_claims`). Body: `{"full_name": "...", "role": "organiser" | "attendee"}`, unknown fields rejected. `auth_user_id` and `email` come from the token, never the body. An `attendee` also gets its `attendees` row with the same id.
+
+| Outcome | Status | Body |
+|---|---|---|
+| Created | `201` | `{"id", "email", "full_name", "role"}`, so the frontend knows which home screen to show |
+| `full_name` and/or `role` missing or blank | `422` | `{"code": "MISSING_REQUIRED_FIELD", "fields": [...]}` |
+| Role not `organiser` or `attendee` | `422` | `{"code": "INVALID_ROLE"}` (deviation 23) |
+| A `users` row already has this account or email (seeded staff included), or a simultaneous call won | `409` | `{"code": "EMAIL_ALREADY_REGISTERED"}` (deviation 23) |
+| `email` or `auth_user_id` in the body | `422` | FastAPI's unknown-field error |
+| No token, or an invalid one | `401` | `{"code": "UNAUTHENTICATED"}` (and `503`/`500` as for any token, deviation 19) |
+
 ---
 
 ## 4. Test cases
@@ -961,7 +975,7 @@ Test cases in full: `docs/testing/US16a-sign-up-log-in.md`, mirroring the subtas
 |---|---|---|---|
 | SCRUM-101 | `users.auth_user_id` (unique) + `users.full_name`; downgrade refuses while any user is linked or named | TC-US16A-01 to 04; one Alembic head | #54 |
 | SCRUM-102 | Verify the Supabase token in `get_current_user` / `get_current_attendee` (`app/user/auth.py`); header stubs only when `AUTH_DEV_HEADERS=true`; email linking for active Organiser and Attendee rows with a verified email only; 503/500 for key outages and missing config; startup warning while the stubs are on | TC-US16A-05 to 17, 46 to 49 (`tests/user/test_token_identity.py`) | #55 |
-| SCRUM-103 | `POST /api/v1/auth/profile`: Organiser or Attendee only; any existing email refused | TC-US16A-18 to 26 | |
+| SCRUM-103 | `POST /api/v1/auth/profile` (`app/user/router.py`, `service.py`, `schemas.py`; `get_token_claims` in `dependencies.py`): Organiser or Attendee only; any existing email refused; returns `{id, email, full_name, role}` | TC-US16A-18 to 26 (`tests/user/test_profile.py`) | |
 | SCRUM-104 | Seed Supabase Auth logins for the seeded users via the Admin API | TC-US16A-27 to 31 | |
 | SCRUM-105 | Login page, logout, session; Bearer token per request; **Acting as** dev-only | TC-US16A-32 to 39; lint + build; E2E | |
 | SCRUM-106 | Sign-up page | TC-US16A-40 to 45; lint + build; E2E | |
@@ -1069,7 +1083,7 @@ alter table users
 
 There's deliberately no foreign key to `auth.users(id)`: the test database has no `auth` schema, and a FK would block deleting a user in Supabase.
  
-Every attendee has a `users` row with the same id, so linking `users` covers attendees too. The token check (SCRUM-102, `app/user/dependencies.py`): verify token → look up by `auth_user_id` → else **look up an unlinked, active Organiser or Attendee by email (ignoring case, row locked) and link it, if the token says the email is verified** → else `403 PROFILE_REQUIRED`, and the first login after confirming the email creates the profile (SCRUM-103). Matching on email keeps the seeded demo accounts working the moment the real person signs in, instead of creating duplicates. Staff rows are never linked by email (deviation 20); the seed links them (SCRUM-104).
+Every attendee has a `users` row with the same id, so linking `users` covers attendees too. The token check (SCRUM-102, `app/user/dependencies.py`): verify token → look up by `auth_user_id` → else **look up an unlinked, active Organiser or Attendee by email (ignoring case, row locked) and link it, if the token says the email is verified** → else `403 PROFILE_REQUIRED`, and the first login after confirming the email creates the profile with `POST /api/v1/auth/profile` (SCRUM-103, §3). Matching on email keeps the seeded demo accounts working the moment the real person signs in, instead of creating duplicates. Staff rows are never linked by email (deviation 20); the seed links them (SCRUM-104).
 
 **"Confirm email" is on** in the Supabase dashboard (Authentication → Sign In / Providers → Email), decided in the PR #55 review: sign-up sends a confirmation link, and no session exists until it's clicked, so nobody can log in as an email they don't own. Supabase's built-in email service is rate-limited and meant for testing; real sign-ups need a custom SMTP provider.
 
