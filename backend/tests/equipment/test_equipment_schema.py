@@ -16,7 +16,7 @@ from app.user.models import User, UserRole
 from tests.conftest import BACKEND_DIR
 from tests.factories import NOW, make_event
 
-REVISION = "20261020_1200_us26_equipment"
+REVISION = "20261024_1200_us26_equipment"
 
 
 def make_type(db: Session, name: str = "Test Projector") -> EquipmentType:

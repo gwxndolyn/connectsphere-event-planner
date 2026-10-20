@@ -14,6 +14,8 @@ class UserRole(enum.StrEnum):
     COORDINATOR_LEAD = "coordinator_lead"
     OPERATIONS_MANAGER = "operations_manager"
     ATTENDEE = "attendee"
+    # Technical Support Staff (US26, SCRUM-108); US16b (SCRUM-82) adds the other new roles.
+    TECH_SUPPORT = "tech_support"
 
 
 class User(Base):

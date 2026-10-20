@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import SessionLocal
+from app.equipment.models import EquipmentType
 from app.event.models import DeliveryMode, Event, EventStatus
 from app.registration.models import ACTIVE_STATUSES, Registration, RegistrationStatus
 from app.user.models import Attendee, User, UserRole
@@ -77,14 +78,27 @@ VENUE_STAFF_EMAIL = "venue.staff@smu.edu.sg"
 # SCRUM-82 AC 7: more than one Lead, never a single hard-coded one.
 EVENT_COORDINATOR_LEAD_EMAILS = ("lead.one@smu.edu.sg", "lead.two@smu.edu.sg")
 EVENT_COORDINATOR_LEAD_NAMES = {"lead.one@smu.edu.sg": "Lena Lim", "lead.two@smu.edu.sg": "Leo Lee"}
+TECH_SUPPORT_EMAIL = "tech.support@smu.edu.sg"
 # Everyone the seed creates a Supabase login for (SCRUM-104). Staff can't sign up (US16a AC 7), so this
-# is how the coordinator, venue staff and Leads get one.
+# is how the coordinator, venue staff, Tech Support and Leads get one.
 SEEDED_LOGIN_EMAILS = [
     EVENT_ORGANISER_EMAIL,
     EVENT_COORDINATOR_EMAIL,
     VENUE_STAFF_EMAIL,
+    TECH_SUPPORT_EMAIL,
     *EVENT_COORDINATOR_LEAD_EMAILS,
     *ATTENDEES,
+]
+# US26 (SCRUM-108): the equipment catalogue a request line picks from.
+EQUIPMENT_TYPES = [
+    "Projector",
+    "Projector screen",
+    "Wireless microphone",
+    "Speaker system",
+    "Laptop",
+    "HDMI cable",
+    "Extension cord",
+    "Webcam",
 ]
 
 EVENTS = [
@@ -422,6 +436,20 @@ def upsert_venue_staff(db: Session) -> User:
     return staff
 
 
+def upsert_tech_support(db: Session) -> User:
+    """US26 reviews equipment requests as Technical Support Staff."""
+    staff_id = seed_id("user", "tech-support")
+    staff = db.get(User, staff_id)
+    if staff is None:
+        staff = User(id=staff_id, email=TECH_SUPPORT_EMAIL, role=UserRole.TECH_SUPPORT, is_active=True)
+        db.add(staff)
+    else:
+        staff.email = TECH_SUPPORT_EMAIL
+        staff.role = UserRole.TECH_SUPPORT
+        staff.is_active = True
+    return staff
+
+
 def upsert_coordinator_leads(db: Session) -> list[User]:
     """US10a: the Event Coordinator Lead assigns coordinators; two exist so no one is special."""
     leads = []
@@ -444,6 +472,15 @@ def upsert_coordinator_leads(db: Session) -> list[User]:
             lead.is_active = True
         leads.append(lead)
     return leads
+
+
+def upsert_equipment_type(db: Session, name: str) -> EquipmentType:
+    type_id = seed_id("equipment-type", name)
+    equipment_type = db.get(EquipmentType, type_id)
+    if equipment_type is None:
+        equipment_type = EquipmentType(id=type_id, name=name)
+        db.add(equipment_type)
+    return equipment_type
 
 
 def upsert_event(db: Session, spec: EventSpec, now: datetime) -> Event:
@@ -649,6 +686,7 @@ def seed(db: Session, now: datetime | None = None) -> None:
     coordinator = upsert_event_coordinator(db)
     upsert_venue_staff(db)
     upsert_coordinator_leads(db)
+    upsert_tech_support(db)
     attendees = {email: upsert_attendee(db, email) for email in ATTENDEES}
     db.flush()
 
@@ -674,6 +712,8 @@ def seed(db: Session, now: datetime | None = None) -> None:
     for spec in VENUE_BLOCKS:
         upsert_venue_block(db, spec, now)
     upsert_bookable_event(db, BOOKABLE_EVENT, organiser, coordinator)
+    for name in EQUIPMENT_TYPES:
+        upsert_equipment_type(db, name)
     db.flush()
 
     db.commit()
@@ -764,6 +804,8 @@ def main() -> int:
         for email in EVENT_COORDINATOR_LEAD_EMAILS:
             lead = db.get(User, seed_id("user", email))
             print(f"X-User-Id for {lead.email} (Coordinator Lead):\n  {lead.id}\n")
+        tech_support = db.get(User, seed_id("user", "tech-support"))
+        print(f"X-User-Id for {tech_support.email}:\n  {tech_support.id}\n")
         print("Registrations you can withdraw:")
         mine = db.scalars(select(Registration).where(Registration.attendee_id == calvin.id))
         for registration in mine:
