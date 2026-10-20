@@ -1,5 +1,8 @@
-import { useState } from "react";
-import { getDevRole, setDevRole, type DevRole } from "./api/client";
+import { useEffect, useRef, useState } from "react";
+import type { Session } from "@supabase/supabase-js";
+import { ApiError, apiClient, getDevRole, setDevRole, type DevRole } from "./api/client";
+import { LoginPage } from "./auth/LoginPage";
+import { DEV_AUTH, supabase } from "./auth/supabase";
 import { SiteHeader, type View } from "./components/SiteHeader";
 import { EventHealthCheck } from "./features/event/EventHealthCheck";
 import { AssignmentQueuePage } from "./features/eventRequest/AssignmentQueuePage";
@@ -10,11 +13,134 @@ import { MyEventsView } from "./features/registration/MyEventsView";
 import { useEventRegistry } from "./features/registration/useEventRegistry";
 import { VenuesPage } from "./features/venue/VenuesPage";
 
+// GET /api/v1/me (SCRUM-105): who is logged in.
+interface Me {
+  id: string;
+  email: string;
+  full_name: string | null;
+  role: "organiser" | "coordinator" | "coordinator_lead" | "operations_manager" | "attendee";
+}
+
+// Which screens a logged-in user gets; `operations_manager` stands in for Venue staff (D19).
+const SCREEN_ROLE: Record<Me["role"], DevRole | "attendee"> = {
+  organiser: "organiser",
+  coordinator: "coordinator",
+  coordinator_lead: "coordinator_lead",
+  operations_manager: "venue_staff",
+  attendee: "attendee",
+};
+
+// The last screen, so a refresh comes back to it (TC-US16A-35).
+const VIEW_KEY = "connectsphere.view";
+const VIEWS: View[] = ["discovery", "my-events", "event-requests", "venues"];
+
+function storedView(): View {
+  try {
+    const stored = localStorage.getItem(VIEW_KEY) as View | null;
+    return stored && VIEWS.includes(stored) ? stored : "discovery";
+  } catch {
+    return "discovery";
+  }
+}
+
+// Each role's home screen after logging in (AC 2): staff review requests, organisers make them.
+function homeFor(role: Me["role"]): View {
+  if (role === "attendee") return "discovery";
+  return role === "operations_manager" ? "venues" : "event-requests";
+}
+
 function App() {
+  // undefined while Supabase restores a saved session on load.
+  const [session, setSession] = useState<Session | null | undefined>(supabase ? undefined : null);
+  // GET /api/v1/me's answer for one login; ignored once a different user (or nobody) is logged in.
+  const [account, setAccount] = useState<{ userId: string; me?: Me; error?: string } | null>(null);
+  // Set by the login page, so only a fresh login (not a refresh) opens the role's home screen.
+  const goHome = useRef(false);
+  const [view, setViewState] = useState<View>(storedView);
+
+  function setView(next: View) {
+    setViewState(next);
+    try {
+      localStorage.setItem(VIEW_KEY, next);
+    } catch {
+      // Storage can be unavailable (private windows); the screen then resets on refresh.
+    }
+  }
+
+  useEffect(() => {
+    if (!supabase) return;
+    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    const { data } = supabase.auth.onAuthStateChange((_event, next) => setSession(next));
+    return () => data.subscription.unsubscribe();
+  }, []);
+
+  const userId = session?.user.id;
+  useEffect(() => {
+    if (!userId) return;
+    apiClient
+      .get<Me>("/api/v1/me")
+      .then((me) => {
+        setAccount({ userId, me });
+        if (goHome.current) {
+          goHome.current = false;
+          setView(homeFor(me.role));
+        }
+      })
+      .catch((reason: unknown) =>
+        setAccount({
+          userId,
+          error:
+            reason instanceof ApiError && reason.code === "PROFILE_REQUIRED"
+              ? "Your account doesn't have a profile yet."
+              : "Couldn't load your account. Check the backend is running, then refresh.",
+        }),
+      );
+  }, [userId]);
+  const current = account && account.userId === userId ? account : null;
+  const me = current?.me ?? null;
+  const meError = current?.error ?? null;
+
+  async function logOut() {
+    await supabase?.auth.signOut();
+  }
+
+  if (session === undefined) {
+    return <main className="request-page">Loading…</main>;
+  }
+  if (!session && !DEV_AUTH) {
+    return <LoginPage onLoggedIn={() => (goHome.current = true)} />;
+  }
+  if (session && !me) {
+    return (
+      <main className="request-page">
+        {meError ?? "Loading your account…"}
+        {meError && (
+          <p>
+            <button type="button" className="request-button request-button--secondary" onClick={logOut}>
+              Log out
+            </button>
+          </p>
+        )}
+      </main>
+    );
+  }
+  return <Workspace me={me} view={view} onNavigate={setView} onLogOut={session ? logOut : undefined} />;
+}
+
+interface WorkspaceProps {
+  // Null in dev mode without a login, where "Acting as" picks the user instead.
+  me: Me | null;
+  view: View;
+  onNavigate: (view: View) => void;
+  onLogOut?: () => void;
+}
+
+// Mounted only once someone is identified, so its data loads with their identity.
+function Workspace({ me, view, onNavigate, onLogOut }: WorkspaceProps) {
   const registry = useEventRegistry();
-  const [view, setView] = useState<View>("discovery");
   const [search, setSearch] = useState("");
   const [devRole, setDevRoleState] = useState<DevRole>(getDevRole);
+  const role = me ? SCREEN_ROLE[me.role] : devRole;
 
   return (
     <div>
@@ -22,25 +148,26 @@ function App() {
         search={search}
         onSearchChange={(value) => {
           setSearch(value);
-          setView("discovery");
+          onNavigate("discovery");
         }}
         view={view}
-        onNavigate={setView}
-        devRole={devRole}
+        onNavigate={onNavigate}
+        devRole={me ? undefined : devRole}
         onDevRoleChange={(role) => {
           setDevRole(role);
           setDevRoleState(role);
         }}
+        onLogOut={onLogOut}
       />
 
       {view === "venues" ? (
-        <VenuesPage key={devRole} staff={devRole === "venue_staff"} canSearch={devRole === "coordinator" || devRole === "venue_staff"} />
+        <VenuesPage key={role} staff={role === "venue_staff"} canSearch={role === "coordinator" || role === "venue_staff"} />
       ) : view === "event-requests" ? (
-        devRole === "coordinator" ? (
+        role === "coordinator" ? (
           <ClarificationReviewPage key="coordinator" />
-        ) : devRole === "coordinator_lead" ? (
+        ) : role === "coordinator_lead" ? (
           <AssignmentQueuePage key="coordinator_lead" />
-        ) : devRole === "venue_staff" ? (
+        ) : role === "venue_staff" ? (
           <main className="request-page">
             <p className="request-empty">Event requests aren't part of the Venue staff role. Switch Acting as to see them.</p>
           </main>
@@ -50,7 +177,7 @@ function App() {
       ) : view === "discovery" ? (
         <EventsBoard registry={registry} search={search} />
       ) : (
-        <MyEventsView registry={registry} onBrowse={() => setView("discovery")} />
+        <MyEventsView registry={registry} onBrowse={() => onNavigate("discovery")} />
       )}
 
       <footer className="app-footer">

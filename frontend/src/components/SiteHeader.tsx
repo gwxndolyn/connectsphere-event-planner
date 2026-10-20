@@ -8,11 +8,22 @@ interface SiteHeaderProps {
   onSearchChange: (value: string) => void;
   view: View;
   onNavigate: (view: View) => void;
-  devRole: DevRole;
+  // Shown only in dev mode without a login (VITE_DEV_AUTH, TC-US16A-38).
+  devRole?: DevRole;
   onDevRoleChange: (role: DevRole) => void;
+  // Shown while logged in (AC 5).
+  onLogOut?: () => void;
 }
 
-export function SiteHeader({ search, onSearchChange, view, onNavigate, devRole, onDevRoleChange }: SiteHeaderProps) {
+export function SiteHeader({
+  search,
+  onSearchChange,
+  view,
+  onNavigate,
+  devRole,
+  onDevRoleChange,
+  onLogOut,
+}: SiteHeaderProps) {
   return (
     <header className="site-header">
       <div className="site-header__bar">
@@ -75,15 +86,22 @@ export function SiteHeader({ search, onSearchChange, view, onNavigate, devRole, 
           Venues
         </button>
         {/* Dev-only stand-in for login (D12): picks which seeded user's X-User-Id is sent. */}
-        <label className="site-header__role">
-          Acting as
-          <select value={devRole} onChange={(event) => onDevRoleChange(event.target.value as DevRole)}>
-            <option value="organiser">Organiser</option>
-            <option value="coordinator">Coordinator</option>
-            <option value="coordinator_lead">Coordinator Lead</option>
-            <option value="venue_staff">Venue staff</option>
-          </select>
-        </label>
+        {devRole && (
+          <label className="site-header__role">
+            Acting as
+            <select value={devRole} onChange={(event) => onDevRoleChange(event.target.value as DevRole)}>
+              <option value="organiser">Organiser</option>
+              <option value="coordinator">Coordinator</option>
+              <option value="coordinator_lead">Coordinator Lead</option>
+              <option value="venue_staff">Venue staff</option>
+            </select>
+          </label>
+        )}
+        {onLogOut && (
+          <button type="button" className="site-header__nav-link" onClick={onLogOut}>
+            Log out
+          </button>
+        )}
       </div>
     </header>
   );
