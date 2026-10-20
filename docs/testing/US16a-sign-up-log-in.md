@@ -14,7 +14,7 @@
 6. Organisers and Attendees can sign up with name, email and password, choosing their role, confirm their email through the link sent to them, and can then log in. An email that already exists is refused. (Changed 16 Oct: email confirmation before first login.)
 7. Staff accounts can't be created through sign-up; they're seeded. There's no System Administrator role.
 
-**Test case ids 46 to 50** were added on 16 Oct (PR #55 review), after 01 to 45, so existing ids didn't move.
+**Test case ids 46 to 50** were added on 16 Oct (PR #55 review), and 51 on 20 Oct (SCRUM-105), after 01 to 45, so existing ids didn't move.
 
 **Delivery:** one PR per subtask, in this order. The design follows `claude_instructions.md` §9.
 
@@ -24,7 +24,7 @@
 | 2 | SCRUM-102 | Verify the Supabase token in the identity dependency; dev header fallback behind `AUTH_DEV_HEADERS` | to be added |
 | 3 | SCRUM-103 | `POST /api/v1/auth/profile` for sign-up | to be added |
 | 4 | SCRUM-104 | Seed Supabase Auth logins for the seeded users | to be added |
-| 5 | SCRUM-105 | Login page, logout, session handling | to be added (lint, build, Playwright) |
+| 5 | SCRUM-105 | Login page, logout, session handling; `GET /api/v1/me` | `backend/tests/user/test_me.py`; `e2e/tests/login.spec.ts` (login project, `VITE_DEV_AUTH` unset; logged-in cases need `E2E_SEED_PASSWORD`); lint, build |
 | 6 | SCRUM-106 | Sign-up page | to be added (lint, build, Playwright) |
 
 ## Decisions agreed for this story
@@ -92,3 +92,4 @@
 | TC-US16A-48 | — | `AUTH_DEV_HEADERS=true` | The backend starts | A warning is logged that the header stubs bypass login | SCRUM-102 |
 | TC-US16A-49 | — | Any token is refused (401) | The refusal happens | A warning names the reason; the token never appears in the log | SCRUM-102 |
 | TC-US16A-50 | 6 | A new email | Signs up | Sees "Check your email to confirm your account"; not logged in until the link is clicked | SCRUM-106 |
+| TC-US16A-51 | 2 | A valid token | `GET /api/v1/me` | `200 {id, email, full_name, role}` for a user with a profile (`full_name` null for seeded users); `403 PROFILE_REQUIRED` without one; `401` without a token | SCRUM-105 |

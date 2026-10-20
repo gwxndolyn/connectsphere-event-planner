@@ -118,7 +118,7 @@ All three Sprint 1 stories have working backends, tested against a real Postgres
 | SCRUM-87 — venue catalogue (US20) | Done: schema + seed (PR 1, #53); endpoints, Venue Staff stub (D19), validation, buffer-lock stub (PR 2) | **Real screens, wired to API**: Venues list with filters, staff create/edit form (PR 2) | TC-US20-01 to 19 (07's booking half is TC-US22-01) + 2 E2E; see `docs/testing/US20-venue-catalogue.md` |
 | SCRUM-89 — request a venue booking (US22) | Schema (PR 1, SCRUM-111): `venue_bookings`, the no-overlap exclusion constraint, the real buffer-lock query. Endpoints (PR 2, SCRUM-112): create with warnings, withdraw, Venue Staff's pending list, an event's bookings, the Venue Staff notice, the inactive-venue read for booked coordinators | **Real screens, wired to API** (PR 3, SCRUM-113): Request venue and the event's bookings with Withdraw on an Approved request in the coordinator's review queue; Venue staff's pending list on Venues (deviation 32) | TC-US22-01 to 21 + 3 E2E; see `docs/testing/US22-venue-booking.md` |
 | SCRUM-7 — search for suitable venues (US2) | Done: `GET /api/v1/venues/available` (hides live US22 bookings and `venue_blocks`), `venue_blocks` table, seeded slot | **Real screen, wired to API**: search form on Venues for Coordinator and Venue staff | TC-US2-01 to 16 (12 pytest + 4 E2E) + frontend unit and integration; see `docs/testing/US2-venue-search.md` |
-| SCRUM-81 — sign up, log in, log out (US16a) | Schema (SCRUM-101), token check (SCRUM-102) and sign-up profile endpoint (SCRUM-103) done; seeded Supabase logins in review (SCRUM-104, #56); login page next (SCRUM-105) | Not started (SCRUM-105, 106) | TC-US16A-01 to 26, 46 to 49; all 50 in `docs/testing/US16a-sign-up-log-in.md` |
+| SCRUM-81 — sign up, log in, log out (US16a) | Schema (SCRUM-101), token check (SCRUM-102), sign-up profile endpoint (SCRUM-103) and `GET /api/v1/me` (SCRUM-105) done; seeded Supabase logins in review (SCRUM-104, #56) | **Login page, logout, session** (SCRUM-105); sign-up page next (SCRUM-106) | TC-US16A-01 to 26, 32 to 39, 46 to 49, 51; all 51 in `docs/testing/US16a-sign-up-log-in.md`. Logged-in E2E (32, 33, 35, 36, 39) skips until the seeded logins exist |
  
 Every endpoint in §3 exists, plus `POST /registrations/{id}/decline` (deviation 3 below) and `POST /registrations/{id}/accept` (deviation 13). Identity is a Supabase access token (`Authorization: Bearer`, SCRUM-102), plus two dev stubs when `AUTH_DEV_HEADERS=true`: `X-Attendee-Id` for the Sprint 1 routes and `X-User-Id` (role-aware) for the event-request and venue routes. The frontend still uses the stubs until SCRUM-105. The database is the tables in §2 plus `attendees` and `users`. Backend suite: 518 tests; frontend suite (Vitest): 195 tests, 143 unit + 52 integration; E2E: 22 tests (US10a journey: organiser submits, Lead assigns, organiser sees the coordinator; health check, US1 journey, US8 clarification journey: ask, answer, read the thread, attendee journey: list, register, My events, withdraw; waitlist journey: leave, rejoin, see position; offer journey: freed place offered, accepted; US20 venue list and search; US20 venue staff journey: add with a field error, edit, deactivate; US1 draft round-trip: save, reload, reopen, edit, submit; events board: only open events listed, Open/Full tabs, search by title and venue, online event's join link; Acting as switch remembered across a reload; US2 venue search: seeded slot drops booked and blocked venues, filters and hours, no-match criteria and a marked bad time, organisers not offered search; US22 venue booking: request then Venue staff's pending list, capacity error and layout warning, withdraw). **Supabase may lag `main`**: it was at `20261015_1200_us16a_auth_link` on 15 Oct (reseeded the same day). Migrations merged after that must be applied there by Calvin — check with `alembic current`. US22's `20261021_1200_us22_bookings` runs `CREATE EXTENSION IF NOT EXISTS btree_gist`; Supabase ships the extension, but if the migration fails on permissions, enable `btree_gist` under Database → Extensions and rerun it. US2's `20261022_1200_us2_venue_blocks` follows it.
  
@@ -138,12 +138,15 @@ python -m app.seed                     # seven events, attendees, the organiser,
 uvicorn app.main:app --reload          # http://localhost:8000/docs
  
 cd ../frontend
-cp .env.example .env                   # REQUIRED: VITE_DEV_USER_ID (organiser), VITE_DEV_COORDINATOR_ID, VITE_DEV_LEAD_ID, VITE_DEV_ATTENDEE_ID (Calvin)
+cp .env.example .env                   # REQUIRED: VITE_DEV_USER_ID (organiser), VITE_DEV_COORDINATOR_ID, VITE_DEV_LEAD_ID, VITE_DEV_ATTENDEE_ID (Calvin), VITE_DEV_AUTH=true;
+                                       # plus VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY for the login page
 npm install && npm run dev             # http://localhost:5173 — restart after editing .env
 npm test                               # Vitest unit + integration tests; no backend needed
  
 cd ../e2e && npm ci && npx playwright install chromium
 npm test                               # backend must be running; don't also run npm run dev. Reseed first (python -m app.seed) on a reused database
+                                       # login.spec.ts runs on a second frontend (port 5174, VITE_DEV_AUTH unset); its logged-in
+                                       # cases need E2E_SEED_PASSWORD (the seeded logins' password) and SUPABASE_URL in backend/.env
 ```
 
 **Windows (PowerShell):** activate with `.venv\Scripts\activate`; copy with `Copy-Item .env.example .env`. Create `.env` files by copying or in VS Code, not with `echo >` — PowerShell writes UTF-16, which Vite can't read.
@@ -157,6 +160,8 @@ npm test                               # backend must be running; don't also run
 - **Passes locally, fails in CI** → check Python is 3.12, and see the lockfile note under Environment.
 - **The page says "backend unreachable"** → the API isn't running, or your origin isn't in `CORS_ORIGINS`.
 - **Event requests says "Set VITE_DEV_USER_ID…"** → `frontend/.env` doesn't exist (only `.env.example` does). Copy it and restart `npm run dev`.
+- **The app shows a Log in page locally** → `frontend/.env` predates SCRUM-105, so `VITE_DEV_AUTH` is missing and login is required. Add `VITE_DEV_AUTH=true` for dev mode (Acting as), or log in with a seeded account. Restart `npm run dev`.
+- **The login page says "Login isn't set up"** → add `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` (Project Settings → API Keys, `sb_publishable_…`) to `frontend/.env` and restart `npm run dev`.
 - **The review queue says "Set VITE_DEV_COORDINATOR_ID…"** → your `frontend/.env` predates SCRUM-57. Copy that line from `.env.example` and restart `npm run dev`.
 - **The events board or My events says "Set VITE_DEV_ATTENDEE_ID…"** → your `frontend/.env` predates SCRUM-79. Copy that line from `.env.example` (seeded attendee Calvin, `83565d3f-e757-5c0e-8c6e-8dadb298ce18`) and restart `npm run dev`.
 - **The attendee E2E fails at its first step (Tech Talk not "You're registered")** → it ran before against this database and left Calvin withdrawn. Run `python -m app.seed`, then rerun.
@@ -877,6 +882,11 @@ Create checks, in order; each refusal saves nothing and notifies nobody:
 - The event and venue rows are read `FOR SHARE`, so a concurrent status change or venue edit waits for the request, and two requests don't block each other.
 - The notice (`Notifier.venue_booking_requested`) goes out after the commit; a failure is logged and the booking stands. An unnamed approved event is named by its request reference.
 - **Not built:** checking the window against the venue's opening hours or the event's own dates (no AC asks; US13's territory); holds (US25, D22); a database guard between blocks and bookings (D22); approve and reject (US4); requesting a venue from search results (only from the event for now).
+
+### `GET /api/v1/me` — SCRUM-105 (US16a)
+
+Who is logged in, so the login page can show the role's home screen (AC 2). Same identity as any role route (`get_current_user`: a token, or `X-User-Id` with dev headers on). `200 {"id", "email", "full_name", "role"}`; `full_name` is null until a name is set. No profile yet: `403 PROFILE_REQUIRED`; no identity: `401 UNAUTHENTICATED`.
+
 ### `POST /api/v1/auth/profile` — SCRUM-103 (US16a)
 
 Called on a confirmed user's **first login**, after the token check answered `403 PROFILE_REQUIRED`. **Token only**: the dev header stubs never apply (`get_token_claims`). Body: `{"full_name": "...", "role": "organiser" | "attendee"}` (lowercase; `"Organiser"` is `INVALID_ROLE`), unknown fields rejected. The token's email must be verified (`user_metadata.email_verified`), as for #55's linking. `auth_user_id` and `email` come from the token, never the body. An `attendee` also gets its `attendees` row with the same id.
@@ -1274,7 +1284,7 @@ Test cases in full: `docs/testing/US16a-sign-up-log-in.md`, mirroring the subtas
 | SCRUM-102 | Verify the Supabase token in `get_current_user` / `get_current_attendee` (`app/user/auth.py`); header stubs only when `AUTH_DEV_HEADERS=true`; email linking for active Organiser and Attendee rows with a verified email only; 503/500 for key outages and missing config; startup warning while the stubs are on | TC-US16A-05 to 17, 46 to 49 (`tests/user/test_token_identity.py`) | #55 |
 | SCRUM-103 | `POST /api/v1/auth/profile` (`app/user/router.py`, `service.py`, `schemas.py`; `get_token_claims` in `dependencies.py`): Organiser or Attendee only; any existing email refused; returns `{id, email, full_name, role}` | TC-US16A-18 to 26 (`tests/user/test_profile.py`) | |
 | SCRUM-104 | Seed Supabase Auth logins for the seeded users via the Admin API | TC-US16A-27 to 31 | |
-| SCRUM-105 | Login page, logout, session; Bearer token per request; **Acting as** dev-only | TC-US16A-32 to 39; lint + build; E2E | |
+| SCRUM-105 | Login page (`frontend/src/auth/`), logout, session; Bearer token per request; **Acting as** only with `VITE_DEV_AUTH=true`; last screen remembered for refresh; `GET /api/v1/me` for the role | TC-US16A-32 to 39, 51 (`tests/user/test_me.py`, `e2e/tests/login.spec.ts`); lint + build | |
 | SCRUM-106 | Sign-up page | TC-US16A-40 to 45; lint + build; E2E | |
 
 **Build order** (dependencies are real — SCRUM-23 and SCRUM-24 unblock everything):
@@ -1360,6 +1370,8 @@ Keys come from **Project Settings → API**. Current naming: **publishable** (`s
 ### Frontend
  
 `@supabase/supabase-js`, created with `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`. Every request in `api/client.ts` carries `Authorization: Bearer <session.access_token>` in place of **both `X-User-Id` and `X-Attendee-Id`**. The **Acting as** toggle and `apiClient`'s `identity` option become dev-only. Read the session per request — tokens last an hour and supabase-js refreshes them, which a value cached at startup would miss. `VITE_*` values are compiled into the bundle and readable by anyone: the publishable key only.
+
+**Done in SCRUM-105:** `frontend/src/auth/supabase.ts` holds the client; `LoginPage.tsx` shows one message for any wrong email or password (AC 3). Not logged in and `VITE_DEV_AUTH` unset, every screen is the login page; with `VITE_DEV_AUTH=true` the app runs as before (Acting as, dev stubs) unless someone logs in. After a login the app reads `GET /api/v1/me` and opens the role's home: organiser → Event requests, coordinator or operations manager → review queue, attendee → events board. The last screen is kept in `localStorage` (`connectsphere.view`), so a refresh returns to it.
  
 ### Backend
  
