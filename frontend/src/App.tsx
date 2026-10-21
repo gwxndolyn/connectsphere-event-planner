@@ -1,14 +1,13 @@
 import { useState } from "react";
 import { getDevRole, setDevRole, type DevRole } from "./api/client";
-import { SiteHeader } from "./components/SiteHeader";
+import { SiteHeader, type View } from "./components/SiteHeader";
 import { EventHealthCheck } from "./features/event/EventHealthCheck";
 import { ClarificationReviewPage } from "./features/eventRequest/ClarificationReviewPage";
 import { EventRequestsPage } from "./features/eventRequest/EventRequestsPage";
 import { EventsBoard } from "./features/registration/EventsBoard";
 import { MyEventsView } from "./features/registration/MyEventsView";
 import { useEventRegistry } from "./features/registration/useEventRegistry";
-
-type View = "discovery" | "my-events" | "event-requests";
+import { VenuesPage } from "./features/venue/VenuesPage";
 
 function App() {
   const registry = useEventRegistry();
@@ -33,8 +32,18 @@ function App() {
         }}
       />
 
-      {view === "event-requests" ? (
-        devRole === "coordinator" ? <ClarificationReviewPage key="coordinator" /> : <EventRequestsPage key="organiser" />
+      {view === "venues" ? (
+        <VenuesPage key={devRole} staff={devRole === "venue_staff"} />
+      ) : view === "event-requests" ? (
+        devRole === "coordinator" ? (
+          <ClarificationReviewPage key="coordinator" />
+        ) : devRole === "venue_staff" ? (
+          <main className="request-page">
+            <p className="request-empty">Event requests aren't part of the Venue staff role. Switch Acting as to see them.</p>
+          </main>
+        ) : (
+          <EventRequestsPage key="organiser" />
+        )
       ) : view === "discovery" ? (
         <EventsBoard registry={registry} search={search} />
       ) : (

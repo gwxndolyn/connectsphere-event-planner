@@ -1,11 +1,13 @@
 import type { DevRole } from "../api/client";
 import "./SiteHeader.css";
 
+export type View = "discovery" | "my-events" | "event-requests" | "venues";
+
 interface SiteHeaderProps {
   search: string;
   onSearchChange: (value: string) => void;
-  view: "discovery" | "my-events" | "event-requests";
-  onNavigate: (view: "discovery" | "my-events" | "event-requests") => void;
+  view: View;
+  onNavigate: (view: View) => void;
   devRole: DevRole;
   onDevRoleChange: (role: DevRole) => void;
 }
@@ -64,12 +66,21 @@ export function SiteHeader({ search, onSearchChange, view, onNavigate, devRole, 
         >
           Event requests
         </button>
+        <button
+          type="button"
+          className="site-header__nav-link"
+          aria-current={view === "venues" ? "page" : undefined}
+          onClick={() => onNavigate("venues")}
+        >
+          Venues
+        </button>
         {/* Dev-only stand-in for login (D12): picks which seeded user's X-User-Id is sent. */}
         <label className="site-header__role">
           Acting as
           <select value={devRole} onChange={(event) => onDevRoleChange(event.target.value as DevRole)}>
             <option value="organiser">Organiser</option>
             <option value="coordinator">Coordinator</option>
+            <option value="venue_staff">Venue staff</option>
           </select>
         </label>
       </div>
