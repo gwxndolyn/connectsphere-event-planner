@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.user.models import User, UserRole
 from app.venue import service as venue_service_module
 from app.venue.models import Venue
+from tests.factories import NOW
 
 pytestmark = pytest.mark.anyio
 
@@ -452,13 +453,13 @@ async def test_tc_us20_16_unknown_filter_tag_is_rejected(client: AsyncClient, db
     assert response.json()["fields"] == ["facilities"]
 
 
-# --- TC-US20-17 the buffer-lock stub ---
+# --- TC-US20-17 the buffer lock without bookings (US22's TC-US22-03 covers it with bookings) ---
 
 
-def test_tc_us20_17_no_bookings_table_yet_so_buffers_are_never_locked(db: Session) -> None:
+def test_tc_us20_17_a_venue_without_bookings_is_never_locked(db: Session) -> None:
     venue = make_venue(db)
 
-    assert venue_service_module.has_approved_future_bookings(db, venue.id, None) is False
+    assert venue_service_module.has_approved_future_bookings(db, venue.id, NOW) is False
 
 
 async def test_tc_us20_17_buffer_edits_pass_today(client: AsyncClient, db: Session) -> None:
