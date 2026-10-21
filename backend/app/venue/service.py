@@ -1,14 +1,14 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Text, cast, select
+from sqlalchemy import Text, cast, exists, select
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import DomainError
 from app.user.models import User, UserRole
-from app.venue.models import ACCESSIBILITY_FEATURES, FACILITIES, ROOM_LAYOUTS, Venue
+from app.venue.models import ACCESSIBILITY_FEATURES, FACILITIES, ROOM_LAYOUTS, Venue, VenueBooking, VenueBookingStatus
 from app.venue.schemas import VenueOut, VenueWrite
 
 # DECISION-PENDING: D19 — Venue Staff arrives with US16b (SCRUM-82), which adds the enum value.
@@ -36,12 +36,18 @@ CONSTRAINT_FIELDS = {
 BUFFERS_LOCKED_MESSAGE = "Setup and turnaround can't change while this venue has approved future bookings."
 
 
-def has_approved_future_bookings(db: Session, venue_id: uuid.UUID, now: datetime | None) -> bool:
-    """Whether the venue has approved bookings that haven't happened yet, which lock its buffers
-    (US20 AC 2)."""
-    # TODO(US22): no bookings table exists yet (SCRUM-89 adds it, US4 approves bookings). Query
-    # approved bookings at this venue ending after `now` once it does; until then nothing is locked.
-    return False
+def has_approved_future_bookings(db: Session, venue_id: uuid.UUID, now: datetime) -> bool:
+    """Whether the venue has approved bookings that haven't finished, which lock its buffers
+    (US20 AC 2). A booking under way counts. Requested ones don't: US4 hasn't approved them."""
+    return db.scalar(
+        select(
+            exists().where(
+                VenueBooking.venue_id == venue_id,
+                VenueBooking.status == VenueBookingStatus.APPROVED,
+                VenueBooking.ends_at > now,
+            )
+        )
+    )
 
 
 def _invalid(errors: dict[str, str]) -> DomainError:
