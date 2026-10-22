@@ -13,7 +13,7 @@ Monorepo layout:
 ## Prerequisites
 
 - Python 3.12 (pinned in `backend/.python-version`; CI runs the same)
-- Node 20+
+- Node 22+
 - PostgreSQL 16 (or Docker, via `docker-compose.yml`)
 
 ## Running Postgres
@@ -47,20 +47,22 @@ Runs on `http://localhost:5173`.
 ## Running tests
 
 ```bash
-# backend (pytest)
+# backend (pytest): needs Postgres running
 cd backend && pytest
 
-# frontend build/typecheck
-cd frontend && npm run build
+# frontend unit + integration (Vitest): Node 22+, no backend needed
+cd frontend && npm test
 
-# end-to-end (Playwright)
-cd e2e && npm install && npm test
+# end-to-end (Playwright): backend running on :8000 against a seeded database
+cd e2e && npm ci && npx playwright install chromium && npm test
 ```
 
 ## CI
 
-GitHub Actions (`.github/workflows/ci.yml`) runs the backend (pytest), frontend
-(TypeScript build/lint) and Playwright E2E suite on every push and pull request.
+GitHub Actions runs on every pull request: `backend-ci.yml` (pytest), `frontend-ci.yml`
+(oxlint, Vitest, typecheck and build), `e2e.yml` (Playwright against a migrated, seeded
+backend), `lint-markdown.yml` and `pr-title-check.yml`. What each suite covers, how to add a
+test and what to do when one fails: [`docs/testing/README.md`](docs/testing/README.md).
 
 ## Team Members
 

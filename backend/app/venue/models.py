@@ -130,3 +130,24 @@ class VenueBooking(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
     withdrawn_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class VenueBlock(Base):
+    """A time a venue is out of use with no event behind it, e.g. maintenance or a closure (US2 AC 5,
+    SCRUM-7). Search leaves a venue out while a block overlaps the requested time, as it does for a
+    live booking. US23a (SCRUM-90, CR-02) adds Venue Staff's screens for these. Blocks may overlap
+    each other; only bookings are kept apart."""
+
+    __tablename__ = "venue_blocks"
+    __table_args__ = (
+        CheckConstraint("ends_at > starts_at", name="venue_blocks_window_valid"),
+        # Also venue_blocks_venue_window: GiST on (venue_id, tstzrange(starts_at, ends_at, '[)')),
+        # defined in the migration, the expression search's && overlap uses.
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, server_default=text("gen_random_uuid()"))
+    venue_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("venues.id"))
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    note: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

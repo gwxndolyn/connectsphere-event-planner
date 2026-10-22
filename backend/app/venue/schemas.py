@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, time
+from datetime import date, datetime, time
 
 from pydantic import BaseModel, ConfigDict
 
@@ -114,3 +114,21 @@ class VenueBookingCreatedOut(VenueBookingOut):
 
 class VenueBookingsOut(BaseModel):
     bookings: list[VenueBookingOut]
+
+
+class VenueSearchCriteria(BaseModel):
+    """The search as the service understood it, echoed so the screen can say what was applied
+    (US2 AC 7). Tags are in D18's order and the location trimmed."""
+
+    date: date
+    start_time: time
+    end_time: time
+    attendees: int
+    location: str | None
+    facilities: list[str]
+    accessibility: list[str]
+
+
+class VenueSearchOut(BaseModel):
+    venues: list[VenueOut]
+    criteria: VenueSearchCriteria

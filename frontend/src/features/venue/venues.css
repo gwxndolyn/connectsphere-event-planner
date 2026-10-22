@@ -161,3 +161,41 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* US2 venue search (SCRUM-7). */
+.venue-search {
+  padding: 8px 0 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.venue-search h2,
+.venue-catalogue__title {
+  margin: 16px 0 0;
+  font-size: 20px;
+}
+
+.venue-search__actions {
+  grid-column: 1 / -1;
+}
+
+.venue-search__empty ul {
+  margin: 8px 0;
+  padding-left: 20px;
+  text-align: left;
+}
+
+.venue-search__criteria ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+  font-size: 14px;
+}
+
+.venue-search__stale {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+}

@@ -1,5 +1,15 @@
 import { ApiError, apiClient } from "../../api/client";
-import type { Venue, VenueFilters, VenuesResponse, VenueWrite } from "./types";
+import { formatEventDate } from "../registration/datetime";
+import { tagLabel } from "./tags";
+import type {
+  Venue,
+  VenueFilters,
+  VenueSearchCriteria,
+  VenueSearchForm,
+  VenueSearchResponse,
+  VenuesResponse,
+  VenueWrite,
+} from "./types";
 
 // Venue routes identify the caller by X-User-Id (the Acting as switch). Writes need Venue Staff,
 // which is operations_manager in the backend until US16b (D19).
@@ -20,17 +30,43 @@ export const venueApi = {
 
   update: (id: string, venue: VenueWrite) => apiClient.patch<Venue>(`/api/v1/venues/${id}`, venue),
 
+  // US2 (SCRUM-7): what's free for this date, time and attendance. Blank fields are left out, so the
+  // API's MISSING_REQUIRED_FIELD names them.
+  search(form: VenueSearchForm): Promise<VenueSearchResponse> {
+    const params = new URLSearchParams();
+    const set = (key: string, value: string) => {
+      if (value.trim()) params.set(key, value.trim());
+    };
+    set("date", form.date);
+    set("start_time", form.startTime);
+    set("end_time", form.endTime);
+    set("attendees", form.attendees);
+    set("location", form.location);
+    form.facilities.forEach((tag) => params.append("facilities", tag));
+    form.accessibility.forEach((tag) => params.append("accessibility", tag));
+    return apiClient.get<VenueSearchResponse>(`/api/v1/venues/available?${params.toString()}`);
+  },
+
   setActive: (id: string, active: boolean) =>
     apiClient.post<Venue>(`/api/v1/venues/${id}/${active ? "reactivate" : "deactivate"}`, {}),
 };
 
 const FALLBACK_MESSAGE = "The request could not be completed. Check the backend connection and try again.";
 
+/** Search's own wording for a refusal, falling back to the catalogue's messages. */
+export function venueSearchErrorMessage(error: unknown): string {
+  if (error instanceof ApiError && error.code === "FORBIDDEN") {
+    return "Only coordinators and venue staff can search for available venues. Switch Acting as to Coordinator.";
+  }
+  return venueErrorMessage(error);
+}
+
 /** Readable text for the venue routes' error codes (§3). Field-level messages come from `errors`. */
 export function venueErrorMessage(error: unknown): string {
   if (!(error instanceof ApiError)) return FALLBACK_MESSAGE;
   switch (error.code) {
     case "INVALID_VENUE":
+    case "INVALID_VENUE_SEARCH":
       return "Review the fields marked below and try again.";
     case "MISSING_REQUIRED_FIELD":
       return "Complete the fields marked below.";
@@ -54,10 +90,29 @@ export function venueFieldErrors(error: unknown): Record<string, string> {
     return Object.fromEntries(error.fields.map((field) => [field, "Required."]));
   }
   const errors = error.body.errors;
-  if (error.code === "INVALID_VENUE" && errors && typeof errors === "object") {
+  if ((error.code === "INVALID_VENUE" || error.code === "INVALID_VENUE_SEARCH") && errors && typeof errors === "object") {
     return Object.fromEntries(
       Object.entries(errors).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
     );
   }
   return {};
+}
+
+/** "HH:MM" from the API's "HH:MM:SS". */
+export function hhmm(value: string): string {
+  return value.slice(0, 5);
+}
+
+/** One line per criterion the API says it applied (US2 AC 7). */
+export function describeCriteria(criteria: VenueSearchCriteria): string[] {
+  const lines = [
+    // The same Singapore date format as the rest of the app (e.g. "Tue, Oct 27").
+    `Date: ${formatEventDate({ startsAt: `${criteria.date}T00:00:00+08:00`, endsAt: `${criteria.date}T00:00:00+08:00` })}`,
+    `Time: ${hhmm(criteria.start_time)}–${hhmm(criteria.end_time)}`,
+    `Expected attendance: ${criteria.attendees}`,
+  ];
+  if (criteria.location) lines.push(`Location: ${criteria.location}`);
+  if (criteria.facilities.length) lines.push(`Facilities: ${criteria.facilities.map(tagLabel).join(", ")}`);
+  if (criteria.accessibility.length) lines.push(`Accessibility: ${criteria.accessibility.map(tagLabel).join(", ")}`);
+  return lines;
 }
