@@ -2,6 +2,7 @@ import { useState } from "react";
 import { getDevRole, setDevRole, type DevRole } from "./api/client";
 import { SiteHeader, type View } from "./components/SiteHeader";
 import { EventHealthCheck } from "./features/event/EventHealthCheck";
+import { EventRegistrationsPage } from "./features/eventRegistrations/EventRegistrationsPage";
 import { ClarificationReviewPage } from "./features/eventRequest/ClarificationReviewPage";
 import { EventRequestsPage } from "./features/eventRequest/EventRequestsPage";
 import { EventsBoard } from "./features/registration/EventsBoard";
@@ -43,6 +44,14 @@ function App() {
           </main>
         ) : (
           <EventRequestsPage key="organiser" />
+        )
+      ) : view === "registrations" ? (
+        devRole === "venue_staff" ? (
+          <main className="request-page">
+            <p className="request-empty">Registrations are for organisers and coordinators. Switch Acting as to see them.</p>
+          </main>
+        ) : (
+          <EventRegistrationsPage key={devRole} />
         )
       ) : view === "discovery" ? (
         <EventsBoard registry={registry} search={search} />
