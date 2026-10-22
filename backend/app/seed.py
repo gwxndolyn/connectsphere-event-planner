@@ -385,7 +385,7 @@ def upsert_venue_staff(db: Session) -> User:
     return staff
 
 
-def upsert_event(db: Session, spec: EventSpec, now: datetime) -> Event:
+def upsert_event(db: Session, spec: EventSpec, now: datetime, organiser: User) -> Event:
     event_id = seed_id("event", spec.slug)
     start_at = now + spec.starts_in
     values = {
@@ -402,6 +402,8 @@ def upsert_event(db: Session, spec: EventSpec, now: datetime) -> Event:
         "room_number": spec.room_number,
         "join_link": spec.join_link,
         "waitlist_enabled": spec.waitlist_enabled,
+        # US28: the seeded organiser runs these, so it can view their registrations.
+        "created_by_user_id": organiser.id,
     }
     event = db.get(Event, event_id)
     if event is None:
@@ -568,7 +570,7 @@ def seed(db: Session, now: datetime | None = None) -> None:
     db.flush()
 
     for spec in EVENTS:
-        event = upsert_event(db, spec, now)
+        event = upsert_event(db, spec, now, organiser)
         db.flush()
         for email in spec.confirmed:
             upsert_registration(db, event, attendees[email], RegistrationStatus.CONFIRMED, now)
