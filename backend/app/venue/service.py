@@ -1,20 +1,38 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime, time
+from zoneinfo import ZoneInfo
 
-from sqlalchemy import Text, cast, select
+from sqlalchemy import Text, and_, cast, exists, func, literal, select
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import DomainError
 from app.user.models import User, UserRole
-from app.venue.models import ACCESSIBILITY_FEATURES, FACILITIES, ROOM_LAYOUTS, Venue
-from app.venue.schemas import VenueOut, VenueWrite
+from app.venue.models import (
+    ACCESSIBILITY_FEATURES,
+    FACILITIES,
+    LIVE_BOOKING_STATUSES,
+    ROOM_LAYOUTS,
+    Venue,
+    VenueBlock,
+    VenueBooking,
+    VenueBookingStatus,
+)
+from app.venue.schemas import VenueOut, VenueSearchCriteria, VenueSearchOut, VenueWrite
 
 # DECISION-PENDING: D19 — Venue Staff arrives with US16b (SCRUM-82), which adds the enum value.
 # Until then operations_manager stands in, so this user can also read the event-request queue
 # (D11). US16b changes this one line to (UserRole.VENUE_STAFF,).
 VENUE_STAFF_ROLES = (UserRole.OPERATIONS_MANAGER,)
+
+# DECISION-PENDING: D25 — US2 is the Event Coordinator's story. Coordinators search, and so does
+# operations_manager, which stands in for the Event Coordinator Lead (D11) and Venue Staff (D19)
+# until US16b. Organisers and attendees get 403.
+VENUE_SEARCH_ROLES = (UserRole.COORDINATOR, UserRole.OPERATIONS_MANAGER)
+SEARCH_REQUIRED_FIELDS = ("date", "start_time", "end_time", "attendees")
+# Every venue and requested time is Singapore wall-clock (D9, TC-X-01).
+VENUE_TIMEZONE = ZoneInfo("Asia/Singapore")
 
 REQUIRED_FIELDS = ("name", "location", "capacity", "opens_at", "closes_at")
 BUFFER_FIELDS = ("setup_minutes", "turnaround_minutes")
@@ -36,12 +54,18 @@ CONSTRAINT_FIELDS = {
 BUFFERS_LOCKED_MESSAGE = "Setup and turnaround can't change while this venue has approved future bookings."
 
 
-def has_approved_future_bookings(db: Session, venue_id: uuid.UUID, now: datetime | None) -> bool:
-    """Whether the venue has approved bookings that haven't happened yet, which lock its buffers
-    (US20 AC 2)."""
-    # TODO(US22): no bookings table exists yet (SCRUM-89 adds it, US4 approves bookings). Query
-    # approved bookings at this venue ending after `now` once it does; until then nothing is locked.
-    return False
+def has_approved_future_bookings(db: Session, venue_id: uuid.UUID, now: datetime) -> bool:
+    """Whether the venue has approved bookings that haven't finished, which lock its buffers
+    (US20 AC 2). A booking under way counts. Requested ones don't: US4 hasn't approved them."""
+    return db.scalar(
+        select(
+            exists().where(
+                VenueBooking.venue_id == venue_id,
+                VenueBooking.status == VenueBookingStatus.APPROVED,
+                VenueBooking.ends_at > now,
+            )
+        )
+    )
 
 
 def _invalid(errors: dict[str, str]) -> DomainError:
@@ -82,7 +106,122 @@ def _validate(values: dict[str, object]) -> dict[str, object]:
     return cleaned
 
 
+def _whole_number(value: int | str) -> int | None:
+    """An attendance as an int, or None when it isn't a whole number (1.5, 1e3, "lots")."""
+    if isinstance(value, int):
+        return value
+    text = value.strip()
+    return int(text) if text.lstrip("-").isdigit() else None
+
+
+def _slot(model: type[VenueBooking] | type[VenueBlock]):
+    """A booking's or block's half-open time range, as its GiST index stores it."""
+    return func.tstzrange(model.starts_at, model.ends_at, literal("[)"))
+
+
+def _escape_like(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 class VenueService:
+    def find_available(
+        self,
+        db: Session,
+        now: datetime,
+        *,
+        on: date | None,
+        start_time: time | None,
+        end_time: time | None,
+        attendees: int | str | None,
+        location: str | None = None,
+        facilities: list[str] | None = None,
+        accessibility: list[str] | None = None,
+    ) -> VenueSearchOut:
+        """US2 (SCRUM-7): active venues that can host this event: big enough (AC 4), open for the
+        whole time (AC 6), with no live booking (US22's LIVE_BOOKING_STATUSES: requested or
+        approved) and no block overlapping it (AC 5), and every given filter matched (AC 2).
+        Smallest suitable venue first, then by name. One query, for AC 8's 3 seconds."""
+        given = {"date": on, "start_time": start_time, "end_time": end_time, "attendees": attendees}
+        missing = [field for field in SEARCH_REQUIRED_FIELDS if given[field] is None or given[field] == ""]
+        if missing:
+            raise DomainError(422, "MISSING_REQUIRED_FIELD", fields=missing)
+
+        errors: dict[str, str] = {}
+        attendees = _whole_number(attendees)
+        if on < now.astimezone(VENUE_TIMEZONE).date():
+            errors["date"] = "The date can't be in the past."
+        if end_time <= start_time:
+            errors["end_time"] = "The end time must be after the start time (events can't cross midnight)."
+        if attendees is None:
+            errors["attendees"] = "Expected attendance must be a whole number."
+        elif attendees < 1:
+            errors["attendees"] = "Expected attendance must be at least 1."
+        tags: dict[str, list[str]] = {}
+        for param, field, values in (
+            ("facilities", "facilities", facilities),
+            ("accessibility", "accessibility_features", accessibility),
+        ):
+            field_errors: dict[str, str] = {}
+            tags[param] = _clean_tags(field, values or [], field_errors)
+            if field_errors:
+                errors[param] = field_errors[field]
+        if errors:
+            raise DomainError(422, "INVALID_VENUE_SEARCH", fields=list(errors), errors=errors)
+
+        location = location.strip() if location and location.strip() else None
+        starts_at = datetime.combine(on, start_time, VENUE_TIMEZONE)
+        ends_at = datetime.combine(on, end_time, VENUE_TIMEZONE)
+
+        # Half-open, like venue_bookings_no_overlap: a booking ending at 10:00 doesn't clash with a
+        # search from 10:00. Requested blocks the window as well as approved (US22's D21).
+        # DECISION-PENDING: D26 — setup and turnaround buffers aren't added around either side here.
+        # US13 (SCRUM-16) owns buffer scheduling, and CR-01 says its conflicts are flagged, not hidden.
+        # Written as a range overlap (&&) on tstzrange(starts_at, ends_at, '[)'), the exact expression
+        # both GiST indexes hold: US22's venue_bookings_no_overlap and venue_blocks_venue_window.
+        # Two comparisons on starts_at and ends_at mean the same but can't use them (AC 8).
+        window = func.tstzrange(literal(starts_at), literal(ends_at), literal("[)"))
+        booked = exists().where(
+            and_(
+                VenueBooking.venue_id == Venue.id,
+                VenueBooking.status.in_(LIVE_BOOKING_STATUSES),
+                _slot(VenueBooking).op("&&")(window),
+            )
+        )
+        blocked = exists().where(
+            and_(
+                VenueBlock.venue_id == Venue.id,
+                _slot(VenueBlock).op("&&")(window),
+            )
+        )
+        query = select(Venue).where(
+            Venue.is_active.is_(True),
+            Venue.capacity >= attendees,
+            Venue.opens_at <= start_time,
+            Venue.closes_at >= end_time,
+            ~booked,
+            ~blocked,
+        )
+        if location:
+            query = query.where(Venue.location.ilike(f"%{_escape_like(location)}%", escape="\\"))
+        if tags["facilities"]:
+            query = query.where(Venue.facilities.op("@>")(cast(tags["facilities"], ARRAY(Text))))
+        if tags["accessibility"]:
+            query = query.where(Venue.accessibility_features.op("@>")(cast(tags["accessibility"], ARRAY(Text))))
+
+        venues = db.scalars(query.order_by(Venue.capacity, Venue.name, Venue.id))
+        return VenueSearchOut(
+            venues=[VenueOut.model_validate(venue) for venue in venues],
+            criteria=VenueSearchCriteria(
+                date=on,
+                start_time=start_time,
+                end_time=end_time,
+                attendees=attendees,
+                location=location,
+                facilities=tags["facilities"],
+                accessibility=tags["accessibility"],
+            ),
+        )
+
     def search(
         self,
         db: Session,

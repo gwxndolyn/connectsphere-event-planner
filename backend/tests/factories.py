@@ -1,11 +1,12 @@
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
 from app.event.models import DeliveryMode, Event, EventRegistrationField, EventStatus
 from app.registration.models import Registration, RegistrationStatus
 from app.user.models import Attendee, User, UserRole
+from app.venue.models import Venue
 
 SGT = timezone(timedelta(hours=8))
 # Frozen "now" for every API test (spec §8: freeze time).
@@ -109,3 +110,29 @@ def make_registration(
     db.add(registration)
     db.flush()
     return registration
+
+
+def make_user(db: Session, role: UserRole, *, active: bool = True) -> User:
+    user = User(email=f"{uuid.uuid4().hex}@smu.edu.sg", role=role, is_active=active)
+    db.add(user)
+    db.flush()
+    return user
+
+
+def make_venue(db: Session, **overrides: object) -> Venue:
+    fields: dict[str, object] = {
+        "name": "Stored Room",
+        "location": "Stored Building",
+        "capacity": 40,
+        "facilities": ["projector"],
+        "accessibility_features": [],
+        "room_layouts": ["theatre"],
+        "opens_at": time(8, 0),
+        "closes_at": time(20, 0),
+        "setup_minutes": 30,
+        "turnaround_minutes": 15,
+    }
+    venue = Venue(**(fields | overrides))
+    db.add(venue)
+    db.flush()
+    return venue

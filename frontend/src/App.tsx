@@ -33,7 +33,7 @@ function App() {
       />
 
       {view === "venues" ? (
-        <VenuesPage key={devRole} staff={devRole === "venue_staff"} />
+        <VenuesPage key={devRole} staff={devRole === "venue_staff"} canSearch={devRole !== "organiser"} />
       ) : view === "event-requests" ? (
         devRole === "coordinator" ? (
           <ClarificationReviewPage key="coordinator" />

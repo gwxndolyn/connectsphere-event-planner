@@ -3,6 +3,7 @@ import { venueApi, venueErrorMessage } from "./api";
 import { ACCESSIBILITY_FEATURES, FACILITIES, tagLabel } from "./tags";
 import type { ActiveFilter, Venue, VenueFilters } from "./types";
 import { VenueForm } from "./VenueForm";
+import { VenueSearch } from "./VenueSearch";
 import "../eventRequest/eventRequests.css";
 import "./venues.css";
 
@@ -19,9 +20,11 @@ function hours(venue: Venue): string {
 interface VenuesPageProps {
   // Venue Staff may add, edit, deactivate and reactivate; everyone else reads active venues (AC 6).
   staff: boolean;
+  // US2: coordinators search for an available venue above the catalogue (D20).
+  canSearch?: boolean;
 }
 
-export function VenuesPage({ staff }: VenuesPageProps) {
+export function VenuesPage({ staff, canSearch = false }: VenuesPageProps) {
   const [filters, setFilters] = useState<VenueFilters>(EMPTY_FILTERS);
   const [venues, setVenues] = useState<Venue[]>([]);
   const [loading, setLoading] = useState(true);
@@ -118,6 +121,9 @@ export function VenuesPage({ staff }: VenuesPageProps) {
         </div>
       )}
 
+      {canSearch && <VenueSearch />}
+
+      {canSearch && <h2 className="venue-catalogue__title">All venues</h2>}
       <section className="venue-filters" aria-label="Venue filters">
         <label className="request-field">
           Search by name

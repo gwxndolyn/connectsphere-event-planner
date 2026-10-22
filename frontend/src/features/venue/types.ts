@@ -44,3 +44,29 @@ export interface VenueFilters {
   // Staff only; everyone else always gets active venues.
   active: ActiveFilter;
 }
+
+// US2 venue search (SCRUM-7). Form values as typed; the API echoes what it applied.
+export interface VenueSearchForm {
+  date: string; // YYYY-MM-DD, Singapore
+  startTime: string; // HH:MM
+  endTime: string;
+  attendees: string;
+  location: string;
+  facilities: string[];
+  accessibility: string[];
+}
+
+export interface VenueSearchCriteria {
+  date: string;
+  start_time: string; // HH:MM:SS
+  end_time: string;
+  attendees: number;
+  location: string | null;
+  facilities: string[];
+  accessibility: string[];
+}
+
+export interface VenueSearchResponse {
+  venues: Venue[];
+  criteria: VenueSearchCriteria;
+}

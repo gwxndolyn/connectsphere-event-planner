@@ -112,10 +112,12 @@ All three Sprint 1 stories have working backends, tested against a real Postgres
 | SCRUM-72 — take up a place (US6b) | Done: offer notice (SCRUM-50) + accept (SCRUM-51) | **Real screens, wired to API**: Place available + Accept place (SCRUM-76) | TC-US6B 10/10 + 1 E2E |
 | SCRUM-74 — organiser responds (US8c) | Done: response endpoint + thread read (SCRUM-77) | **Real screens, wired to API**: response form (SCRUM-78), thread view (SCRUM-58) | TC-US8-17 to 24 + E2E |
 | SCRUM-75 — more clarification rounds (US8d) | Done: rounds guard pinned as D15 (SCRUM-56) | No change needed | TC-US8-31 to 35 |
-| SCRUM-87 — venue catalogue (US20) | Done: schema + seed (PR 1, #53); endpoints, Venue Staff stub (D19), validation, buffer-lock stub (PR 2) | **Real screens, wired to API**: Venues list with filters, staff create/edit form (PR 2) | TC-US20-01 to 19 except 07's booking half (US22) + 2 E2E; see `docs/testing/US20-venue-catalogue.md` |
+| SCRUM-87 — venue catalogue (US20) | Done: schema + seed (PR 1, #53); endpoints, Venue Staff stub (D19), validation, buffer-lock stub (PR 2) | **Real screens, wired to API**: Venues list with filters, staff create/edit form (PR 2) | TC-US20-01 to 19 (07's booking half is TC-US22-01) + 2 E2E; see `docs/testing/US20-venue-catalogue.md` |
+| SCRUM-89 — request a venue booking (US22) | Schema done (PR 1, SCRUM-111): `venue_bookings`, the no-overlap exclusion constraint, the real buffer-lock query. Endpoints next (PR 2) | Not started (PR 3) | TC-US22-01 to 03 so far; all 21 in `docs/testing/US22-venue-booking.md` |
+| SCRUM-7 — search for suitable venues (US2) | Done: `GET /api/v1/venues/available` (hides live US22 bookings and `venue_blocks`), `venue_blocks` table, seeded slot | **Real screen, wired to API**: search form on Venues for Coordinator and Venue staff | TC-US2-01 to 16 (12 pytest + 4 E2E) + frontend unit and integration; see `docs/testing/US2-venue-search.md` |
 | SCRUM-81 — sign up, log in, log out (US16a) | Schema (SCRUM-101), token check (SCRUM-102) and sign-up profile endpoint (SCRUM-103) done; seeded Supabase logins in review (SCRUM-104, #56); login page next (SCRUM-105) | Not started (SCRUM-105, 106) | TC-US16A-01 to 26, 46 to 49; all 50 in `docs/testing/US16a-sign-up-log-in.md` |
  
-Every endpoint in §3 exists, plus `POST /registrations/{id}/decline` (deviation 3 below) and `POST /registrations/{id}/accept` (deviation 13). Identity is a Supabase access token (`Authorization: Bearer`, SCRUM-102), plus two dev stubs when `AUTH_DEV_HEADERS=true`: `X-Attendee-Id` for the Sprint 1 routes and `X-User-Id` (role-aware) for the event-request and venue routes. The frontend still uses the stubs until SCRUM-105. The database is the tables in §2 plus `attendees` and `users`. Backend suite: 272 tests; E2E: 8 tests (health check, US1 journey, US8 clarification journey: ask, answer, read the thread, attendee journey: list, register, My events, withdraw; waitlist journey: leave, rejoin, see position; offer journey: freed place offered, accepted; US20 venue list and search; US20 venue staff journey: add with a field error, edit, deactivate). **Supabase may lag `main`**: it was at `20261015_1200_us16a_auth_link` on 15 Oct (reseeded the same day). Migrations merged after that must be applied there by Calvin — check with `alembic current`.
+Every endpoint in §3 exists, plus `POST /registrations/{id}/decline` (deviation 3 below) and `POST /registrations/{id}/accept` (deviation 13). Identity is a Supabase access token (`Authorization: Bearer`, SCRUM-102), plus two dev stubs when `AUTH_DEV_HEADERS=true`: `X-Attendee-Id` for the Sprint 1 routes and `X-User-Id` (role-aware) for the event-request and venue routes. The frontend still uses the stubs until SCRUM-105. The database is the tables in §2 plus `attendees` and `users`. Backend suite: 394 tests; frontend suite (Vitest): 150 tests, 112 unit + 38 integration; E2E: 18 tests (health check, US1 journey, US8 clarification journey: ask, answer, read the thread, attendee journey: list, register, My events, withdraw; waitlist journey: leave, rejoin, see position; offer journey: freed place offered, accepted; US20 venue list and search; US20 venue staff journey: add with a field error, edit, deactivate; US1 draft round-trip: save, reload, reopen, edit, submit; events board: only open events listed, Open/Full tabs, search by title and venue, online event's join link; Acting as switch remembered across a reload; US2 venue search: seeded slot drops booked and blocked venues, filters and hours, no-match criteria and a marked bad time, organisers not offered search). **Supabase may lag `main`**: it was at `20261015_1200_us16a_auth_link` on 15 Oct (reseeded the same day). Migrations merged after that must be applied there by Calvin — check with `alembic current`. US22's `20261021_1200_us22_bookings` runs `CREATE EXTENSION IF NOT EXISTS btree_gist`; Supabase ships the extension, but if the migration fails on permissions, enable `btree_gist` under Database → Extensions and rerun it. US2's `20261022_1200_us2_venue_blocks` follows it.
  
 ### Get it running
  
@@ -135,6 +137,7 @@ uvicorn app.main:app --reload          # http://localhost:8000/docs
 cd ../frontend
 cp .env.example .env                   # REQUIRED: VITE_DEV_USER_ID (organiser), VITE_DEV_COORDINATOR_ID, VITE_DEV_ATTENDEE_ID (Calvin)
 npm install && npm run dev             # http://localhost:5173 — restart after editing .env
+npm test                               # Vitest unit + integration tests; no backend needed
  
 cd ../e2e && npm ci && npx playwright install chromium
 npm test                               # backend must be running; don't also run npm run dev. Reseed first (python -m app.seed) on a reused database
@@ -179,6 +182,7 @@ npm test                               # backend must be running; don't also run
 - **New roles arrive with US16b (SCRUM-82):** `coordinator_lead`, `venue_staff`, `tech_support`, `safety_officer`. Until then the enum is `organiser`, `coordinator`, `operations_manager`, `attendee`, and `operations_manager` stands in for Venue Staff on the venue routes (D19).
 - **Another person's record is `404 NOT_FOUND`, never `403`.** Applies to drafts as well as registrations (TC-US7-02, TC-US1-13).
 - **Schema changes go in the first PR of a story, alone.** US1 split into schema → API → screens PRs; the API and screen PRs added no migration. Keeps one Alembic head and a reviewable migration.
+- **E2E specs share one seeded database and run in parallel.** `attendee-registration.spec.ts` is the only spec that changes seeded registrations (serial within itself); others either only read seeded rows that it never touches (`events-board.spec.ts`, `venue-search.spec.ts`) or create their own uniquely named rows (`event-request*.spec.ts`, `clarification-request.spec.ts`, `venue-catalogue.spec.ts`). Keep a new spec in one of those two kinds, or it will flake against the attendee journeys.
 - **E2E runs against a migrated, seeded database.** `e2e.yml` runs `alembic upgrade head` and `python -m app.seed` before starting the backend. A new E2E test needing data should get it from the seed, not by assuming an empty database.
  
 ### Deviations awaiting a decision
@@ -208,12 +212,14 @@ Each is implemented and defensible; each departs from the contract in §2/§3 an
 | 19 | New error codes for tokens (SCRUM-102): `PROFILE_REQUIRED` (403), a valid Supabase token with no `users` row, so signed up and confirmed but no profile yet (TC-US16A-12; §9 first said such a caller is created as an attendee; the first login creates the profile instead, SCRUM-103); `AUTH_UNAVAILABLE` (503), Supabase's keys unreachable, so the frontend doesn't log everyone out (TC-US16A-46); `AUTH_NOT_CONFIGURED` (500), `SUPABASE_URL` unset (TC-US16A-47) | `app/user/dependencies.py`, `app/user/auth.py` |
 | 20 | First login links an unlinked row by email **only for an active Organiser or Attendee, and only when the token says the email is verified** (SCRUM-102, TC-US16A-06; PR #55 review). Supabase "Confirm email" is **on**, so a token only exists for an email its owner confirmed (US16a AC 6 changed 16 Oct). Staff rows are never linked by email; the seed links them (SCRUM-104) | `app/user/dependencies.py` |
 | 21 | New error code `INVALID_VENUE` (422, with `fields` and `errors`: a message per field) for present-but-invalid venue values: capacity ≤ 0, closing not after opening, negative buffers, blank name or location, a tag outside D18's lists (on a write or a list filter). A missing or nulled required field is `MISSING_REQUIRED_FIELD` (SCRUM-87, AC 4) | `app/venue/service.py` |
-| 22 | New error code `VENUE_BUFFERS_LOCKED` (409, with `fields` and `message`) when an edit changes `setup_minutes` or `turnaround_minutes` while the venue has approved future bookings (AC 2). Bookings don't exist yet, so `has_approved_future_bookings` returns `False` (`TODO(US22)`) and the refusal can't happen in the product until US22 | `app/venue/service.py` |
+| 22 | New error code `VENUE_BUFFERS_LOCKED` (409, with `fields` and `message`) when an edit changes `setup_minutes` or `turnaround_minutes` while the venue has approved future bookings (AC 2). Since US22 PR 1 (SCRUM-111), `has_approved_future_bookings` queries `venue_bookings`: an Approved booking at the venue ending after now, including one under way. Nothing approves a booking until US4, so the refusal can't happen in the product yet | `app/venue/service.py` |
 | 23 | New error codes for `POST /api/v1/auth/profile` (SCRUM-103): `INVALID_ROLE` (422), a role other than `organiser` or `attendee` (US16a AC 7); `EMAIL_ALREADY_REGISTERED` (409), any `users` row already has this account's id or email, seeded staff included, also returned when a simultaneous call wins the race. Numbered 23 because #60 (US20) takes 21 and 22 | `app/user/service.py` |
+| 30 | `venue_blocks` (US2, SCRUM-7) is in no earlier §: AC 5's "blocked" venue has no event behind it, so it can't be a `venue_bookings` row (event and requester required). Minimal: `venue_id`, `starts_at`, `ends_at`, `note`. Blocks may overlap each other and bookings. US23a (SCRUM-90, CR-02) adds Venue Staff's screens for it. Numbered 30 because US22 PR 2 takes 24 to 29 | `app/venue/models.py`, migration `20261022_1200_us2_venue_blocks` |
+| 31 | New error code `INVALID_VENUE_SEARCH` (422, with `fields` and `errors`) on `GET /api/v1/venues/available` for a past date, end not after start, attendance below 1 or not a whole number, or an unknown tag. `attendees` is read as text so `1.5` is this error on `attendees`, not FastAPI's generic 422. Missing criteria are `MISSING_REQUIRED_FIELD` | `app/venue/service.py` |
  
 ### Open decisions still unanswered
  
-§6 defines D1–D6 and a Sprint 1 default for each. All six are coded to their defaults and marked in the code; **none has been confirmed by the team**. D7 is new and not in §6. D8–D12 came from US1 and D13–D15 from US8 and D16–D17 from US6a; D18–D19 from US20; all are marked `DECISION-PENDING` in the code.
+§6 defines D1–D6 and a Sprint 1 default for each. All six are coded to their defaults and marked in the code; **none has been confirmed by the team**. D7 is new and not in §6. D8–D12 came from US1 and D13–D15 from US8 and D16–D17 from US6a; D18–D19 from US20; D20–D24 from US22; D25–D26 from US2; all are marked `DECISION-PENDING` in the code (D20 from US22 PR 2, where its check lives).
  
 | id | Question | What we assumed |
 |---|---|---|
@@ -236,6 +242,13 @@ Each is implemented and defensible; each departs from the contract in §2/§3 an
 | D17 | What happens to people already queued if an event's waitlist is switched off? | They keep their place and still get offers: `offer_freed_seat` ignores `waitlist_enabled`, because US6a only governs joining |
 | D18 | Which tags can a venue's facilities, accessibility features and room layouts use? | SCRUM-87 only gives examples. Assumed fixed lists, so US2's filters and the venue form agree on spelling. Facilities: `projector`, `screen`, `sound_system`, `microphone`, `stage`, `wifi`, `whiteboard`, `video_conferencing`, `power_outlets`. Accessibility: `wheelchair`, `lift`, `accessible_toilet`, `hearing_loop`, `step_free_entrance`. Layouts: `theatre`, `classroom`, `banquet`, `boardroom`, `u_shape`, `cabaret`, `standing`. Constants in `app/venue/models.py`, mirrored by the migration's CHECKs |
 | D19 | Who stands in for Venue Staff before US16b adds the role? | `operations_manager`, one constant `VENUE_STAFF_ROLES` in `app/venue/service.py`; US16b changes it to `venue_staff`. The seed adds `venue.staff@smu.edu.sg` with that role, and **Acting as → Venue staff** sends its id. Side effects run both ways, since `operations_manager` also stands in for the Coordinator Lead (D11). The venue staff user can read the event-request queue. Anyone acting as a Coordinator Lead can create, edit and deactivate venues. No Lead is seeded yet, but US10a will seed one, so **US16b (SCRUM-82) must split the two roles before US10a lands** |
+| D20 | Who may request a venue before events have an assigned coordinator? | Any active coordinator, for an Approved or Planning event. US10a (SCRUM-13) narrows it to the assigned coordinator, in the one place US22 PR 2 puts the check |
+| D21 | Does a pending (Requested) booking block the window? | Yes. AC 3 names approved bookings, but AC 7's first-come-first-served needs a pending request to block too. Requested and Approved (`LIVE_BOOKING_STATUSES`) are enforced by the exclusion constraint `venue_bookings_no_overlap`, which also settles AC 7's race |
+| D22 | What window does the overlap check use? | Plain `[starts_at, ends_at)` until US13 (SCRUM-16) adds the venue's setup and turnaround. Holds (US25, SCRUM-93) and unavailability (US23a, SCRUM-90) don't exist yet; they extend the check when they land |
+| D23 | How does a request say which facilities and accessibility it needs? | D18 tag lists on the booking (`required_facilities`, `required_accessibility_features`), because the event's `equipment_needs` and `accessibility_needs` are free text and can't be matched against a venue |
+| D24 | How do events reach Approved before US17? | They don't in the product. US17 (SCRUM-84) approves requests; tests and the seed put events straight into `approved` |
+| D25 | Who may search for available venues (US2)? | `coordinator`, plus `operations_manager` (standing in for the Coordinator Lead and Venue Staff, D11, D19); organisers and attendees `403`. One constant, `VENUE_SEARCH_ROLES` in `app/venue/service.py`. US16b should give it `coordinator_lead` and `venue_staff` |
+| D26 | Does venue search apply setup and turnaround buffers around bookings? | No: only the requested window itself must be free, the same plain window as US22's D22. US13 (SCRUM-16) owns buffers, and CR-01 says their conflicts are flagged, not hidden. If search should hide buffer clashes too, it's one change in `find_available` |
  
 ### Environment
  
@@ -243,6 +256,7 @@ Each is implemented and defensible; each departs from the contract in §2/§3 an
 - **Row Level Security is on for every application table, with no policies** (migration `5733a3c705f7`). RLS on plus no policies means Supabase's anon and authenticated roles can read nothing; the backend is unaffected because it connects as the tables' owner, and owners bypass RLS. Keep the Data API disabled anyway — belt and braces. **Adding a table means enabling RLS on it in the same migration.** Policies are needed only if the Data API is ever enabled (§9).
 - **Backend tests need Postgres running**: `docker compose up -d postgres`. Without it every database test errors on connection, which looks alarming and isn't.
 - **Python 3.12**, pinned in `backend/.python-version` and matched by CI. A 3.13 virtualenv can pass locally and fail in CI.
+- **Node 22+ for the frontend and E2E.** Vitest 5, jsdom 30 and MSW 3 refuse Node 20. The root `.nvmrc` says 22 (run `nvm use`), both Node CI jobs read it, and `engines` with `engine-strict` in `frontend/` and `e2e/` make `npm ci` fail on Node 20 with a clear message. **Teammates: install Node 22, then `npm ci` in `frontend/` and `e2e/`.**
 - **No dependency lock on the backend.** `pyproject.toml` uses open ranges, so two machines can resolve different versions. The frontend has `package-lock.json`; the backend has nothing equivalent. Suspect this when something works for one person only.
 - **Frontend and API don't share vocabulary yet — for the Sprint 1 screens.** The mockup says `title`, `format`, `startsAt`; §3 says `name`, `delivery_mode`, `start_at`. The US1 screens already use the API's names (`frontend/src/features/eventRequest/`). Generating TypeScript types from `/openapi.json` would turn a rename into a build error instead of a runtime one.
 - **Env files are per machine and git-ignored.** Both `backend/.env` and `frontend/.env` must exist; after pulling a change to either `.env.example`, compare and copy the new lines across.
@@ -251,10 +265,10 @@ Each is implemented and defensible; each departs from the contract in §2/§3 an
 ### What's next in Sprint 3
  
 1. **US16a, then US16b** — Supabase Auth per §9. Log in first, then role checks on the routes.
-2. **US20's venue catalogue is in** (schema PR 1, API and screens PR 2). US2 builds search on `GET /api/v1/venues`. US22 adds bookings: fill in `has_approved_future_bookings` there. US13 adds the flag-and-notify step for capacity or hours edits that PR 2 deferred.
+2. **US20's venue catalogue is in** (schema PR 1, API and screens PR 2). US2 builds search on `GET /api/v1/venues`. US22 adds bookings: PR 1 (SCRUM-111) added `venue_bookings` and filled in `has_approved_future_bookings`; PR 2 adds the endpoints and closes US20's inactive-venue read gap; PR 3 the screens. US13 adds the flag-and-notify step for capacity or hours edits that PR 2 deferred.
 3. **US10a before US10e and US17.** The seed needs an **Event Coordinator Lead** for US10a. US10a moving an event to `planning` hides it from staff under D11, so widen D11 there if the coordinator must keep reading it. Nothing moves a request from Submitted to Under Review yet, and US17 (approve/reject) only acts on Under Review requests. Agree in US10a or US17 who makes that move (e.g. assigning the coordinator, or the coordinator opening the request).
 4. **Waitlist gap (D3):** an email-only waitlist entry can't accept an offer, because there's no attendee to match. Settle D3/D6/D7 before US16a links logins to users.
-5. **Smaller, worth doing:** fix the root README (missing `alembic upgrade head`, the frontend `.env` copy, a CI section naming a `ci.yml` that doesn't exist, TODO team list); lock the backend's dependencies; review the Dependabot PRs; make the notification log visible under uvicorn; delete merged branches; turn on branch protection for `main`.
+5. **Smaller, worth doing:** fix the root README (missing `alembic upgrade head`, the frontend `.env` copy, TODO team list; its CI section is fixed); lock the backend's dependencies; review the Dependabot PRs; make the notification log visible under uvicorn; delete merged branches; turn on branch protection for `main`.
 
 ---
 
@@ -398,7 +412,71 @@ alter table venues enable row level security;
 - Events keep their free-text `venue_name` and `room_number` until US22's booking links an event to a venue.
 - The seed adds six venues with varied capacity, tags and buffers: one with 0/0 buffers, and one inactive (`SOE Seminar Room B1-1`, which no seeded event uses).
 - Downgrade refuses if any venue exists.
-- PR 2 added the API (§3, Venues) and screens with no migration. Writes need Venue Staff, which is `operations_manager` until US16b (D19). Buffer edits are refused while the venue has approved future bookings, behind a stub that returns `False` until US22 adds bookings. Test cases and the PR split: `docs/testing/US20-venue-catalogue.md`.
+- PR 2 added the API (§3, Venues) and screens with no migration. Writes need Venue Staff, which is `operations_manager` until US16b (D19). Buffer edits are refused while the venue has approved future bookings; since US22 PR 1 that reads `venue_bookings` (below). Test cases and the PR split: `docs/testing/US20-venue-catalogue.md`.
+
+### `venue_bookings` — US22 venue booking requests (SCRUM-89)
+
+A coordinator's request to hold a venue for an event. PR 1 (SCRUM-111), migration `20261021_1200_us22_bookings`:
+
+```sql
+create extension if not exists btree_gist;
+create type venue_booking_status as enum ('requested', 'approved', 'rejected', 'withdrawn');
+
+create table venue_bookings (
+  id                              uuid primary key default gen_random_uuid(),
+  event_id                        uuid not null references events(id),
+  venue_id                        uuid not null references venues(id),
+  requested_by_user_id            uuid not null references users(id),
+  starts_at                       timestamptz not null,
+  ends_at                         timestamptz not null,   -- check ends_at > starts_at
+  expected_attendees              integer not null,       -- check >= 1
+  room_layout                     text not null,          -- one of D18's layouts
+  required_facilities             text[] not null default '{}',  -- <@ D18's facilities (D23)
+  required_accessibility_features text[] not null default '{}',  -- <@ D18's accessibility features (D23)
+  special_requirements            text,
+  status                          venue_booking_status not null default 'requested',
+  created_at                      timestamptz not null default now(),
+  updated_at                      timestamptz not null default now(),
+  withdrawn_at                    timestamptz,            -- set by PR 2's withdraw; check (status = 'withdrawn') = (withdrawn_at is not null)
+  constraint venue_bookings_no_overlap exclude using gist (
+    venue_id with =, tstzrange(starts_at, ends_at, '[)') with &&
+  ) where (status in ('requested', 'approved'))         -- D21, D22
+);
+alter table venue_bookings enable row level security;
+```
+
+- **No two live bookings at one venue overlap, even by one second** (AC 3). `'[)'` excludes the end, so back-to-back is allowed. Withdrawn and rejected bookings don't block. The constraint also settles **AC 7's race**: a concurrent second insert waits for the first to commit, then fails. PR 2 turns that failure into `409 VENUE_UNAVAILABLE`.
+- Requested blocks as well as Approved (D21); the window is plain start to end until US13 adds buffers (D22). `LIVE_BOOKING_STATUSES` in `app/venue/models.py` mirrors the constraint's predicate.
+- **No buffer columns**: setup and turnaround stay on `venues` (US20 AC 7, TC-US22-01).
+- Each CHECK is named (`venue_bookings_window_valid`, `venue_bookings_room_layout_known`, …) so PR 2's API can name the field.
+- **`venue_bookings_withdrawn_consistent`:** a booking has `withdrawn_at` exactly when its status is `withdrawn`, in both directions and on update too, so a withdraw can't forget the time and no other status carries one (PR #64 review).
+- The layout and tag CHECKs repeat D18's lists, so they now live in **three places**: `app/venue/models.py` and the US20 and US22 migrations, each with a comment naming the other two. Changing a list means a new migration that replaces both migrations' CHECKs, plus `frontend/src/features/venue/tags.ts`.
+- `has_approved_future_bookings(db, venue_id, now)` in `app/venue/service.py` is true for an Approved booking at the venue with `ends_at > now`, so one under way still locks the buffers.
+- Downgrade refuses if any booking exists; it leaves `btree_gist` installed.
+- **US2's search leaves out a venue with a live booking** (`LIVE_BOOKING_STATUSES`: requested, AC 5's "tentatively held"; approved, "booked") overlapping the requested window.
+
+### `venue_blocks` — closures venue search leaves out (SCRUM-7, US2)
+
+AC 5: search must not show venues "blocked for the requested date and time". A block has no event or requester, so it isn't a `venue_bookings` row (deviation 30). Migration `20261022_1200_us2_venue_blocks`, after US22's:
+
+```sql
+create table venue_blocks (
+  id          uuid primary key default gen_random_uuid(),
+  venue_id    uuid not null references venues(id),
+  starts_at   timestamptz not null,
+  ends_at     timestamptz not null,      -- check ends_at > starts_at (venue_blocks_window_valid)
+  note        text,                      -- e.g. "Closed for AV maintenance"
+  created_at  timestamptz not null default now()
+);
+create index venue_blocks_venue_window on venue_blocks (venue_id, starts_at, ends_at);
+alter table venue_blocks enable row level security;
+```
+
+- Half-open like bookings: a block ending at 10:00 doesn't clash with a search from 10:00. A multi-day block hides the venue on every day inside it.
+- Blocks may overlap each other and bookings; only bookings are kept apart. No buffer columns (US20 AC 7).
+- Nothing creates blocks in the product yet: US23a (SCRUM-90, CR-02) adds Venue Staff's screens. The seed adds one.
+- The seed's US2 slot: five days ahead, 10:00–12:00 Singapore time, SCIS Seminar Room 2-1 has a `requested` booking, Mochtar Riady Auditorium an `approved` one (each for a seeded approved event, requested by the seeded coordinator, D24), and SMU Connexion Studio 3-2 a block (`VENUE_BOOKINGS`, `VENUE_BLOCKS` in `app/seed.py`). The approved booking means **the auditorium's buffers are locked** (deviation 22).
+- Downgrade refuses if any block exists.
 
 ### `registrations` — the core table (SCRUM-24)
  
@@ -679,6 +757,7 @@ Router: `app/venue/router.py`; logic: `app/venue/service.py`. **Identity:** `X-U
 | Method & path | Who | Purpose |
 |---|---|---|
 | `GET /api/v1/venues` | anyone signed in | `{"venues": [...]}` by name. Query: `q` (part of the name, any case), `min_capacity`, `facilities` and `accessibility` (repeatable; the venue must have all of them), `active` (staff only: `true`/`false`, all when left out). Non-staff always get active venues only |
+| `GET /api/v1/venues/available` | coordinator, operations manager (D25) | US2 search, below |
 | `GET /api/v1/venues/{id}` | anyone signed in | One venue; an inactive venue is `404` to non-staff |
 | `POST /api/v1/venues` | Venue Staff | Create → `201`, active |
 | `PATCH /api/v1/venues/{id}` | Venue Staff | Change only the fields sent; works on inactive venues too; row locked `FOR UPDATE` |
@@ -693,6 +772,26 @@ Write body (unknown fields rejected): `name`, `location`, `capacity`, `facilitie
 | Buffer change while approved future bookings exist | `409` | `{"code": "VENUE_BUFFERS_LOCKED", "fields": [...], "message": "Setup and turnaround can't change while this venue has approved future bookings."}` (deviation 22). Resending the stored value isn't a change |
 | Unknown id; inactive venue read by non-staff | `404` | `{"code": "NOT_FOUND"}` |
 | Missing/unknown identity; not Venue Staff or inactive | `401` / `403` | `UNAUTHENTICATED` / `FORBIDDEN` |
+
+### `GET /api/v1/venues/available` — SCRUM-7 (US2)
+
+Logic: `venue_service.find_available`, one query. Query: `date` (`YYYY-MM-DD`), `start_time`, `end_time` (`HH:MM`, Singapore wall-clock, D9), `attendees` (all four required); `location` (part of the venue's location, any case; blank is no filter), `facilities` and `accessibility` (repeatable; the venue must have all of them). Returns active venues with `capacity >= attendees`, `opens_at <= start_time` and `closes_at >= end_time`, no live booking (`requested` or `approved`) and no block overlapping the window, smallest first, then by name:
+
+```json
+{
+  "venues": [{ "...": "VenueOut, as GET /api/v1/venues" }],
+  "criteria": {"date": "2026-10-27", "start_time": "10:00:00", "end_time": "12:00:00", "attendees": 20,
+               "location": null, "facilities": [], "accessibility": []}
+}
+```
+
+`criteria` is what was applied (tags in D18's order, location trimmed), so the screen can show it with the results and beside "No matching venues" (AC 7). An empty result is `200`.
+
+| Outcome | Status | Body |
+|---|---|---|
+| Criteria missing | `422` | `{"code": "MISSING_REQUIRED_FIELD", "fields": [...]}`, every missing one |
+| Past date, end not after start, attendance below 1 or not a whole number, unknown tag | `422` | `{"code": "INVALID_VENUE_SEARCH", "fields": [...], "errors": {...}}` (deviation 31) |
+| Organiser, attendee, inactive user / no identity | `403` / `401` | `FORBIDDEN` / `UNAUTHENTICATED` |
 
 Not built until bookings exist: AC 2's flag-and-notify step for capacity or hours edits (flag affected future bookings for review, notify Venue Staff and the assigned coordinators). Flagging lands in US13 (SCRUM-16) and the booking link in US22 (SCRUM-89). **Gap for US22:** an inactive venue is `404` to non-staff, so once bookings exist, a coordinator whose event is booked at a deactivated venue can't open that venue. US22 must handle that.
 ### `POST /api/v1/auth/profile` — SCRUM-103 (US16a)
@@ -1003,7 +1102,27 @@ Test cases in full: `docs/testing/US20-venue-catalogue.md`.
 | PR | Work | Done when | PR # |
 |---|---|---|---|
 | PR 1 | `venues` table, named CHECKs, D18 tag lists, six seeded venues | TC-US20-01, 04 (DB), 07 (DB), 08, 09; one Alembic head | #53 |
-| PR 2 | Venue endpoints, Venue Staff stub (D19), `INVALID_VENUE` / `VENUE_BUFFERS_LOCKED`, buffer-lock stub, seeded venue staff, Venues screens | TC-US20-01 to 06, 10 to 18 (`tests/venue/test_venue_api.py`); E2E TC-US20-05, 19 (`e2e/tests/venue-catalogue.spec.ts`); no migration | |
+| PR 2 | Venue endpoints, Venue Staff stub (D19), `INVALID_VENUE` / `VENUE_BUFFERS_LOCKED`, buffer-lock stub, seeded venue staff, Venues screens | TC-US20-01 to 06, 10 to 18 (`tests/venue/test_venue_api.py`); E2E TC-US20-05, 19 (`e2e/tests/venue-catalogue.spec.ts`); no migration | #60 |
+
+### SCRUM-89 (US22)
+
+Test cases in full: `docs/testing/US22-venue-booking.md`.
+
+| PR | Subtask | Work | Done when | PR # |
+|---|---|---|---|---|
+| PR 1 | SCRUM-111 | `venue_bookings` table, named CHECKs, `venue_bookings_no_overlap` exclusion constraint (`btree_gist`), real `has_approved_future_bookings` | TC-US22-01 to 03 (`tests/venue/test_booking_schema.py`); one Alembic head | |
+| PR 2 | | Create, withdraw and list endpoints; D20 access check; `EVENT_NOT_BOOKABLE`, `INVALID_BOOKING`, `VENUE_CAPACITY_EXCEEDED`, `VENUE_UNAVAILABLE`, `BOOKING_NOT_PENDING`; facility warnings; `Notifier.venue_booking_requested`; inactive-venue read for booked coordinators | TC-US22-04 to 18 (`tests/venue/test_booking_api.py`); no migration | |
+| PR 3 | | Request venue from an event, the coordinator's bookings with withdraw, Venue Staff's pending list | TC-US22-19 to 21 (`e2e/tests/venue-booking.spec.ts`); lint + build | |
+
+### SCRUM-7 (US2)
+
+Test cases in full: `docs/testing/US2-venue-search.md`. No subtasks in Jira; one PR, rebased on US22 PR 1 (#64).
+
+| Work | Done when |
+|---|---|
+| `venue_blocks` table + seeded slot | TC-US2-11, 12; one Alembic head |
+| `GET /api/v1/venues/available` | TC-US2-01 to 10 (AC 1–8) |
+| Search form on Venues (Coordinator, Venue staff) | Frontend unit + integration; TC-US2-13 to 16 (E2E); lint + build |
 
 ### SCRUM-81 (US16a)
 
@@ -1070,6 +1189,8 @@ Say so and stop if the work drifts into any of these:
 ## 8. Conventions
  
 - **Tests:** `pytest` + `httpx.AsyncClient`. Name tests after their IDs. Use a transactional fixture that rolls back per test; never test against seeded production-ish data you also mutate.
+- **Testing guide:** `docs/testing/README.md` covers all four suites, what each CI workflow runs, the frontend test helpers, the E2E shared-seed rule and what to do when a test fails. Keep it current when a suite or workflow changes.
+- **Frontend tests:** Vitest + Testing Library in jsdom, `*.test.ts(x)` next to the file under test; shared fixtures in `frontend/src/test/`. `vite.config.ts` fixes the `VITE_*` values (`VITE_API_BASE_URL=http://api.test`, `VITE_DEV_AUTH=true` for SCRUM-105's dev mode), so tests never read `frontend/.env`. Query by role and label, as the E2E specs do; cite the TC ID or AC a test checks in its name. Formatters are asserted in Asia/Singapore, so the suite must pass under any `TZ`. **Integration tests** (`*.integration.test.tsx`) render the real `App` against `frontend/src/test/server.ts`, an MSW in-memory fake of the §3 routes that checks identity headers and keeps state per test (`seedEvent`, `seedRegistration`, `seedRequest`, `seedVenue`, `nextSearchResult`, `callsTo`). Unmocked requests fail the test (`onUnhandledFrame: "error"`, MSW 3's name for the old `onUnhandledRequest`). **When a §3 contract changes, change the fake too**: it doesn't call FastAPI, so only the E2E suite catches drift between the two. Keep business rules out of the fake: venue search returns what a test queues (`nextSearchResult`) rather than re-deciding which venues fit.
 - **Time:** freeze it (`freezegun` or an injected `now()` provider). TC-US3-04, TC-US3-05, TC-US7-03 and TC-US7-04 are unreliable otherwise.
 - **Structure:** routes stay thin. Guard logic and state transitions live in a service layer so they can be tested without HTTP.
 - **Errors:** every 4xx returns a machine-readable `code`, exactly as spelled in §3. The mockup keys off `code`, not off message text.
@@ -1191,5 +1312,15 @@ Sources: [Supabase JWTs](https://supabase.com/docs/guides/auth/jwts), [API keys]
 | TC-US6B-04, 05, 07, 10 † | SCRUM-72 | (Ownership, expiry, start cutoff — deviations 13, 15) |
 | TC-US11-12 | SCRUM-5 | (Rows carry `event_id` for the events board — SCRUM-79) |
 | `tests/registration/test_seed_reseed.py` (3 tests, no TC ID) | SCRUM-79 | (Reseeding works after app use) |
+
+| TC-US2-01, 13 | SCRUM-7 | AC 1: search by date, start and end time, expected attendance |
+| TC-US2-02, 14 | SCRUM-7 | AC 2: filter by location, accessibility and facilities |
+| TC-US2-03, 13 | SCRUM-7 | AC 3: capacity, facilities and accessibility on each result |
+| TC-US2-04, 13 | SCRUM-7 | AC 4: capacity at least the expected attendance |
+| TC-US2-05, 11, 12, 13 | SCRUM-7 | AC 5: not booked (approved), tentatively held (requested) or blocked for the time |
+| TC-US2-06, 14 | SCRUM-7 | AC 6: inside operating hours |
+| TC-US2-07, 15 | SCRUM-7 | AC 7: "no matching venues" with the criteria applied |
+| TC-US2-08, 13 | SCRUM-7 | AC 8: results within 3 seconds |
+| TC-US2-09, 10, 16 | SCRUM-7 | (Input validation and who may search — D25, deviation 31) |
 
 † §4 doesn't tag an AC for these IDs; they're mapped by what the test checks.
