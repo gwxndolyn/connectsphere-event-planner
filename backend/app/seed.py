@@ -14,6 +14,7 @@ import sys
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.engine import make_url
@@ -24,10 +25,11 @@ from app.core.database import SessionLocal
 from app.event.models import DeliveryMode, Event, EventStatus
 from app.registration.models import ACTIVE_STATUSES, Registration, RegistrationStatus
 from app.user.models import Attendee, User, UserRole
-from app.venue.models import Venue
+from app.venue.models import Venue, VenueBlock, VenueBooking, VenueBookingStatus
 
 # Fixed namespace so slugs map to the same UUIDs on every machine and every run.
 SEED_NAMESPACE = uuid.UUID("3f2b0c54-9b1a-4f3e-9a7e-2c0d1b8e5a41")
+SEED_TIMEZONE = ZoneInfo("Asia/Singapore")
 
 
 def seed_id(kind: str, slug: str) -> uuid.UUID:
@@ -251,6 +253,67 @@ VENUES = [
 ]
 
 
+@dataclass
+class VenueBookingSpec:
+    """A US22 booking on a seeded venue, for an approved event the seed adds alongside it (D24)."""
+
+    slug: str
+    event_name: str
+    venue_slug: str
+    status: VenueBookingStatus
+    starts: time
+    ends: time
+    expected_attendees: int
+    room_layout: str
+
+
+@dataclass
+class VenueBlockSpec:
+    """A seeded venue closure (US2 AC 5)."""
+
+    slug: str
+    venue_slug: str
+    starts: time
+    ends: time
+    note: str
+
+
+# US2 AC 5: five days ahead, 10:00–12:00 Singapore time, one venue has a requested booking, one an
+# approved booking and one a block, so searching that slot shows them drop out and the rest stay.
+VENUE_SLOT_IN_DAYS = 5
+VENUE_BOOKINGS = [
+    VenueBookingSpec(
+        slug="scis-requested",
+        event_name="Analytics Club Workshop",
+        venue_slug="scis-seminar-2-1",
+        status=VenueBookingStatus.REQUESTED,
+        starts=time(10, 0),
+        ends=time(12, 0),
+        expected_attendees=30,
+        room_layout="classroom",
+    ),
+    VenueBookingSpec(
+        slug="auditorium-approved",
+        event_name="Faculty Town Hall",
+        venue_slug="mochtar-riady-auditorium",
+        status=VenueBookingStatus.APPROVED,
+        starts=time(9, 0),
+        ends=time(13, 0),
+        expected_attendees=300,
+        room_layout="theatre",
+    ),
+]
+VENUE_BLOCKS = [
+    VenueBlockSpec(
+        slug="connexion-maintenance",
+        venue_slug="connexion-studio-3-2",
+        starts=time(8, 0),
+        ends=time(18, 0),
+        note="Closed for AV maintenance",
+    ),
+]
+
+
 def upsert_attendee(db: Session, email: str) -> Attendee:
     attendee_id = seed_id("attendee", email)
     user = db.get(User, attendee_id)
@@ -375,6 +438,78 @@ def upsert_venue(db: Session, spec: VenueSpec) -> Venue:
     return venue
 
 
+def _slot_day(now: datetime):
+    return now.astimezone(SEED_TIMEZONE).date() + timedelta(days=VENUE_SLOT_IN_DAYS)
+
+
+def upsert_booking_event(db: Session, spec: VenueBookingSpec, organiser: User) -> Event:
+    """The approved event a seeded booking is for. Nothing approves requests yet (US17), so the seed
+    puts it straight into approved (D24). No request_reference: a fixed ER- value could collide with
+    event_request_reference_seq later, and the column is nullable."""
+    event_id = seed_id("event", f"booking-{spec.slug}")
+    values = {
+        "name": spec.event_name,
+        "status": EventStatus.APPROVED,
+        "event_category": "Seminar",
+        "purpose": "Seeded for venue search and booking (US2, US22)",
+        "expected_attendees": spec.expected_attendees,
+        "created_by_user_id": organiser.id,
+    }
+    event = db.get(Event, event_id)
+    if event is None:
+        event = Event(id=event_id, **values)
+        db.add(event)
+    else:
+        for key, value in values.items():
+            setattr(event, key, value)
+    return event
+
+
+def upsert_venue_booking(
+    db: Session, spec: VenueBookingSpec, event: Event, coordinator: User, now: datetime
+) -> VenueBooking:
+    booking_id = seed_id("venue-booking", spec.slug)
+    day = _slot_day(now)
+    values = {
+        "event_id": event.id,
+        "venue_id": seed_id("venue", spec.venue_slug),
+        "requested_by_user_id": coordinator.id,
+        "starts_at": datetime.combine(day, spec.starts, SEED_TIMEZONE),
+        "ends_at": datetime.combine(day, spec.ends, SEED_TIMEZONE),
+        "expected_attendees": spec.expected_attendees,
+        "room_layout": spec.room_layout,
+        "status": spec.status,
+        "withdrawn_at": None,
+    }
+    booking = db.get(VenueBooking, booking_id)
+    if booking is None:
+        booking = VenueBooking(id=booking_id, **values)
+        db.add(booking)
+    else:
+        for key, value in values.items():
+            setattr(booking, key, value)
+    return booking
+
+
+def upsert_venue_block(db: Session, spec: VenueBlockSpec, now: datetime) -> VenueBlock:
+    block_id = seed_id("venue-block", spec.slug)
+    day = _slot_day(now)
+    values = {
+        "venue_id": seed_id("venue", spec.venue_slug),
+        "starts_at": datetime.combine(day, spec.starts, SEED_TIMEZONE),
+        "ends_at": datetime.combine(day, spec.ends, SEED_TIMEZONE),
+        "note": spec.note,
+    }
+    block = db.get(VenueBlock, block_id)
+    if block is None:
+        block = VenueBlock(id=block_id, **values)
+        db.add(block)
+    else:
+        for key, value in values.items():
+            setattr(block, key, value)
+    return block
+
+
 def upsert_registration(
     db: Session,
     event: Event,
@@ -426,8 +561,8 @@ def upsert_registration(
 
 def seed(db: Session, now: datetime | None = None) -> None:
     now = now or datetime.now(UTC)
-    upsert_event_organiser(db)
-    upsert_event_coordinator(db)
+    organiser = upsert_event_organiser(db)
+    coordinator = upsert_event_coordinator(db)
     upsert_venue_staff(db)
     attendees = {email: upsert_attendee(db, email) for email in ATTENDEES}
     db.flush()
@@ -447,6 +582,14 @@ def seed(db: Session, now: datetime | None = None) -> None:
         upsert_venue(db, spec)
     db.flush()
 
+    for spec in VENUE_BOOKINGS:
+        event = upsert_booking_event(db, spec, organiser)
+        db.flush()
+        upsert_venue_booking(db, spec, event, coordinator, now)
+    for spec in VENUE_BLOCKS:
+        upsert_venue_block(db, spec, now)
+    db.flush()
+
     db.commit()
 
 
@@ -461,7 +604,8 @@ def main() -> int:
     with SessionLocal() as db:
         seed(db)
 
-        print(f"\n{len(EVENTS)} events, {len(ATTENDEES)} attendees, {len(VENUES)} venues:\n")
+        print(f"\n{len(EVENTS)} events, {len(ATTENDEES)} attendees, {len(VENUES)} venues, "
+              f"{len(VENUE_BOOKINGS)} venue bookings, {len(VENUE_BLOCKS)} venue blocks:\n")
         for spec in EVENTS:
             print(f"  {spec.name:<34} {spec.note}")
 
