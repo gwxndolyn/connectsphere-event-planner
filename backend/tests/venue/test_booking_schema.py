@@ -14,7 +14,7 @@ from app.event.models import Event, EventStatus
 from app.user.models import User, UserRole
 from app.venue import service as venue_service_module
 from app.venue.models import Venue, VenueBooking, VenueBookingStatus
-from tests.factories import NOW, make_event, make_user, make_venue
+from tests.factories import NOW, make_event, make_user, make_venue, make_venue_booking
 
 AGREED_COLUMNS = {
     "id",
@@ -54,33 +54,6 @@ def coordinator(db: Session) -> User:
 @pytest.fixture
 def venue(db: Session) -> Venue:
     return make_venue(db)
-
-
-def make_venue_booking(
-    db: Session,
-    *,
-    event: Event,
-    venue: Venue,
-    user: User,
-    starts_at: datetime = START,
-    ends_at: datetime = END,
-    status: VenueBookingStatus = VenueBookingStatus.REQUESTED,
-    **overrides: object,
-) -> VenueBooking:
-    fields: dict[str, object] = {
-        "event_id": event.id,
-        "venue_id": venue.id,
-        "requested_by_user_id": user.id,
-        "starts_at": starts_at,
-        "ends_at": ends_at,
-        "expected_attendees": 30,
-        "room_layout": "theatre",
-        "status": status,
-    }
-    booking = VenueBooking(**(fields | overrides))
-    db.add(booking)
-    db.flush()
-    return booking
 
 
 def refused_constraint(db: Session, **booking: object) -> str:

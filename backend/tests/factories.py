@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.event.models import DeliveryMode, Event, EventRegistrationField, EventStatus
 from app.registration.models import Registration, RegistrationStatus
 from app.user.models import Attendee, User, UserRole
-from app.venue.models import Venue
+from app.venue.models import Venue, VenueBooking, VenueBookingStatus
 
 SGT = timezone(timedelta(hours=8))
 # Frozen "now" for every API test (spec §8: freeze time).
@@ -136,3 +136,31 @@ def make_venue(db: Session, **overrides: object) -> Venue:
     db.add(venue)
     db.flush()
     return venue
+
+
+def make_venue_booking(
+    db: Session,
+    *,
+    event: Event,
+    venue: Venue,
+    user: User,
+    starts_at: datetime | None = None,
+    ends_at: datetime | None = None,
+    status: VenueBookingStatus = VenueBookingStatus.REQUESTED,
+    **overrides: object,
+) -> VenueBooking:
+    starts_at = starts_at or NOW + timedelta(days=7)
+    fields: dict[str, object] = {
+        "event_id": event.id,
+        "venue_id": venue.id,
+        "requested_by_user_id": user.id,
+        "starts_at": starts_at,
+        "ends_at": ends_at or starts_at + timedelta(hours=2),
+        "expected_attendees": 30,
+        "room_layout": "theatre",
+        "status": status,
+    }
+    booking = VenueBooking(**(fields | overrides))
+    db.add(booking)
+    db.flush()
+    return booking
