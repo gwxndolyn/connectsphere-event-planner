@@ -1,4 +1,5 @@
 import { ApiError, apiClient } from "../../api/client";
+import { formatEventDate } from "../registration/datetime";
 import { tagLabel } from "./tags";
 import type {
   Venue,
@@ -52,6 +53,14 @@ export const venueApi = {
 
 const FALLBACK_MESSAGE = "The request could not be completed. Check the backend connection and try again.";
 
+/** Search's own wording for a refusal, falling back to the catalogue's messages. */
+export function venueSearchErrorMessage(error: unknown): string {
+  if (error instanceof ApiError && error.code === "FORBIDDEN") {
+    return "Only coordinators and venue staff can search for available venues. Switch Acting as to Coordinator.";
+  }
+  return venueErrorMessage(error);
+}
+
 /** Readable text for the venue routes' error codes (§3). Field-level messages come from `errors`. */
 export function venueErrorMessage(error: unknown): string {
   if (!(error instanceof ApiError)) return FALLBACK_MESSAGE;
@@ -97,7 +106,8 @@ export function hhmm(value: string): string {
 /** One line per criterion the API says it applied (US2 AC 7). */
 export function describeCriteria(criteria: VenueSearchCriteria): string[] {
   const lines = [
-    `Date: ${criteria.date}`,
+    // The same Singapore date format as the rest of the app (e.g. "Tue, Oct 27").
+    `Date: ${formatEventDate({ startsAt: `${criteria.date}T00:00:00+08:00`, endsAt: `${criteria.date}T00:00:00+08:00` })}`,
     `Time: ${hhmm(criteria.start_time)}–${hhmm(criteria.end_time)}`,
     `Expected attendance: ${criteria.attendees}`,
   ];

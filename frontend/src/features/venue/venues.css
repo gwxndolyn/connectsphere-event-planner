@@ -183,3 +183,19 @@
   padding-left: 20px;
   text-align: left;
 }
+
+.venue-search__criteria ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+  font-size: 14px;
+}
+
+.venue-search__stale {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+}

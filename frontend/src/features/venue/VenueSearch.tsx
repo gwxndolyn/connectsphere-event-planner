@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { describeCriteria, hhmm, venueApi, venueErrorMessage, venueFieldErrors } from "./api";
+import { describeCriteria, hhmm, venueApi, venueFieldErrors, venueSearchErrorMessage } from "./api";
 import { ACCESSIBILITY_FEATURES, FACILITIES, tagLabel } from "./tags";
 import type { VenueSearchForm, VenueSearchResponse } from "./types";
 import "../eventRequest/eventRequests.css";
@@ -30,9 +30,12 @@ export function VenueSearch() {
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [searching, setSearching] = useState(false);
+  // The form changed since the results were fetched, so they no longer match it.
+  const [stale, setStale] = useState(false);
 
   function update<K extends keyof VenueSearchForm>(key: K, value: VenueSearchForm[K], apiField?: string) {
     setForm((current) => ({ ...current, [key]: value }));
+    setStale(true);
     if (apiField) setFieldErrors(({ [apiField]: _cleared, ...rest }) => rest);
   }
 
@@ -43,9 +46,10 @@ export function VenueSearch() {
     setFieldErrors({});
     try {
       setResult(await venueApi.search(form));
+      setStale(false);
     } catch (reason) {
       setResult(null);
-      setError(venueErrorMessage(reason));
+      setError(venueSearchErrorMessage(reason));
       setFieldErrors(venueFieldErrors(reason));
     } finally {
       setSearching(false);
@@ -123,6 +127,7 @@ export function VenueSearch() {
           <button type="button" className="request-button request-button--quiet" onClick={() => {
             setForm(EMPTY_FORM);
             setResult(null);
+            setStale(false);
             setError(null);
             setFieldErrors({});
           }}>
@@ -146,11 +151,7 @@ export function VenueSearch() {
             <p>
               <strong>No matching venues.</strong> Nothing is free that fits all of these:
             </p>
-            <ul aria-label="Criteria applied">
-              {describeCriteria(result.criteria).map((line) => (
-                <li key={line}>{line}</li>
-              ))}
-            </ul>
+            <CriteriaApplied criteria={result.criteria} stale={stale} />
             <p>Try another date or time, fewer attendees, or fewer requirements.</p>
           </div>
         ) : (
@@ -158,6 +159,7 @@ export function VenueSearch() {
             <p className="request-notice" role="status">
               {result.venues.length} {result.venues.length === 1 ? "venue is" : "venues are"} available, smallest first.
             </p>
+            <CriteriaApplied criteria={result.criteria} stale={stale} />
             <ul className="venue-list" aria-label="Available venues">
               {result.venues.map((venue) => (
                 <li key={venue.id} className="venue-card" aria-label={venue.name}>
@@ -195,5 +197,25 @@ export function VenueSearch() {
           </>
         ))}
     </section>
+  );
+}
+
+interface CriteriaAppliedProps {
+  criteria: VenueSearchResponse["criteria"];
+  // The form has changed since: these results are for the criteria listed, not the form.
+  stale: boolean;
+}
+
+/** What the API searched for (US2 AC 7), over results and the empty state alike. */
+function CriteriaApplied({ criteria, stale }: CriteriaAppliedProps) {
+  return (
+    <div className="venue-search__criteria">
+      <ul aria-label="Criteria applied">
+        {describeCriteria(criteria).map((line) => (
+          <li key={line}>{line}</li>
+        ))}
+      </ul>
+      {stale && <p className="venue-search__stale">You've changed the search. Press Search venues to update these results.</p>}
+    </div>
   );
 }
