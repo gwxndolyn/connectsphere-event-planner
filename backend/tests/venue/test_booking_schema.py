@@ -135,6 +135,7 @@ def test_tc_us22_01_booking_schema_is_installed(db: Session, engine) -> None:
         "venue_bookings_room_layout_known",
         "venue_bookings_required_facilities_known",
         "venue_bookings_required_accessibility_features_known",
+        "venue_bookings_withdrawn_consistent",
     }
     exclusions = db.scalars(
         text("select conname from pg_constraint where conrelid = 'venue_bookings'::regclass and contype = 'x'")
@@ -144,6 +145,40 @@ def test_tc_us22_01_booking_schema_is_installed(db: Session, engine) -> None:
         db.execute(text("select relrowsecurity from pg_class where oid = 'venue_bookings'::regclass")).scalar_one()
         is True
     )
+
+
+@pytest.mark.parametrize(
+    ("status", "withdrawn_at"),
+    [
+        (VenueBookingStatus.WITHDRAWN, None),
+        (VenueBookingStatus.REQUESTED, NOW),
+        (VenueBookingStatus.APPROVED, NOW),
+        (VenueBookingStatus.REJECTED, NOW),
+    ],
+    ids=["withdrawn without a timestamp", "requested with one", "approved with one", "rejected with one"],
+)
+def test_tc_us22_01_withdrawn_at_is_set_exactly_when_withdrawn(
+    db: Session, event: Event, venue: Venue, coordinator: User, status: VenueBookingStatus, withdrawn_at: datetime | None
+) -> None:
+    constraint = refused_constraint(
+        db, event=event, venue=venue, user=coordinator, status=status, withdrawn_at=withdrawn_at
+    )
+
+    assert constraint == "venue_bookings_withdrawn_consistent"
+
+
+def test_tc_us22_01_withdrawing_without_a_timestamp_is_refused(
+    db: Session, event: Event, venue: Venue, coordinator: User
+) -> None:
+    """The rule holds on update too, so a withdraw can't forget to say when."""
+    booking = make_venue_booking(db, event=event, venue=venue, user=coordinator)
+
+    with pytest.raises(IntegrityError) as raised:
+        with db.begin_nested():
+            booking.status = VenueBookingStatus.WITHDRAWN
+            db.flush()
+
+    assert raised.value.orig.diag.constraint_name == "venue_bookings_withdrawn_consistent"
 
 
 def test_tc_us22_01_bookings_have_no_buffer_columns(engine) -> None:
@@ -250,6 +285,7 @@ def test_tc_us22_02_withdrawn_and_rejected_bookings_do_not_block(
 def test_tc_us22_02_withdrawing_frees_the_window(db: Session, event: Event, venue: Venue, coordinator: User) -> None:
     first = make_venue_booking(db, event=event, venue=venue, user=coordinator)
     first.status = VenueBookingStatus.WITHDRAWN
+    first.withdrawn_at = NOW
     db.flush()
 
     second = make_venue_booking(db, event=event, venue=venue, user=coordinator)
