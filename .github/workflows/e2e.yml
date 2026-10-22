@@ -61,7 +61,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"  # same as frontend-ci.yml; Vitest 5 and jsdom 30 need Node 22+
 
       - name: Install frontend dependencies
         working-directory: frontend
