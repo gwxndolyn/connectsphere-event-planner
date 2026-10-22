@@ -8,7 +8,15 @@ from sqlalchemy.orm import Session
 
 from app.core.exceptions import DomainError
 from app.user.models import User, UserRole
-from app.venue.models import ACCESSIBILITY_FEATURES, FACILITIES, ROOM_LAYOUTS, Venue, VenueBooking, VenueBookingStatus
+from app.venue.models import (
+    ACCESSIBILITY_FEATURES,
+    FACILITIES,
+    LIVE_BOOKING_STATUSES,
+    ROOM_LAYOUTS,
+    Venue,
+    VenueBooking,
+    VenueBookingStatus,
+)
 from app.venue.schemas import VenueOut, VenueWrite
 
 # DECISION-PENDING: D19 — Venue Staff arrives with US16b (SCRUM-82), which adds the enum value.
@@ -50,13 +58,30 @@ def has_approved_future_bookings(db: Session, venue_id: uuid.UUID, now: datetime
     )
 
 
+def _has_live_booking_by(db: Session, venue_id: uuid.UUID, reader: User) -> bool:
+    """Whether the reader requested a Requested or Approved booking at this venue, so they can
+    still open it after it's deactivated (US20's gap, closed in US22, TC-US22-16)."""
+    # DECISION-PENDING: D20 — until US10a assigns coordinators to events, "whose event is booked
+    # here" means "who requested the booking". US10a widens this to the reader's assigned events.
+    return db.scalar(
+        select(
+            exists().where(
+                VenueBooking.venue_id == venue_id,
+                VenueBooking.requested_by_user_id == reader.id,
+                VenueBooking.status.in_(LIVE_BOOKING_STATUSES),
+            )
+        )
+    )
+
+
 def _invalid(errors: dict[str, str]) -> DomainError:
     return DomainError(422, "INVALID_VENUE", fields=list(errors), errors=errors)
 
 
-def _clean_tags(field: str, values: list[str], errors: dict[str, str]) -> list[str]:
-    """Trimmed, de-duplicated and in D18's order; the database doesn't reject duplicates."""
-    allowed, label = TAG_FIELDS[field]
+def _clean_tags(field: str, values: list[str], errors: dict[str, str], vocabulary: str | None = None) -> list[str]:
+    """Trimmed, de-duplicated and in D18's order; the database doesn't reject duplicates.
+    `vocabulary` names the TAG_FIELDS list when `field` isn't a venue column (a booking's tags)."""
+    allowed, label = TAG_FIELDS[vocabulary or field]
     given = list(dict.fromkeys(value.strip() for value in values))
     unknown = [value for value in given if value not in allowed]
     if unknown:
@@ -133,7 +158,10 @@ class VenueService:
 
     def get(self, db: Session, venue_id: uuid.UUID, reader: User) -> VenueOut:
         venue = db.get(Venue, venue_id)
-        if venue is None or (not venue.is_active and reader.role not in VENUE_STAFF_ROLES):
+        visible = venue is not None and (
+            venue.is_active or reader.role in VENUE_STAFF_ROLES or _has_live_booking_by(db, venue.id, reader)
+        )
+        if not visible:
             raise DomainError(404, "NOT_FOUND")
         return VenueOut.model_validate(venue)
 

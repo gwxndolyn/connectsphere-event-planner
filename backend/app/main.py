@@ -14,6 +14,8 @@ from app.registration.router import events_router as registration_events_router
 from app.registration.router import me_router as registration_me_router
 from app.registration.router import router as registration_router
 from app.user.auth import warn_if_dev_headers_enabled
+from app.venue.booking_router import events_router as venue_booking_events_router
+from app.venue.booking_router import router as venue_booking_router
 from app.venue.router import router as venue_router
 from app.user.router import router as auth_router
 
@@ -42,4 +44,6 @@ app.include_router(registration_me_router)
 app.include_router(event_request_router)
 app.include_router(event_request_me_router)
 app.include_router(venue_router)
+app.include_router(venue_booking_router)
+app.include_router(venue_booking_events_router)
 app.include_router(auth_router)
