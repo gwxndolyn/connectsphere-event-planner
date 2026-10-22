@@ -18,7 +18,10 @@ export default defineConfig({
       VITE_DEV_USER_ID: 'organiser-id',
       VITE_DEV_COORDINATOR_ID: 'coordinator-id',
       VITE_DEV_ATTENDEE_ID: 'attendee-id',
+      VITE_DEV_VENUE_STAFF_ID: 'venue-staff-id',
     },
+    // Integration flows type through whole forms; CI runners are slower than a laptop.
+    testTimeout: 15000,
     restoreMocks: true,
     unstubGlobals: true,
   },

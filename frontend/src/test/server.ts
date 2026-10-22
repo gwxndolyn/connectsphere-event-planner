@@ -2,6 +2,7 @@ import { http, HttpResponse, type JsonBodyType } from "msw";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll } from "vitest";
 import type { Clarification, EventRequest, EventRequestWrite } from "../features/eventRequest/types";
+import type { Venue } from "../features/venue/types";
 
 /**
  * An in-memory stand-in for the FastAPI backend, for integration tests: the real apiClient,
@@ -14,6 +15,7 @@ const API = "http://api.test";
 // The fixed ids vite.config.ts gives the tests (VITE_DEV_*).
 export const ORGANISER_ID = "organiser-id";
 export const COORDINATOR_ID = "coordinator-id";
+export const VENUE_STAFF_ID = "venue-staff-id";
 export const ATTENDEE_ID = "attendee-id";
 export const ATTENDEE_EMAIL = "calvin.ng.2024@smu.edu.sg";
 
@@ -47,11 +49,22 @@ export interface FakeRegistration {
 export interface RecordedCall {
   method: string;
   path: string;
+  url: URL;
   headers: Headers;
   body: unknown;
 }
 
+export interface FakeBooking {
+  venue_id: string;
+  status: "held" | "approved" | "blocked" | "rejected" | "cancelled";
+  date: string; // YYYY-MM-DD
+  starts: string; // HH:MM
+  ends: string;
+}
+
 interface Db {
+  venues: Venue[];
+  bookings: FakeBooking[];
   events: FakeEvent[];
   registrations: FakeRegistration[];
   requests: EventRequest[];
@@ -62,7 +75,7 @@ interface Db {
 }
 
 function emptyDb(): Db {
-  return { events: [], registrations: [], requests: [], clarifications: [], calls: [], nextId: 1, nextReference: 1 };
+  return { venues: [], bookings: [], events: [], registrations: [], requests: [], clarifications: [], calls: [], nextId: 1, nextReference: 1 };
 }
 
 export let db: Db = emptyDb();
@@ -164,6 +177,32 @@ export function seedClarification(request: EventRequest, overrides: Partial<Clar
   return message;
 }
 
+export function seedVenue(overrides: Partial<Venue> = {}): Venue {
+  const venue: Venue = {
+    id: newId("venue"),
+    name: "SCIS Seminar Room 2-1",
+    location: "School of Computing and Information Systems, Level 2",
+    capacity: 40,
+    facilities: ["projector", "wifi"],
+    accessibility_features: ["wheelchair", "lift"],
+    room_layouts: ["classroom"],
+    opens_at: "08:00:00",
+    closes_at: "22:00:00",
+    setup_minutes: 15,
+    turnaround_minutes: 15,
+    is_active: true,
+    ...overrides,
+  };
+  db.venues.push(venue);
+  return venue;
+}
+
+export function seedBooking(venue: Venue, overrides: Partial<FakeBooking> = {}): FakeBooking {
+  const booking: FakeBooking = { venue_id: venue.id, status: "approved", date: "2026-10-10", starts: "10:00", ends: "12:00", ...overrides };
+  db.bookings.push(booking);
+  return booking;
+}
+
 /** Calls the screens made, optionally narrowed by method and path. */
 export function callsTo(method: string, path: string | RegExp): RecordedCall[] {
   return db.calls.filter(
@@ -232,9 +271,11 @@ function byStart(a: FakeRegistration, b: FakeRegistration) {
   return ea.start_at.localeCompare(eb.start_at) || ea.name.localeCompare(eb.name);
 }
 
-const ROLES: Record<string, "organiser" | "coordinator"> = {
+const ROLES: Record<string, "organiser" | "coordinator" | "operations_manager"> = {
   [ORGANISER_ID]: "organiser",
   [COORDINATOR_ID]: "coordinator",
+  // Venue staff is operations_manager until US16b (D19).
+  [VENUE_STAFF_ID]: "operations_manager",
 };
 
 /** `get_current_user`: the role behind X-User-Id, or null for 401. */
@@ -264,8 +305,8 @@ function missingFields(request: EventRequest): string[] {
 }
 
 // D11: owner always; coordinators once it's past draft.
-function visibleTo(request: EventRequest, role: "organiser" | "coordinator", userId: string) {
-  if (role === "coordinator") return request.status !== "draft";
+function visibleTo(request: EventRequest, role: string, userId: string) {
+  if (role !== "organiser") return request.status !== "draft";
   return request.created_by_user_id === userId;
 }
 
@@ -281,7 +322,8 @@ type Resolver = (args: { request: Request; params: Record<string, string>; body:
 function route(method: "get" | "post" | "patch", path: string, resolver: Resolver) {
   return http[method](`${API}${path}`, async ({ request, params }) => {
     const body: unknown = method === "get" ? null : await request.clone().json().catch(() => null);
-    db.calls.push({ method: method.toUpperCase(), path: new URL(request.url).pathname, headers: request.headers, body });
+    const url = new URL(request.url);
+    db.calls.push({ method: method.toUpperCase(), path: url.pathname, url, headers: request.headers, body });
     return resolver({ request, params: params as Record<string, string>, body });
   });
 }
@@ -409,6 +451,70 @@ const handlers = [
     registration.status = "confirmed";
     delete registration.offer_expires_at;
     return HttpResponse.json(confirmationBody(registration));
+  }),
+
+  // Venues (US20, US2), identified by X-User-Id.
+  route("get", "/api/v1/venues", ({ request }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    const url = new URL(request.url);
+    const q = (url.searchParams.get("q") ?? "").trim().toLowerCase();
+    const venues = db.venues
+      .filter((venue) => role === "operations_manager" || venue.is_active)
+      .filter((venue) => !q || venue.name.toLowerCase().includes(q))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    return HttpResponse.json({ venues });
+  }),
+
+  // US2 search (SCRUM-7): the same rules as venue_service.find_available.
+  route("get", "/api/v1/venues/available", ({ request }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role === "organiser") return error(403, "FORBIDDEN");
+    const url = new URL(request.url);
+    const get = (key: string) => url.searchParams.get(key);
+    const missing = ["date", "start_time", "end_time", "attendees"].filter((key) => !get(key));
+    if (missing.length > 0) return error(422, "MISSING_REQUIRED_FIELD", { fields: missing });
+    const date = get("date")!;
+    const start = get("start_time")!;
+    const end = get("end_time")!;
+    const attendees = Number(get("attendees"));
+    const errors: Record<string, string> = {};
+    if (date < "2026-10-01") errors.date = "The date can't be in the past.";
+    if (end <= start) errors.end_time = "The end time must be after the start time (events can't cross midnight).";
+    if (!(attendees >= 1)) errors.attendees = "Expected attendance must be at least 1.";
+    if (Object.keys(errors).length > 0) {
+      return error(422, "INVALID_VENUE_SEARCH", { fields: Object.keys(errors), errors });
+    }
+    const location = (get("location") ?? "").trim() || null;
+    const facilities = url.searchParams.getAll("facilities");
+    const accessibility = url.searchParams.getAll("accessibility");
+    const blocking = new Set(["held", "approved", "blocked"]);
+    const venues = db.venues
+      .filter((venue) => venue.is_active && venue.capacity >= attendees)
+      .filter((venue) => venue.opens_at.slice(0, 5) <= start && venue.closes_at.slice(0, 5) >= end)
+      .filter(
+        (venue) =>
+          !db.bookings.some(
+            (b) => b.venue_id === venue.id && blocking.has(b.status) && b.date === date && b.starts < end && b.ends > start,
+          ),
+      )
+      .filter((venue) => !location || venue.location.toLowerCase().includes(location.toLowerCase()))
+      .filter((venue) => facilities.every((tag) => venue.facilities.includes(tag)))
+      .filter((venue) => accessibility.every((tag) => venue.accessibility_features.includes(tag)))
+      .sort((a, b) => a.capacity - b.capacity || a.name.localeCompare(b.name));
+    return HttpResponse.json({
+      venues,
+      criteria: {
+        date,
+        start_time: `${start}:00`,
+        end_time: `${end}:00`,
+        attendees,
+        location,
+        facilities,
+        accessibility,
+      },
+    });
   }),
 
   // Event requests (US1, US8), identified by X-User-Id.
