@@ -2,6 +2,7 @@ import { http, HttpResponse, type JsonBodyType } from "msw";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll } from "vitest";
 import type { Clarification, EventRequest, EventRequestWrite } from "../features/eventRequest/types";
+import type { VenueBooking } from "../features/venue/bookingTypes";
 import type { Venue } from "../features/venue/types";
 
 /**
@@ -62,13 +63,26 @@ interface Db {
   registrations: FakeRegistration[];
   requests: EventRequest[];
   clarifications: Clarification[];
+  // US22 venue bookings (SCRUM-113).
+  bookings: VenueBooking[];
   calls: RecordedCall[];
   nextId: number;
   nextReference: number;
 }
 
 function emptyDb(): Db {
-  return { venues: [], searchResult: [], events: [], registrations: [], requests: [], clarifications: [], calls: [], nextId: 1, nextReference: 1 };
+  return {
+    venues: [],
+    searchResult: [],
+    events: [],
+    registrations: [],
+    requests: [],
+    clarifications: [],
+    bookings: [],
+    calls: [],
+    nextId: 1,
+    nextReference: 1,
+  };
 }
 
 export let db: Db = emptyDb();
@@ -190,6 +204,31 @@ export function seedVenue(overrides: Partial<Venue> = {}): Venue {
   return venue;
 }
 
+/** A US22 booking of `venue` for an event request (an approved one, in the screens' flows). */
+export function seedBooking(request: EventRequest, venue: Venue, overrides: Partial<VenueBooking> = {}): VenueBooking {
+  const booking: VenueBooking = {
+    id: newId("booking"),
+    event: { id: request.id, name: request.name, request_reference: request.request_reference, status: request.status },
+    venue: { id: venue.id, name: venue.name, location: venue.location, capacity: venue.capacity },
+    requested_by_user_id: COORDINATOR_ID,
+    // Singapore 10:00–12:00 on 20 Nov 2026.
+    starts_at: "2026-11-20T02:00:00Z",
+    ends_at: "2026-11-20T04:00:00Z",
+    expected_attendees: 30,
+    room_layout: "classroom",
+    required_facilities: [],
+    required_accessibility_features: [],
+    special_requirements: null,
+    status: "requested",
+    created_at: "2026-10-01T02:00:00Z",
+    updated_at: "2026-10-01T02:00:00Z",
+    withdrawn_at: null,
+    ...overrides,
+  };
+  db.bookings.push(booking);
+  return booking;
+}
+
 /** The venues the next search returns, in that order: the API decides which venues fit, not the fake. */
 export function nextSearchResult(venues: Venue[]) {
   db.searchResult = venues;
@@ -303,6 +342,7 @@ function visibleTo(request: EventRequest, role: string, userId: string) {
 }
 
 const CLARIFIABLE = new Set(["submitted", "under_review"]);
+const BOOKING_REQUIRED = ["event_id", "venue_id", "starts_at", "ends_at", "expected_attendees", "room_layout"];
 const SECTION_ORDER = ["details", "schedule", "attendance", "layout", "accessibility", "equipment", "registration"];
 
 // --- Handlers -------------------------------------------------------------------------------
@@ -482,6 +522,64 @@ const handlers = [
         accessibility: url.searchParams.getAll("accessibility"),
       },
     });
+  }),
+
+  // US22 venue bookings (SCRUM-89), identified by X-User-Id. The contract and identity rules only:
+  // overlap, capacity and venue warnings are the API's (backend/tests/venue/test_booking_api.py), so
+  // a test queues a refusal or warnings with server.use(...).
+  route("post", "/api/v1/venue-bookings", ({ request, body }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "coordinator") return error(403, "FORBIDDEN");
+    const sent = (body ?? {}) as Record<string, unknown>;
+    const missing = BOOKING_REQUIRED.filter((field) => sent[field] === undefined || sent[field] === null || sent[field] === "");
+    if (missing.length > 0) return error(422, "MISSING_REQUIRED_FIELD", { fields: missing });
+    const event = db.requests.find((r) => r.id === sent.event_id && r.status !== "draft");
+    const venue = db.venues.find((v) => v.id === sent.venue_id && v.is_active);
+    if (!event || !venue) return error(404, "NOT_FOUND");
+    if (event.status !== "approved" && event.status !== "planning") {
+      return error(409, "EVENT_NOT_BOOKABLE", { status: event.status });
+    }
+    const booking = seedBooking(event, venue, {
+      requested_by_user_id: request.headers.get("X-User-Id")!,
+      starts_at: String(sent.starts_at),
+      ends_at: String(sent.ends_at),
+      expected_attendees: Number(sent.expected_attendees),
+      room_layout: String(sent.room_layout),
+      required_facilities: (sent.required_facilities as string[] | undefined) ?? [],
+      required_accessibility_features: (sent.required_accessibility_features as string[] | undefined) ?? [],
+      special_requirements: (sent.special_requirements as string | undefined) ?? null,
+    });
+    return HttpResponse.json({ ...booking, warnings: [] }, { status: 201 });
+  }),
+
+  route("post", "/api/v1/venue-bookings/:id/withdraw", ({ request, params }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "coordinator") return error(403, "FORBIDDEN");
+    const booking = db.bookings.find((b) => b.id === params.id);
+    if (!booking || booking.requested_by_user_id !== request.headers.get("X-User-Id")) return error(404, "NOT_FOUND");
+    if (booking.status !== "requested") return error(409, "BOOKING_NOT_PENDING", { status: booking.status });
+    Object.assign(booking, { status: "withdrawn", withdrawn_at: "2026-10-01T03:00:00Z", updated_at: "2026-10-01T03:00:00Z" });
+    return HttpResponse.json(booking);
+  }),
+
+  route("get", "/api/v1/venue-bookings/pending", ({ request }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "operations_manager") return error(403, "FORBIDDEN");
+    const pending = db.bookings.filter((b) => b.status === "requested").sort((a, b) => a.created_at.localeCompare(b.created_at));
+    return HttpResponse.json({ bookings: pending });
+  }),
+
+  route("get", "/api/v1/events/:id/venue-bookings", ({ request, params }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role === "organiser") return error(403, "FORBIDDEN");
+    const event = db.requests.find((r) => r.id === params.id && r.status !== "draft");
+    if (!event) return error(404, "NOT_FOUND");
+    const bookings = db.bookings.filter((b) => b.event.id === event.id).sort((a, b) => a.starts_at.localeCompare(b.starts_at));
+    return HttpResponse.json({ bookings });
   }),
 
   // Event requests (US1, US8), identified by X-User-Id.
