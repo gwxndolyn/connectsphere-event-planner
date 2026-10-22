@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../api/client";
-import { describeCriteria, hhmm, venueApi, venueErrorMessage, venueFieldErrors } from "./api";
+import { describeCriteria, hhmm, venueApi, venueErrorMessage, venueFieldErrors, venueSearchErrorMessage } from "./api";
 
 let fetchMock: ReturnType<typeof vi.fn>;
 
@@ -60,6 +60,19 @@ describe("venueApi.search (US2)", () => {
 });
 
 describe("describeCriteria (US2 AC 7)", () => {
+  it("shows the date in Singapore, whatever the machine's zone (TC-X-01)", () => {
+    const [date] = describeCriteria({
+      date: "2026-10-27",
+      start_time: "00:30:00",
+      end_time: "01:00:00",
+      attendees: 1,
+      location: null,
+      facilities: [],
+      accessibility: [],
+    });
+    expect(date).toBe("Date: Tue, Oct 27");
+  });
+
   it("lists the core criteria with HH:MM times", () => {
     expect(
       describeCriteria({
@@ -71,7 +84,7 @@ describe("describeCriteria (US2 AC 7)", () => {
         facilities: [],
         accessibility: [],
       }),
-    ).toEqual(["Date: 2026-10-10", "Time: 10:00–12:00", "Expected attendance: 30"]);
+    ).toEqual(["Date: Sat, Oct 10", "Time: 10:00–12:00", "Expected attendance: 30"]);
   });
 
   it("adds the optional filters, with readable tag labels", () => {
@@ -90,6 +103,18 @@ describe("describeCriteria (US2 AC 7)", () => {
 });
 
 describe("errors", () => {
+  it("words a 403 for search, not for venue edits", () => {
+    expect(venueSearchErrorMessage(new ApiError(403, "FORBIDDEN"))).toBe(
+      "Only coordinators and venue staff can search for available venues. Switch Acting as to Coordinator.",
+    );
+    expect(venueErrorMessage(new ApiError(403, "FORBIDDEN"))).toBe("Only Venue Staff can change venues.");
+  });
+
+  it("uses the catalogue's messages for every other code", () => {
+    expect(venueSearchErrorMessage(new ApiError(422, "MISSING_REQUIRED_FIELD"))).toBe("Complete the fields marked below.");
+    expect(venueSearchErrorMessage(new TypeError("Failed to fetch"))).toContain("Check the backend connection");
+  });
+
   it("maps INVALID_VENUE_SEARCH to a message and per-field errors", () => {
     const error = new ApiError(422, "INVALID_VENUE_SEARCH", ["end_time"], {
       errors: { end_time: "The end time must be after the start time (events can't cross midnight)." },

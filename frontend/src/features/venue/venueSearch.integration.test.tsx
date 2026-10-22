@@ -4,9 +4,12 @@ import { http, HttpResponse } from "msw";
 import { beforeEach, describe, expect, it } from "vitest";
 import App from "../../App";
 import { setDevRole } from "../../api/client";
-import { callsTo, seedBooking, seedVenue, server, startMockBackend } from "../../test/server";
+import { callsTo, nextSearchResult, seedVenue, server, startMockBackend } from "../../test/server";
 
-// US2 (SCRUM-7): the real App, VenuesPage and VenueSearch against the fake backend.
+// US2 (SCRUM-7): the real App, VenuesPage and VenueSearch against the fake backend. The fake
+// returns whatever `nextSearchResult` queues, so these tests check what the screen sends and how it
+// shows the answer. Which venues fit (AC 4 to 6) is the API's rule, tested in
+// backend/tests/venue/test_venue_search.py and e2e/tests/venue-search.spec.ts, not here.
 startMockBackend();
 
 beforeEach(() => setDevRole("coordinator"));
@@ -26,21 +29,67 @@ async function fillCore(user: User, { date = "2026-10-10", start = "10:00", end 
   await user.type(screen.getByLabelText("Expected attendance"), attendees);
 }
 
-function results() {
-  return screen.getByRole("list", { name: "Available venues" });
+function searchForm() {
+  return within(screen.getByRole("region", { name: "Find an available venue" }));
 }
 
-function resultNames() {
-  return within(results())
+function lastSearch() {
+  return callsTo("GET", "/api/v1/venues/available").at(-1)!;
+}
+
+function criteriaLines() {
+  return within(screen.getByRole("list", { name: "Criteria applied" }))
     .getAllByRole("listitem")
-    .map((item) => item.getAttribute("aria-label"));
+    .map((item) => item.textContent);
 }
 
 describe("venue search (US2)", () => {
-  it("lists available venues with capacity, facilities and accessibility, smallest first (AC 1, 3, 4)", async () => {
-    seedVenue({ name: "Mochtar Riady Auditorium", capacity: 450, facilities: ["stage", "sound_system"], accessibility_features: ["hearing_loop"] });
-    seedVenue({ name: "SCIS Seminar Room 2-1", capacity: 40 });
-    seedVenue({ name: "SMU Connexion Studio 3-2", capacity: 20 });
+  it("sends the core criteria with the coordinator's id (AC 1)", async () => {
+    const user = userEvent.setup();
+    await openVenues(user);
+
+    await fillCore(user);
+    await user.click(screen.getByRole("button", { name: "Search venues" }));
+    await screen.findByText("No matching venues.");
+
+    const call = lastSearch();
+    expect(call.headers.get("X-User-Id")).toBe("coordinator-id");
+    expect(Object.fromEntries(call.url.searchParams)).toEqual({
+      date: "2026-10-10",
+      start_time: "10:00",
+      end_time: "12:00",
+      attendees: "30",
+    });
+  });
+
+  it("sends location, facilities and accessibility as filters (AC 2)", async () => {
+    const user = userEvent.setup();
+    await openVenues(user);
+
+    await fillCore(user);
+    await user.type(screen.getByLabelText("Location"), " library ");
+    await user.click(searchForm().getByRole("checkbox", { name: "Projector" }));
+    await user.click(searchForm().getByRole("checkbox", { name: "Stage" }));
+    await user.click(searchForm().getByRole("checkbox", { name: "Lift" }));
+    await user.click(screen.getByRole("button", { name: "Search venues" }));
+    await screen.findByText("No matching venues.");
+
+    const { url } = lastSearch();
+    expect(url.searchParams.get("location")).toBe("library");
+    expect(url.searchParams.getAll("facilities")).toEqual(["projector", "stage"]);
+    expect(url.searchParams.getAll("accessibility")).toEqual(["lift"]);
+  });
+
+  it("shows each result's capacity, facilities and accessibility, in the API's order (AC 3)", async () => {
+    nextSearchResult([
+      seedVenue({ name: "SCIS Seminar Room 2-1", capacity: 40, facilities: [], accessibility_features: [] }),
+      seedVenue({
+        name: "Mochtar Riady Auditorium",
+        capacity: 450,
+        facilities: ["stage", "sound_system"],
+        accessibility_features: ["hearing_loop", "step_free_entrance"],
+      }),
+    ]);
     const user = userEvent.setup();
     await openVenues(user);
 
@@ -48,72 +97,64 @@ describe("venue search (US2)", () => {
     await user.click(screen.getByRole("button", { name: "Search venues" }));
 
     expect(await screen.findByText("2 venues are available, smallest first.")).toBeInTheDocument();
-    expect(resultNames()).toEqual(["SCIS Seminar Room 2-1", "Mochtar Riady Auditorium"]);
-    const auditorium = within(results()).getByRole("listitem", { name: "Mochtar Riady Auditorium" });
+    const results = screen.getByRole("list", { name: "Available venues" });
+    expect(within(results).getAllByRole("listitem").map((item) => item.getAttribute("aria-label"))).toEqual([
+      "SCIS Seminar Room 2-1",
+      "Mochtar Riady Auditorium",
+    ]);
+    const auditorium = within(results).getByRole("listitem", { name: "Mochtar Riady Auditorium" });
     expect(auditorium).toHaveTextContent("450");
     expect(auditorium).toHaveTextContent("Stage, Sound system");
-    expect(auditorium).toHaveTextContent("Hearing loop");
-
-    const [call] = callsTo("GET", "/api/v1/venues/available");
-    expect(call.headers.get("X-User-Id")).toBe("coordinator-id");
+    expect(auditorium).toHaveTextContent("Hearing loop, Step-free entrance");
+    expect(within(results).getByRole("listitem", { name: "SCIS Seminar Room 2-1" })).toHaveTextContent("None listed");
   });
 
-  it("narrows by location, facilities and accessibility (AC 2)", async () => {
-    seedVenue({ name: "Library room", location: "Li Ka Shing Library, Level 3", facilities: ["projector"], accessibility_features: ["lift"] });
-    seedVenue({ name: "Library, no lift", location: "Li Ka Shing Library, Level 1", facilities: ["projector"], accessibility_features: [] });
-    seedVenue({ name: "SCIS room", location: "SCIS Building", facilities: ["projector"], accessibility_features: ["lift"] });
-    const user = userEvent.setup();
-    await openVenues(user);
-
-    await fillCore(user);
-    await user.type(screen.getByLabelText("Location"), "library");
-    const search = screen.getByRole("region", { name: "Find an available venue" });
-    await user.click(within(search).getByRole("checkbox", { name: "Projector" }));
-    await user.click(within(search).getByRole("checkbox", { name: "Lift" }));
-    await user.click(screen.getByRole("button", { name: "Search venues" }));
-
-    expect(await screen.findByRole("list", { name: "Available venues" })).toBeInTheDocument();
-    expect(resultNames()).toEqual(["Library room"]);
-    const [call] = callsTo("GET", "/api/v1/venues/available");
-    expect(call.url.searchParams.get("location")).toBe("library");
-    expect(call.url.searchParams.getAll("facilities")).toEqual(["projector"]);
-    expect(call.url.searchParams.getAll("accessibility")).toEqual(["lift"]);
-  });
-
-  it("leaves out venues that are held, booked or blocked, and those closed at that time (AC 5, 6)", async () => {
-    const held = seedVenue({ name: "Held room" });
-    const booked = seedVenue({ name: "Booked room" });
-    const blocked = seedVenue({ name: "Blocked room" });
-    seedVenue({ name: "Closes at 11", opens_at: "08:00:00", closes_at: "11:00:00" });
-    seedVenue({ name: "Free room" });
-    seedBooking(held, { status: "held" });
-    seedBooking(booked, { status: "approved", starts: "11:00", ends: "13:00" });
-    seedBooking(blocked, { status: "blocked", starts: "08:00", ends: "18:00" });
+  it("labels the results with the criteria the API applied, in Singapore date format", async () => {
+    nextSearchResult([seedVenue({ name: "Free room" })]);
     const user = userEvent.setup();
     await openVenues(user);
 
     await fillCore(user);
     await user.click(screen.getByRole("button", { name: "Search venues" }));
+    await screen.findByRole("list", { name: "Available venues" });
 
-    expect(await screen.findByText("1 venue is available, smallest first.")).toBeInTheDocument();
-    expect(resultNames()).toEqual(["Free room"]);
+    expect(criteriaLines()).toEqual(["Date: Sat, Oct 10", "Time: 10:00–12:00", "Expected attendance: 30"]);
+  });
+
+  it("says the results are out of date once the form changes, until searched again", async () => {
+    nextSearchResult([seedVenue({ name: "Free room" })]);
+    const user = userEvent.setup();
+    await openVenues(user);
+    await fillCore(user);
+    await user.click(screen.getByRole("button", { name: "Search venues" }));
+    await screen.findByRole("list", { name: "Available venues" });
+    const stale = "You've changed the search. Press Search venues to update these results.";
+    expect(screen.queryByText(stale)).not.toBeInTheDocument();
+
+    await user.clear(screen.getByLabelText("Expected attendance"));
+    await user.type(screen.getByLabelText("Expected attendance"), "300");
+
+    expect(screen.getByText(stale)).toBeInTheDocument();
+    // The criteria still describe the results on screen, not the edited form.
+    expect(criteriaLines()).toContain("Expected attendance: 30");
+
+    await user.click(screen.getByRole("button", { name: "Search venues" }));
+    await screen.findByText("Expected attendance: 300");
+    expect(screen.queryByText(stale)).not.toBeInTheDocument();
   });
 
   it("says no matching venues and lists the criteria applied (AC 7)", async () => {
-    seedVenue({ capacity: 40 });
     const user = userEvent.setup();
     await openVenues(user);
 
     await fillCore(user, { attendees: "500" });
     await user.type(screen.getByLabelText("Location"), "Library");
-    await user.click(
-      within(screen.getByRole("region", { name: "Find an available venue" })).getByRole("checkbox", { name: "Wi-Fi" }),
-    );
+    await user.click(searchForm().getByRole("checkbox", { name: "Wi-Fi" }));
     await user.click(screen.getByRole("button", { name: "Search venues" }));
 
     expect(await screen.findByText("No matching venues.")).toBeInTheDocument();
-    expect(within(screen.getByRole("list", { name: "Criteria applied" })).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
-      "Date: 2026-10-10",
+    expect(criteriaLines()).toEqual([
+      "Date: Sat, Oct 10",
       "Time: 10:00–12:00",
       "Expected attendance: 500",
       "Location: Library",
@@ -138,20 +179,50 @@ describe("venue search (US2)", () => {
     expect(screen.getByLabelText("End time")).toHaveAttribute("aria-invalid", "true");
   });
 
-  it("shows the API's message on an invalid time range", async () => {
+  it("marks the field an INVALID_VENUE_SEARCH names, with the API's message", async () => {
+    server.use(
+      http.get("http://api.test/api/v1/venues/available", () =>
+        HttpResponse.json(
+          {
+            code: "INVALID_VENUE_SEARCH",
+            fields: ["attendees"],
+            errors: { attendees: "Expected attendance must be a whole number." },
+          },
+          { status: 422 },
+        ),
+      ),
+    );
     const user = userEvent.setup();
     await openVenues(user);
 
-    await fillCore(user, { start: "14:00", end: "12:00" });
+    await fillCore(user, { attendees: "1.5" });
     await user.click(screen.getByRole("button", { name: "Search venues" }));
 
-    const endTime = await screen.findByLabelText("End time");
-    expect(endTime).toHaveAttribute("aria-invalid", "true");
-    expect(endTime).toHaveAccessibleDescription("The end time must be after the start time (events can't cross midnight).");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Review the fields marked below");
+    const attendance = screen.getByLabelText("Expected attendance");
+    expect(attendance).toHaveAttribute("aria-invalid", "true");
+    expect(attendance).toHaveAccessibleDescription("Expected attendance must be a whole number.");
+  });
+
+  it("explains a 403 in search's own words", async () => {
+    server.use(
+      http.get("http://api.test/api/v1/venues/available", () =>
+        HttpResponse.json({ code: "FORBIDDEN" }, { status: 403 }),
+      ),
+    );
+    const user = userEvent.setup();
+    await openVenues(user);
+
+    await fillCore(user);
+    await user.click(screen.getByRole("button", { name: "Search venues" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Only coordinators and venue staff can search for available venues.");
+    expect(alert).not.toHaveTextContent("change venues");
   });
 
   it("clears the form and results", async () => {
-    seedVenue({ name: "Free room" });
+    nextSearchResult([seedVenue({ name: "Free room" })]);
     const user = userEvent.setup();
     await openVenues(user);
     await fillCore(user);

@@ -54,17 +54,10 @@ export interface RecordedCall {
   body: unknown;
 }
 
-export interface FakeBooking {
-  venue_id: string;
-  status: "held" | "approved" | "blocked" | "rejected" | "cancelled";
-  date: string; // YYYY-MM-DD
-  starts: string; // HH:MM
-  ends: string;
-}
-
 interface Db {
   venues: Venue[];
-  bookings: FakeBooking[];
+  // What GET /venues/available returns next (see nextSearchResult).
+  searchResult: Venue[];
   events: FakeEvent[];
   registrations: FakeRegistration[];
   requests: EventRequest[];
@@ -75,7 +68,7 @@ interface Db {
 }
 
 function emptyDb(): Db {
-  return { venues: [], bookings: [], events: [], registrations: [], requests: [], clarifications: [], calls: [], nextId: 1, nextReference: 1 };
+  return { venues: [], searchResult: [], events: [], registrations: [], requests: [], clarifications: [], calls: [], nextId: 1, nextReference: 1 };
 }
 
 export let db: Db = emptyDb();
@@ -197,10 +190,9 @@ export function seedVenue(overrides: Partial<Venue> = {}): Venue {
   return venue;
 }
 
-export function seedBooking(venue: Venue, overrides: Partial<FakeBooking> = {}): FakeBooking {
-  const booking: FakeBooking = { venue_id: venue.id, status: "approved", date: "2026-10-10", starts: "10:00", ends: "12:00", ...overrides };
-  db.bookings.push(booking);
-  return booking;
+/** The venues the next search returns, in that order: the API decides which venues fit, not the fake. */
+export function nextSearchResult(venues: Venue[]) {
+  db.searchResult = venues;
 }
 
 /** Calls the screens made, optionally narrowed by method and path. */
@@ -466,7 +458,10 @@ const handlers = [
     return HttpResponse.json({ venues });
   }),
 
-  // US2 search (SCRUM-7): the same rules as venue_service.find_available.
+  // US2 search (SCRUM-7). Deliberately no search rules here: capacity, hours and bookings are the
+  // API's job, proven by backend/tests/venue/test_venue_search.py and e2e/tests/venue-search.spec.ts.
+  // This returns the venues a test queues with `nextSearchResult`, echoing the criteria sent, so
+  // integration tests check only what the screen sends and shows.
   route("get", "/api/v1/venues/available", ({ request }) => {
     const role = userRole(request);
     if (!role) return error(401, "UNAUTHENTICATED");
@@ -475,44 +470,16 @@ const handlers = [
     const get = (key: string) => url.searchParams.get(key);
     const missing = ["date", "start_time", "end_time", "attendees"].filter((key) => !get(key));
     if (missing.length > 0) return error(422, "MISSING_REQUIRED_FIELD", { fields: missing });
-    const date = get("date")!;
-    const start = get("start_time")!;
-    const end = get("end_time")!;
-    const attendees = Number(get("attendees"));
-    const errors: Record<string, string> = {};
-    if (date < "2026-10-01") errors.date = "The date can't be in the past.";
-    if (end <= start) errors.end_time = "The end time must be after the start time (events can't cross midnight).";
-    if (!(attendees >= 1)) errors.attendees = "Expected attendance must be at least 1.";
-    if (Object.keys(errors).length > 0) {
-      return error(422, "INVALID_VENUE_SEARCH", { fields: Object.keys(errors), errors });
-    }
-    const location = (get("location") ?? "").trim() || null;
-    const facilities = url.searchParams.getAll("facilities");
-    const accessibility = url.searchParams.getAll("accessibility");
-    const blocking = new Set(["held", "approved", "blocked"]);
-    const venues = db.venues
-      .filter((venue) => venue.is_active && venue.capacity >= attendees)
-      .filter((venue) => venue.opens_at.slice(0, 5) <= start && venue.closes_at.slice(0, 5) >= end)
-      .filter(
-        (venue) =>
-          !db.bookings.some(
-            (b) => b.venue_id === venue.id && blocking.has(b.status) && b.date === date && b.starts < end && b.ends > start,
-          ),
-      )
-      .filter((venue) => !location || venue.location.toLowerCase().includes(location.toLowerCase()))
-      .filter((venue) => facilities.every((tag) => venue.facilities.includes(tag)))
-      .filter((venue) => accessibility.every((tag) => venue.accessibility_features.includes(tag)))
-      .sort((a, b) => a.capacity - b.capacity || a.name.localeCompare(b.name));
     return HttpResponse.json({
-      venues,
+      venues: db.searchResult,
       criteria: {
-        date,
-        start_time: `${start}:00`,
-        end_time: `${end}:00`,
-        attendees,
-        location,
-        facilities,
-        accessibility,
+        date: get("date"),
+        start_time: `${get("start_time")}:00`,
+        end_time: `${get("end_time")}:00`,
+        attendees: Number(get("attendees")),
+        location: (get("location") ?? "").trim() || null,
+        facilities: url.searchParams.getAll("facilities"),
+        accessibility: url.searchParams.getAll("accessibility"),
       },
     });
   }),
