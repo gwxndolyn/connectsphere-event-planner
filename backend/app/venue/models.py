@@ -125,5 +125,8 @@ class VenueBooking(Base):
         pg_enum(VenueBookingStatus, "venue_booking_status"), server_default=VenueBookingStatus.REQUESTED.value
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Any ORM update stamps the time unless the caller sets it (withdraw passes its clock).
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
     withdrawn_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

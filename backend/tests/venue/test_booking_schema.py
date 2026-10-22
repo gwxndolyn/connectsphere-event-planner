@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import inspect, text
+from sqlalchemy import func, inspect, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -179,6 +179,21 @@ def test_tc_us22_01_withdrawing_without_a_timestamp_is_refused(
             db.flush()
 
     assert raised.value.orig.diag.constraint_name == "venue_bookings_withdrawn_consistent"
+
+
+def test_tc_us22_01_updated_at_changes_on_update(db: Session, event: Event, venue: Venue, coordinator: User) -> None:
+    """PR #64 review: any update stamps updated_at. The test transaction's now() is the same at
+    insert and update, so the booking starts with an older updated_at to see it move."""
+    earlier = NOW - timedelta(days=1)
+    booking = make_venue_booking(db, event=event, venue=venue, user=coordinator, updated_at=earlier)
+    assert booking.updated_at == earlier
+
+    booking.expected_attendees = 35
+    db.flush()
+    db.refresh(booking)
+
+    assert booking.updated_at == db.scalar(select(func.now()))
+    assert booking.updated_at > earlier
 
 
 def test_tc_us22_01_bookings_have_no_buffer_columns(engine) -> None:
