@@ -61,7 +61,8 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"  # same as frontend-ci.yml; Vitest 5 and jsdom 30 need Node 22+
+          # .nvmrc: Node 22, which Vitest 5, jsdom 30 and MSW 3 need. engines in package.json enforces it.
+          node-version-file: .nvmrc
 
       - name: Install frontend dependencies
         working-directory: frontend
