@@ -138,7 +138,8 @@ class EventRequestService:
         # operations managers so US8/US10 can proceed; confirm this access policy with the team.
         return (
             event.status in SUBMITTED_REQUEST_STATUSES
-            and reader.role in (UserRole.COORDINATOR, UserRole.OPERATIONS_MANAGER)
+            and reader.role
+            in (UserRole.COORDINATOR, UserRole.COORDINATOR_LEAD, UserRole.OPERATIONS_MANAGER)
         )
 
     def _validate_save_fields(self, fields: EventRequestWrite) -> None:

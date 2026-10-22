@@ -30,6 +30,11 @@ class User(Base):
     full_name: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
+    @property
+    def display_name(self) -> str:
+        """What other people see: the full name once the profile has one, else the email."""
+        return self.full_name or self.email
+
 
 class Attendee(Base):
     """Minimal attendee record. The spec references attendees(id) without defining the table;

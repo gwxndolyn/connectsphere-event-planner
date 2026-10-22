@@ -17,7 +17,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base, pg_enum
 
@@ -117,6 +117,8 @@ class Event(Base):
     request_reference: Mapped[str | None] = mapped_column(Text)
     # NULL = unassigned (SCRUM-13). Set by the Event Coordinator Lead, never on submit.
     coordinator_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), index=True)
+    coordinator: Mapped["User | None"] = relationship(foreign_keys=[coordinator_id])
+    created_by: Mapped["User | None"] = relationship(foreign_keys=[created_by_user_id], viewonly=True)
 
 
 class EventRegistrationField(Base):
