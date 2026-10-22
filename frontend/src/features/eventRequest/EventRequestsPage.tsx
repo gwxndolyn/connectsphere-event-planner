@@ -343,6 +343,7 @@ export function EventRequestsPage() {
                 <span className="request-row__main">
                   <strong>{request.name || "Untitled event request"}</strong>
                   <span>{request.event_category || "Category not set"}</span>
+                  {request.status !== "draft" && <span>Coordinator: {request.coordinator?.name ?? "Unassigned"}</span>}
                 </span>
                 <span className={`request-status request-status--${request.status}`}>{statusLabel(request.status)}</span>
                 {request.request_reference && <code className="request-row__reference">{request.request_reference}</code>}
@@ -510,6 +511,7 @@ export function EventRequestsPage() {
             <strong>{activeRequest.name || "Untitled event request"}</strong>
             {activeRequest.request_reference && <code>{activeRequest.request_reference}</code>}
             <span className={`request-status request-status--${activeRequest.status}`}>{statusLabel(activeRequest.status)}</span>
+            <span>Coordinator: {activeRequest.coordinator?.name ?? "Unassigned"}</span>
           </div>
 
           {earlierRounds.length > 0 && <ClarificationThreadView messages={earlierRounds} title="Earlier rounds" />}

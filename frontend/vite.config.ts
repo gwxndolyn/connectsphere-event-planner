@@ -17,6 +17,7 @@ export default defineConfig({
       VITE_API_BASE_URL: 'http://api.test',
       VITE_DEV_USER_ID: 'organiser-id',
       VITE_DEV_COORDINATOR_ID: 'coordinator-id',
+      VITE_DEV_LEAD_ID: 'lead-id',
       VITE_DEV_ATTENDEE_ID: 'attendee-id',
       VITE_DEV_VENUE_STAFF_ID: 'venue-staff-id',
     },
