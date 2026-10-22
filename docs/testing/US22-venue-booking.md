@@ -34,7 +34,7 @@
 | TC-US22-06 | 1 | Organisers, attendees and Venue Staff get `403 FORBIDDEN`. Until US10a adds assignment, any coordinator may book (D20); after it, only the assigned coordinator | Auto pytest | 2 |
 | TC-US22-07 | 2 | Missing fields are `422 MISSING_REQUIRED_FIELD` listing them. Start at or after end, a start in the past, or a layout or tag outside D18's lists is `422 INVALID_BOOKING` naming the field | Auto pytest | 2 |
 | TC-US22-08 | 3 | Expected attendance above the venue's capacity is `422 VENUE_CAPACITY_EXCEEDED` naming the capacity; nothing is saved. Attendance equal to capacity is accepted | Auto pytest | 2 |
-| TC-US22-09 | 3 | A window overlapping a Requested or Approved booking at that venue is `409 VENUE_UNAVAILABLE` with the conflicting window; a one-second overlap is refused; back-to-back is accepted | Auto pytest | 2 |
+| TC-US22-09 | 3 | A window overlapping a Requested or Approved booking, or a venue block (US2's `venue_blocks`), at that venue is `409 VENUE_UNAVAILABLE` with the conflicting window, and nothing is saved; a one-second overlap is refused; back-to-back is accepted; a block at another venue doesn't count | Auto pytest | 2 |
 | TC-US22-10 | 3 | A venue missing a required facility, accessibility feature or the chosen layout still saves (`201`), with a `warnings` list naming each missing item. A venue that has them all has no warnings | Auto pytest | 2 |
 | TC-US22-11 | 3 | An inactive venue can't be requested: `404 NOT_FOUND`, as for any venue the coordinator can't see | Auto pytest | 2 |
 | TC-US22-12 | 4 | Venue Staff's pending list shows the new request with its event and venue; the coordinator sees it in the event's booking list | Auto pytest | 2 |
@@ -54,6 +54,6 @@
 - **Nothing sets Approved yet.** US17 (SCRUM-84) approves requests, so tests and the seed put events straight into `approved`.
 - **Pending requests block the window too.** AC 3 lists approved bookings, holds and unavailability; AC 7 (first come, first served) only works if a Requested booking also blocks. So Requested and Approved both block, enforced by a Postgres exclusion constraint (`btree_gist`) on the venue and the time range, which also covers AC 7's race.
 - **Plain start to end for now.** Jira says to check the plain window until US13 (SCRUM-16) adds setup and turnaround buffers to the overlap rule.
-- **Holds and unavailability come later.** Neither table exists. US25 (SCRUM-93, holds) and US23a (SCRUM-90, unavailability) add them and extend TC-US22-09.
+- **Unavailability is US2's `venue_blocks`; holds come later.** US2 (SCRUM-7) added `venue_blocks`, and TC-US22-09 covers it. US23a (SCRUM-90) adds Venue Staff's block screens; US25 (SCRUM-93) adds holds and extends TC-US22-09.
 - **Required facilities and accessibility are tags on the request**, from D18's lists, because the event's own `equipment_needs` and `accessibility_needs` are free text and can't be matched against a venue.
 - **New error codes:** `EVENT_NOT_BOOKABLE` (409), `INVALID_BOOKING` (422), `VENUE_CAPACITY_EXCEEDED` (422), `VENUE_UNAVAILABLE` (409), `BOOKING_NOT_PENDING` (409). Each is recorded as a deviation in §1a by the PR that adds it.

@@ -21,7 +21,7 @@ from app.venue.booking_service import booking_service
 from app.venue.models import Venue, VenueBooking, VenueBookingStatus
 from app.venue.schemas import VenueBookingWrite
 from tests.conftest import FakeNotifier
-from tests.factories import NOW, make_event, make_user, make_venue, make_venue_booking
+from tests.factories import NOW, make_event, make_user, make_venue, make_venue_block, make_venue_booking
 
 pytestmark = pytest.mark.anyio
 
@@ -417,6 +417,61 @@ async def test_tc_us22_09_back_to_back_is_accepted(
         headers=auth(coordinator),
         json=booking_body(event, venue, starts_at=END.isoformat(), ends_at=(END + timedelta(hours=1)).isoformat()),
     )
+
+    assert response.status_code == 201
+
+
+@pytest.mark.parametrize(
+    ("block_starts", "block_ends"),
+    [
+        (START + timedelta(hours=1), END + timedelta(hours=1)),
+        (END - timedelta(seconds=1), END + timedelta(hours=1)),
+        (START - timedelta(hours=1), START + timedelta(seconds=1)),
+    ],
+    ids=["overlapping", "one second into the end", "one second into the start"],
+)
+async def test_tc_us22_09_a_window_overlapping_a_venue_block_is_refused(
+    client: AsyncClient,
+    db: Session,
+    notifier: FakeNotifier,
+    coordinator: User,
+    staff: User,
+    event: Event,
+    venue: Venue,
+    block_starts: datetime,
+    block_ends: datetime,
+) -> None:
+    """AC 3's unavailability period: US2's venue_blocks, the same [) rule as bookings."""
+    make_venue_block(db, venue, block_starts, block_ends, note="Maintenance")
+
+    response = await client.post(CREATE_URL, headers=auth(coordinator), json=booking_body(event, venue))
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "VENUE_UNAVAILABLE"
+    conflict = response.json()["conflict"]
+    assert (when(conflict["starts_at"]), when(conflict["ends_at"])) == (block_starts, block_ends)
+    assert "unavailable" in response.json()["message"]
+    assert booking_count(db) == 0
+    assert notifier.venue_bookings == []
+
+
+async def test_tc_us22_09_back_to_back_with_a_venue_block_is_accepted(
+    client: AsyncClient, db: Session, coordinator: User, event: Event, venue: Venue
+) -> None:
+    make_venue_block(db, venue, START - timedelta(hours=1), START)
+    make_venue_block(db, venue, END, END + timedelta(hours=1))
+
+    response = await client.post(CREATE_URL, headers=auth(coordinator), json=booking_body(event, venue))
+
+    assert response.status_code == 201
+
+
+async def test_tc_us22_09_a_block_at_another_venue_does_not_count(
+    client: AsyncClient, db: Session, coordinator: User, event: Event, venue: Venue
+) -> None:
+    make_venue_block(db, make_venue(db, name="Hall B"), START, END)
+
+    response = await client.post(CREATE_URL, headers=auth(coordinator), json=booking_body(event, venue))
 
     assert response.status_code == 201
 

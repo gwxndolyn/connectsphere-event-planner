@@ -2,7 +2,7 @@ import logging
 import uuid
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, literal, select
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
@@ -10,7 +10,7 @@ from app.core.exceptions import DomainError
 from app.event.models import Event, EventStatus
 from app.notification.service import Notifier
 from app.user.models import User, UserRole
-from app.venue.models import ROOM_LAYOUTS, LIVE_BOOKING_STATUSES, Venue, VenueBooking, VenueBookingStatus
+from app.venue.models import ROOM_LAYOUTS, LIVE_BOOKING_STATUSES, Venue, VenueBlock, VenueBooking, VenueBookingStatus
 from app.venue.schemas import (
     BookingEventOut,
     BookingVenueOut,
@@ -19,7 +19,7 @@ from app.venue.schemas import (
     VenueBookingOut,
     VenueBookingWrite,
 )
-from app.venue.service import VENUE_STAFF_ROLES, _clean_tags
+from app.venue.service import VENUE_STAFF_ROLES, _clean_tags, _slot
 
 logger = logging.getLogger(__name__)
 
@@ -70,17 +70,28 @@ def _find_conflict(db: Session, venue_id: uuid.UUID, starts_at: datetime, ends_a
     ).first()
 
 
-def _unavailable(conflict: VenueBooking | None) -> DomainError:
+def _find_block(db: Session, venue_id: uuid.UUID, starts_at: datetime, ends_at: datetime) -> VenueBlock | None:
+    """A venue block (US2's unavailability period, AC 3) overlapping this window by the same [)
+    rule, so back-to-back is fine. Written as && on the range venue_blocks_venue_window indexes."""
+    window = func.tstzrange(literal(starts_at), literal(ends_at), literal("[)"))
+    return db.scalars(
+        select(VenueBlock)
+        .where(VenueBlock.venue_id == venue_id, _slot(VenueBlock).op("&&")(window))
+        .order_by(VenueBlock.starts_at)
+        .limit(1)
+    ).first()
+
+
+def _unavailable(conflict: VenueBooking | VenueBlock | None) -> DomainError:
     if conflict is None:
         return DomainError(409, "VENUE_UNAVAILABLE", message="This venue is already booked for that time.")
+    window = {"starts_at": conflict.starts_at.isoformat(), "ends_at": conflict.ends_at.isoformat()}
+    reason = "unavailable" if isinstance(conflict, VenueBlock) else "already booked"
     return DomainError(
         409,
         "VENUE_UNAVAILABLE",
-        conflict={"starts_at": conflict.starts_at.isoformat(), "ends_at": conflict.ends_at.isoformat()},
-        message=(
-            f"This venue is already booked from {conflict.starts_at.isoformat()} "
-            f"to {conflict.ends_at.isoformat()}."
-        ),
+        conflict=window,
+        message=f"This venue is {reason} from {window['starts_at']} to {window['ends_at']}.",
     )
 
 
@@ -216,6 +227,12 @@ class VenueBookingService:
         conflict = _find_conflict(db, venue.id, cleaned["starts_at"], cleaned["ends_at"])
         if conflict is not None:
             raise _unavailable(conflict)
+        # DECISION-PENDING: D22 — blocks are checked here only, not by a constraint: a block added
+        # while this request is in flight isn't seen. US23a's block screens should lock the venue
+        # row FOR UPDATE, which this request's FOR SHARE then waits on.
+        block = _find_block(db, venue.id, cleaned["starts_at"], cleaned["ends_at"])
+        if block is not None:
+            raise _unavailable(block)
 
         booking = VenueBooking(requested_by_user_id=coordinator.id, **cleaned)
         db.add(booking)
