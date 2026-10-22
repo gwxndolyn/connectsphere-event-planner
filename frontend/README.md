@@ -4,7 +4,7 @@ React 19 + Vite (TypeScript).
 
 ## Prerequisites
 
-- Node 20+
+- Node 22+
 
 ## Setup
 
@@ -30,6 +30,17 @@ npm run build
 ```
 
 Type-checks with `tsc -b` before building with Vite.
+
+## Test
+
+```bash
+npm test             # Vitest unit + integration tests, once
+npm run test:watch   # re-run on save
+```
+
+Unit tests (`*.test.ts(x)`) render one component or call one helper. Integration tests
+(`*.integration.test.tsx`) render the real `App` against an in-memory fake backend
+(`src/test/server.ts`). See [`docs/testing/README.md`](../docs/testing/README.md).
 
 ## Lint
 
