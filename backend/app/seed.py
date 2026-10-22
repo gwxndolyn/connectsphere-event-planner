@@ -303,6 +303,22 @@ VENUE_BOOKINGS = [
         room_layout="theatre",
     ),
 ]
+
+
+@dataclass
+class BookableEventSpec:
+    """An approved event with no bookings, for the US22 booking screens to book (SCRUM-113)."""
+
+    slug: str
+    name: str
+    expected_attendees: int
+
+
+# US22 (SCRUM-89): the dev coordinator requests venues for it, locally and in
+# e2e/tests/venue-booking.spec.ts. The organiser owns it: events have no assigned coordinator until
+# US10a, and any coordinator may book an approved event (D20). Approved straight away (D24).
+BOOKABLE_EVENT = BookableEventSpec(slug="bookable-venue-booking-demo", name="Venue Booking Demo", expected_attendees=40)
+
 VENUE_BLOCKS = [
     VenueBlockSpec(
         slug="connexion-maintenance",
@@ -465,6 +481,28 @@ def upsert_booking_event(db: Session, spec: VenueBookingSpec, organiser: User) -
     return event
 
 
+def upsert_bookable_event(db: Session, spec: BookableEventSpec, organiser: User) -> Event:
+    """The approved event the booking screens book. Its bookings are made through the app, so a
+    reseed leaves them alone: the seed owns only the event row."""
+    event_id = seed_id("event", spec.slug)
+    values = {
+        "name": spec.name,
+        "status": EventStatus.APPROVED,
+        "event_category": "Workshop",
+        "purpose": "Seeded for requesting a venue (US22)",
+        "expected_attendees": spec.expected_attendees,
+        "created_by_user_id": organiser.id,
+    }
+    event = db.get(Event, event_id)
+    if event is None:
+        event = Event(id=event_id, **values)
+        db.add(event)
+    else:
+        for key, value in values.items():
+            setattr(event, key, value)
+    return event
+
+
 def upsert_venue_booking(
     db: Session, spec: VenueBookingSpec, event: Event, coordinator: User, now: datetime
 ) -> VenueBooking:
@@ -588,6 +626,7 @@ def seed(db: Session, now: datetime | None = None) -> None:
         upsert_venue_booking(db, spec, event, coordinator, now)
     for spec in VENUE_BLOCKS:
         upsert_venue_block(db, spec, now)
+    upsert_bookable_event(db, BOOKABLE_EVENT, organiser)
     db.flush()
 
     db.commit()

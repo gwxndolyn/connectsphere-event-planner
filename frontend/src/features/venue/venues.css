@@ -199,3 +199,96 @@
   font-size: 14px;
   font-weight: 600;
 }
+
+/* US22 venue bookings (SCRUM-113): an event's bookings, the request form and Venue Staff's queue. */
+.venue-bookings {
+  margin: 1.5rem 0;
+}
+
+.venue-bookings h2 {
+  font-size: 1.1rem;
+  margin: 0;
+}
+
+.venue-bookings__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.venue-booking-form {
+  margin-top: 0.75rem;
+}
+
+.venue-booking-form h3 {
+  font-size: 1rem;
+  margin: 0 0 0.75rem;
+}
+
+.venue-booking__gaps {
+  margin: 0.75rem 0 0;
+  padding: 0.6rem 0.8rem;
+  border-left: 3px solid #b7791f;
+  background: #fffaf0;
+  color: #744210;
+}
+
+.venue-booking__warnings {
+  margin: 0.4rem 0 0;
+  padding-left: 1.2rem;
+}
+
+.venue-booking-list {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.venue-booking-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.venue-booking-row__main {
+  display: grid;
+  gap: 0.15rem;
+  flex: 1;
+}
+
+.venue-booking-row__main span {
+  color: #4a5568;
+  font-size: 0.9rem;
+}
+
+.venue-booking-status {
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  background: #edf2f7;
+  color: #2d3748;
+}
+
+.venue-booking-status--requested {
+  background: #ebf8ff;
+  color: #2b6cb0;
+}
+
+.venue-booking-status--approved {
+  background: #f0fff4;
+  color: #276749;
+}
+
+.venue-booking-status--rejected {
+  background: #fff5f5;
+  color: #c53030;
+}
