@@ -92,7 +92,10 @@ test("TC-US2-15: no match says so and lists the criteria; bad input is marked (A
   await search(page, { attendees: "5000" });
   await expect(page.getByText("No matching venues.")).toBeVisible();
   const criteria = page.getByRole("list", { name: "Criteria applied" });
-  await expect(criteria).toContainText(`Date: ${seededDay()}`);
+  // Shown in the app's Singapore date format, e.g. "Tue, Oct 27".
+  const shown = new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "Asia/Singapore" })
+    .format(new Date(`${seededDay()}T00:00:00+08:00`));
+  await expect(criteria).toContainText(`Date: ${shown}`);
   await expect(criteria).toContainText("Time: 10:00–12:00");
   await expect(criteria).toContainText("Expected attendance: 5000");
 
