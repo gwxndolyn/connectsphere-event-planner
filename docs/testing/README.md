@@ -1,6 +1,6 @@
 # Testing and CI
 
-How ConnectSphere is tested, what runs in CI, and how to add a test. Per-story test cases live beside this file (`US2-venue-search.md`, `US16a-sign-up-log-in.md`, `US20-venue-catalogue.md`); the Sprint 1 and 2 cases are in `claude_instructions.md` §4.
+How ConnectSphere is tested, what runs in CI, and how to add a test. Per-story test cases live beside this file (`US2-venue-search.md`, `US16a-sign-up-log-in.md`, `US20-venue-catalogue.md`, `US22-venue-booking.md`); the Sprint 1 and 2 cases are in `claude_instructions.md` §4.
 
 ## The four suites
 
@@ -57,7 +57,7 @@ Every workflow is in `.github/workflows/`. A PR needs all of them green.
 **Shared helpers** in `frontend/src/test/`:
 
 - `fixtures.ts`: `makeEvent`, `makeRegistration`, `makeRegistry` for unit tests.
-- `server.ts`: the MSW fake backend. Call `startMockBackend()` at the top of an integration file. It starts the server, empties its in-memory database after each test, and **fails the test on any request it has no handler for** (`onUnhandledFrame: "error"`). Seed state with `seedEvent`, `seedRegistration`, `seedRequest`, `seedClarification`, `seedVenue`, `nextSearchResult`; check what the screens sent with `callsTo(method, path)`, which records each call's URL, headers and body. Override one route for an error case with `server.use(http.get(...))`.
+- `server.ts`: the MSW fake backend. Call `startMockBackend()` at the top of an integration file. It starts the server, empties its in-memory database after each test, and **fails the test on any request it has no handler for** (`onUnhandledFrame: "error"`). Seed state with `seedEvent`, `seedRegistration`, `seedRequest`, `seedClarification`, `seedVenue`, `seedBooking`, `nextSearchResult`; check what the screens sent with `callsTo(method, path)`, which records each call's URL, headers and body. Override one route for an error case with `server.use(http.get(...))`.
 
 **The fake backend copies the API's contracts, not its business rules.** It checks identity headers, returns §3's codes and keeps simple state (register, withdraw, submit), but it isn't FastAPI. **When a §3 contract changes, change `server.ts` in the same PR**, or the integration tests keep passing against the old behaviour; the E2E suite is the only one that catches the two drifting apart. Leave real rules to the backend tests: venue search's fake returns whatever a test queues with `nextSearchResult`, so its integration tests check what the screen sends and shows, not which venues fit.
 
@@ -80,7 +80,7 @@ Config: `e2e/playwright.config.ts`. It starts the frontend with `npm run dev --p
 
 A spec that changes seeded data used by another spec will flake. If a journey needs new data, add it to `app/seed.py`.
 
-The seed data E2E relies on: Calvin (`VITE_DEV_ATTENDEE_ID`) confirmed for Tech Talk and the online Supabase talk, and second in the full Design Sprint Bootcamp's queue; the organiser, coordinator and venue staff users; six venues, one inactive; and, five days ahead at 10:00–12:00, a requested and an approved US22 booking and a venue block.
+The seed data E2E relies on: Calvin (`VITE_DEV_ATTENDEE_ID`) confirmed for Tech Talk and the online Supabase talk, and second in the full Design Sprint Bootcamp's queue; the organiser, coordinator and venue staff users; six venues, one inactive; and, five days ahead at 10:00–12:00, a requested and an approved US22 booking and a venue block; and **Venue Booking Demo**, an approved event with no seeded booking, which only `venue-booking.spec.ts` books (on its own far-future windows, withdrawn again before each test ends).
 
 ## When a test fails
 
