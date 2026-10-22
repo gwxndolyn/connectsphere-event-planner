@@ -18,7 +18,9 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
-# Kept in step with FACILITIES, ACCESSIBILITY_FEATURES and ROOM_LAYOUTS in app/venue/models.py (D18).
+# Kept in step with FACILITIES, ACCESSIBILITY_FEATURES and ROOM_LAYOUTS in app/venue/models.py (D18),
+# and with the copy in migrations/versions/20261021_1200_us22_bookings.py (venue_bookings' CHECKs).
+# Change all three together.
 FACILITIES = (
     "projector",
     "screen",

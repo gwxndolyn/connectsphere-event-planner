@@ -9,7 +9,11 @@ from app.core.database import Base, pg_enum
 
 # DECISION-PENDING: D18 — SCRUM-87 only gives examples (projector, stage, wifi; wheelchair, lift;
 # theatre, classroom, banquet). These are the assumed vocabularies, so US2's filters and the
-# venue form agree on spelling. The migration's CHECKs hold the same lists; change both together.
+# venue form agree on spelling.
+# Two migrations hold copies of these lists in their CHECKs: migrations/versions/20261013_1200_us20_venues.py
+# (venues' tags) and migrations/versions/20261021_1200_us22_bookings.py (bookings' layout and tags).
+# Change all three together, by a new migration that replaces both sets of CHECKs; the frontend's
+# frontend/src/features/venue/tags.ts mirrors them too.
 FACILITIES = (
     "projector",
     "screen",
@@ -98,6 +102,9 @@ class VenueBooking(Base):
     __table_args__ = (
         CheckConstraint("ends_at > starts_at", name="venue_bookings_window_valid"),
         CheckConstraint("expected_attendees >= 1", name="venue_bookings_expected_attendees_positive"),
+        CheckConstraint(
+            "(status = 'withdrawn') = (withdrawn_at IS NOT NULL)", name="venue_bookings_withdrawn_consistent"
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, server_default=text("gen_random_uuid()"))

@@ -18,7 +18,9 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
-# Kept in step with FACILITIES, ACCESSIBILITY_FEATURES and ROOM_LAYOUTS in app/venue/models.py (D18).
+# Kept in step with FACILITIES, ACCESSIBILITY_FEATURES and ROOM_LAYOUTS in app/venue/models.py (D18),
+# and with the copy in migrations/versions/20261013_1200_us20_venues.py (venues' CHECKs).
+# Change all three together.
 FACILITIES = (
     "projector",
     "screen",
@@ -85,6 +87,10 @@ def upgrade() -> None:
         sa.CheckConstraint(
             f"required_accessibility_features <@ {_array(ACCESSIBILITY_FEATURES)}",
             name="venue_bookings_required_accessibility_features_known",
+        ),
+        # A withdrawn booking records when, and nothing else carries a withdrawal time (AC 5).
+        sa.CheckConstraint(
+            "(status = 'withdrawn') = (withdrawn_at IS NOT NULL)", name="venue_bookings_withdrawn_consistent"
         ),
     )
     # US22 AC 3 and 7: no two live bookings at one venue may overlap, even by one second. '[)'
