@@ -110,8 +110,9 @@ def submit_request(
     organiser: Organiser,
     db: Session = Depends(get_db),
     now: datetime = Depends(get_now),
+    notifier: Notifier = Depends(get_notifier),
 ) -> EventRequestOut:
-    return event_request_service.submit(db, request_id, organiser, now)
+    return event_request_service.submit(db, request_id, organiser, now, notifier)
 
 @router.post("/{request_id}/assignment", response_model=EventRequestOut)
 def assign_coordinator(

@@ -1,7 +1,7 @@
 import os
 import uuid
 from collections.abc import AsyncGenerator, Generator
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 import pytest
@@ -80,6 +80,7 @@ class FakeNotifier:
     def __init__(self) -> None:
         self.offers: list[dict[str, object]] = []
         self.clarifications: list[dict[str, object]] = []
+        self.queued: list[dict[str, object]] = []
         self.fail = False
 
     def waitlist_offer(
@@ -109,6 +110,27 @@ class FakeNotifier:
                 "round": round,
                 "sections": sections,
                 "comment": comment,
+            }
+        )
+        if self.fail:
+            raise RuntimeError("mail server unavailable")
+
+    def request_queued(
+        self,
+        *,
+        email: str,
+        request_reference: str,
+        event_name: str,
+        organiser_name: str,
+        preferred_dates: list[date],
+    ) -> None:
+        self.queued.append(
+            {
+                "email": email,
+                "request_reference": request_reference,
+                "event_name": event_name,
+                "organiser_name": organiser_name,
+                "preferred_dates": preferred_dates,
             }
         )
         if self.fail:

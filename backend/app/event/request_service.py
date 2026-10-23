@@ -1,3 +1,4 @@
+import logging
 import uuid
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
@@ -8,7 +9,10 @@ from sqlalchemy.orm import Session
 from app.core.exceptions import DomainError
 from app.event.models import Event, EventStatus
 from app.event.request_schemas import EventRequestOut, EventRequestWrite
+from app.notification.service import Notifier
 from app.user.models import User, UserRole
+
+logger = logging.getLogger(__name__)
 
 EVENT_TIMEZONE = ZoneInfo("Asia/Singapore")
 
@@ -99,7 +103,7 @@ class EventRequestService:
         return result
 
     def submit(
-        self, db: Session, request_id: uuid.UUID, owner: User, now: datetime
+        self, db: Session, request_id: uuid.UUID, owner: User, now: datetime, notifier: Notifier
     ) -> EventRequestOut:
         event = self._owned_event(db, request_id, owner)
         if event.status != EventStatus.DRAFT:
@@ -118,8 +122,51 @@ class EventRequestService:
 
         db.flush()
         result = EventRequestOut.model_validate(event)
+        queued = (event.request_reference, event.name, list(event.preferred_dates or []), owner.display_name)
         db.commit()
+
+        self._notify_leads(db, request_id, notifier, *queued)
         return result
+
+    def _notify_leads(
+        self,
+        db: Session,
+        request_id: uuid.UUID,
+        notifier: Notifier,
+        request_reference: str | None,
+        event_name: str | None,
+        preferred_dates: list[date],
+        organiser_name: str,
+    ) -> None:
+        """SCRUM-13 AC 11: every active Coordinator Lead hears a request has joined the unassigned
+        queue. After the commit, and best effort like the clarification notice: a failure is logged
+        and never undoes the submit, and one Lead's failure doesn't stop the next."""
+        try:
+            leads = db.scalars(
+                select(User)
+                .where(User.role == UserRole.COORDINATOR_LEAD, User.is_active.is_(True))
+                .order_by(User.email)
+            ).all()
+        except Exception:
+            logger.exception("could not look up Coordinator Leads for request %s", request_id)
+            return
+        if not leads:
+            logger.warning("could not notify a Coordinator Lead about request %s: none is active", request_id)
+            return
+        if not request_reference or not event_name:
+            logger.warning("could not notify Leads about request %s: missing request details", request_id)
+            return
+        for lead in leads:
+            try:
+                notifier.request_queued(
+                    email=lead.email,
+                    request_reference=request_reference,
+                    event_name=event_name,
+                    organiser_name=organiser_name,
+                    preferred_dates=preferred_dates,
+                )
+            except Exception:
+                logger.exception("could not notify Lead %s about request %s", lead.id, request_id)
 
     def _owned_event(self, db: Session, request_id: uuid.UUID, owner: User) -> Event:
         event = db.scalars(
