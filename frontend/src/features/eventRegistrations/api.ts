@@ -2,7 +2,7 @@ import { ApiError, apiClient } from "../../api/client";
 import type { EventRegistrations, ManagedEvent, ManagedEventsResponse, RegistrationFilter } from "./types";
 
 // Staff routes, so X-User-Id (the Acting as switch). Organisers see their own events; coordinators
-// every event for now (D29).
+// every event for now (D30).
 export const eventRegistrationsApi = {
   async listManagedEvents(): Promise<ManagedEvent[]> {
     const body = await apiClient.get<ManagedEventsResponse>("/api/v1/me/managed-events");
