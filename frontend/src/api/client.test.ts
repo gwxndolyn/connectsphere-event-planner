@@ -43,6 +43,14 @@ describe("apiClient identity headers", () => {
     expect(sentHeaders().get("X-User-Id")).toBe("coordinator-id");
   });
 
+  it("sends the Coordinator Lead's X-User-Id after switching Acting as", async () => {
+    const { apiClient, setDevRole } = await loadClient();
+    setDevRole("coordinator_lead");
+    await apiClient.get("/api/v1/event-requests/unassigned");
+
+    expect(sentHeaders().get("X-User-Id")).toBe("lead-id");
+  });
+
   it("sends only X-Attendee-Id for the attendee routes", async () => {
     const { apiClient } = await loadClient();
     await apiClient.get("/api/v1/me/registrations", "attendee");

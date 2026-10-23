@@ -24,6 +24,12 @@ export interface EventRequestWrite {
   registration_required: boolean | null;
 }
 
+// The assigned coordinator as the organiser sees them: a name, never an email (SCRUM-13 AC 8).
+export interface AssignedCoordinator {
+  id: string;
+  name: string;
+}
+
 export interface EventRequest extends EventRequestWrite {
   id: string;
   status: EventRequestStatus;
@@ -32,6 +38,27 @@ export interface EventRequest extends EventRequestWrite {
   submitted_at: string | null;
   request_reference: string | null;
   created_at: string;
+  // null = unassigned (SCRUM-13).
+  coordinator: AssignedCoordinator | null;
+}
+
+export interface QueuePerson {
+  id: string;
+  name: string;
+  email: string;
+}
+
+// A row of the Coordinator Lead's unassigned queue (SCRUM-13 AC 2).
+export interface UnassignedRequest extends EventRequest {
+  organiser: QueuePerson | null;
+}
+
+export interface UnassignedRequestsResponse {
+  event_requests: UnassignedRequest[];
+}
+
+export interface CoordinatorOptionsResponse {
+  coordinators: QueuePerson[];
 }
 
 export interface EventRequestsResponse {

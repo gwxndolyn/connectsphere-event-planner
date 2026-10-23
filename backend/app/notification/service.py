@@ -1,6 +1,6 @@
 import logging
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Protocol
 
 logger = logging.getLogger(__name__)
@@ -33,6 +33,16 @@ class Notifier(Protocol):
         venue_name: str,
         starts_at: datetime,
         ends_at: datetime,
+    ) -> None: ...
+
+    def request_queued(
+        self,
+        *,
+        email: str,
+        request_reference: str,
+        event_name: str,
+        organiser_name: str,
+        preferred_dates: list[date],
     ) -> None: ...
 
 
@@ -89,6 +99,25 @@ class LoggingNotifier:
             starts_at,
             ends_at,
             booking_id,
+        )
+
+    def request_queued(
+        self,
+        *,
+        email: str,
+        request_reference: str,
+        event_name: str,
+        organiser_name: str,
+        preferred_dates: list[date],
+    ) -> None:
+        # SCRUM-13 AC 11: tells a Coordinator Lead a new request is waiting in the unassigned queue.
+        logger.info(
+            "request queued: %s, %s (%s) from %s, preferred dates %s",
+            email,
+            request_reference,
+            event_name,
+            organiser_name,
+            ", ".join(day.isoformat() for day in preferred_dates),
         )
 
 

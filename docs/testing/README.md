@@ -50,7 +50,7 @@ Every workflow is in `.github/workflows/`. A PR needs all of them green.
 **Config** is the `test` block in `frontend/vite.config.ts`:
 
 - jsdom environment; `src/test/setup.ts` adds jest-dom matchers and clears the DOM and `localStorage` after each test.
-- Fixed `VITE_*` values (`VITE_API_BASE_URL=http://api.test`, ids `organiser-id`, `coordinator-id`, `venue-staff-id`, `attendee-id`), so a developer's `frontend/.env` never changes a result. `VITE_DEV_AUTH=true` keeps SCRUM-105's dev mode on: without it, `App` shows the login page and `apiClient` sends no identity headers, and the integration tests fail.
+- Fixed `VITE_*` values (`VITE_API_BASE_URL=http://api.test`, ids `organiser-id`, `coordinator-id`, `lead-id`, `venue-staff-id`, `attendee-id`), so a developer's `frontend/.env` never changes a result. `VITE_DEV_AUTH=true` keeps SCRUM-105's dev mode on: without it, `App` shows the login page and `apiClient` sends no identity headers, and the integration tests fail.
 - `testTimeout: 15000`, because integration tests type through whole forms and CI runners are slower than a laptop.
 - `restoreMocks` and `unstubGlobals`, so a mocked `fetch` never leaks into the next test.
 
