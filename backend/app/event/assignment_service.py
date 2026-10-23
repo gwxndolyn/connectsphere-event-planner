@@ -1,4 +1,6 @@
+import logging
 import uuid
+from datetime import date
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -10,7 +12,10 @@ from app.event.request_schemas import (
     EventRequestOut,
     UnassignedRequestOut,
 )
+from app.notification.service import Notifier
 from app.user.models import User, UserRole
+
+logger = logging.getLogger(__name__)
 
 
 class AssignmentService:
@@ -35,7 +40,12 @@ class AssignmentService:
         return [CoordinatorOptionOut.model_validate(user) for user in users]
 
     def assign(
-        self, db: Session, request_id: uuid.UUID, lead: User, coordinator_id: uuid.UUID
+        self,
+        db: Session,
+        request_id: uuid.UUID,
+        lead: User,
+        coordinator_id: uuid.UUID,
+        notifier: Notifier,
     ) -> EventRequestOut:
         event = db.scalars(select(Event).where(Event.id == request_id).with_for_update()).one_or_none()
         # Drafts and finished events are invisible to staff (D11), so they 404, not 409.
@@ -53,8 +63,63 @@ class AssignmentService:
 
         db.flush()
         result = EventRequestOut.model_validate(event)
+        notice = (
+            event.request_reference,
+            event.name,
+            coordinator.display_name,
+            list(event.preferred_dates or []),
+        )
+        coordinator_email = coordinator.email
+        organiser_id = event.created_by_user_id
         db.commit()
+
+        self._notify(db, request_id, notifier, coordinator_email, organiser_id, *notice)
         return result
+
+    def _notify(
+        self,
+        db: Session,
+        request_id: uuid.UUID,
+        notifier: Notifier,
+        coordinator_email: str,
+        organiser_id: uuid.UUID | None,
+        request_reference: str | None,
+        event_name: str | None,
+        coordinator_name: str,
+        event_dates: list[date],
+    ) -> None:
+        """SCRUM-68 (US10c) AC 1 and 2: the new coordinator and the organiser each get a notice
+        naming the event, the coordinator and the event date. The request has no confirmed date yet,
+        so the date is its preferred dates (D29). Sent only after the assignment commits, so a
+        refused one tells no one (AC 3). Best effort like the other notices: a failure is logged,
+        never undoes the assignment, and one recipient failing doesn't stop the other."""
+        if not request_reference or not event_name:
+            logger.warning("could not send assignment notices for request %s: missing request details", request_id)
+            return
+
+        recipients: list[tuple[str, str]] = [("coordinator", coordinator_email)]
+        try:
+            organiser = db.get(User, organiser_id) if organiser_id else None
+        except Exception:
+            logger.exception("could not look up the organiser of request %s", request_id)
+            organiser = None
+        if organiser is None or not organiser.email:
+            logger.warning("could not notify the organiser of request %s: no owner or email", request_id)
+        else:
+            recipients.append(("organiser", organiser.email))
+
+        for recipient, email in recipients:
+            try:
+                notifier.assignment_made(
+                    email=email,
+                    recipient=recipient,  # type: ignore[arg-type]
+                    request_reference=request_reference,
+                    event_name=event_name,
+                    coordinator_name=coordinator_name,
+                    event_dates=event_dates,
+                )
+            except Exception:
+                logger.exception("could not send the %s assignment notice for request %s", recipient, request_id)
 
     def _eligible_coordinator(self, db: Session, lead: User, coordinator_id: uuid.UUID) -> User:
         """AC 4 and 7: say why a pick is refused; the caller changes nothing when this raises."""
