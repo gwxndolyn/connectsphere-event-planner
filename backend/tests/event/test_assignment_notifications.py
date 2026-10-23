@@ -155,7 +155,7 @@ async def test_tc_us10c_06_no_organiser_email_logs_a_warning_and_still_tells_the
     assert "could not notify the organiser" in caplog.text
 
 
-async def test_tc_us10c_07_missing_request_details_log_a_warning_and_send_nothing(
+async def test_tc_us10c_07_missing_request_details_still_notify_with_stand_in_labels(
     client: AsyncClient,
     db: Session,
     organiser: User,
@@ -166,11 +166,16 @@ async def test_tc_us10c_07_missing_request_details_log_a_warning_and_send_nothin
 ) -> None:
     event = queued_request(db, organiser)
     event.request_reference = None
+    event.name = None
     db.flush()
 
     with caplog.at_level(logging.WARNING):
         response = await assign(client, lead, event.id, coordinator.id)
 
     assert response.status_code == 200
-    assert notifier.assignments == []
+    assert sorted(n["recipient"] for n in notifier.assignments) == ["coordinator", "organiser"]
+    for notice in notifier.assignments:
+        assert notice["request_reference"] == "no reference yet"
+        assert notice["event_name"] == "Untitled event request"
+        assert notice["coordinator_name"] == "Casey Tan"
     assert "missing request details" in caplog.text

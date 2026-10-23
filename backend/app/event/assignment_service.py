@@ -12,10 +12,14 @@ from app.event.request_schemas import (
     EventRequestOut,
     UnassignedRequestOut,
 )
-from app.notification.service import Notifier
+from app.notification.service import AssignmentRecipient, Notifier
 from app.user.models import User, UserRole
 
 logger = logging.getLogger(__name__)
+
+# What a notice says when a request has no reference or name (the screens say the same).
+MISSING_REFERENCE = "no reference yet"
+MISSING_NAME = "Untitled event request"
 
 
 class AssignmentService:
@@ -93,11 +97,14 @@ class AssignmentService:
         so the date is its preferred dates (D29). Sent only after the assignment commits, so a
         refused one tells no one (AC 3). Best effort like the other notices: a failure is logged,
         never undoes the assignment, and one recipient failing doesn't stop the other."""
+        # A submitted request always has both, but if one is ever missing the people are still told,
+        # with a stand-in label, rather than hearing nothing about their assignment.
         if not request_reference or not event_name:
-            logger.warning("could not send assignment notices for request %s: missing request details", request_id)
-            return
+            logger.warning("assignment notices for request %s are missing request details", request_id)
+        request_reference = request_reference or MISSING_REFERENCE
+        event_name = event_name or MISSING_NAME
 
-        recipients: list[tuple[str, str]] = [("coordinator", coordinator_email)]
+        recipients: list[tuple[AssignmentRecipient, str]] = [("coordinator", coordinator_email)]
         try:
             organiser = db.get(User, organiser_id) if organiser_id else None
         except Exception:
@@ -112,7 +119,7 @@ class AssignmentService:
             try:
                 notifier.assignment_made(
                     email=email,
-                    recipient=recipient,  # type: ignore[arg-type]
+                    recipient=recipient,
                     request_reference=request_reference,
                     event_name=event_name,
                     coordinator_name=coordinator_name,
