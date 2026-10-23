@@ -3,6 +3,7 @@ import { getDevRole, setDevRole, type DevRole } from "./api/client";
 import { SiteHeader, type View } from "./components/SiteHeader";
 import { EventHealthCheck } from "./features/event/EventHealthCheck";
 import { EventRegistrationsPage } from "./features/eventRegistrations/EventRegistrationsPage";
+import { AssignmentQueuePage } from "./features/eventRequest/AssignmentQueuePage";
 import { ClarificationReviewPage } from "./features/eventRequest/ClarificationReviewPage";
 import { EventRequestsPage } from "./features/eventRequest/EventRequestsPage";
 import { EventsBoard } from "./features/registration/EventsBoard";
@@ -34,10 +35,12 @@ function App() {
       />
 
       {view === "venues" ? (
-        <VenuesPage key={devRole} staff={devRole === "venue_staff"} canSearch={devRole !== "organiser"} />
+        <VenuesPage key={devRole} staff={devRole === "venue_staff"} canSearch={devRole === "coordinator" || devRole === "venue_staff"} />
       ) : view === "event-requests" ? (
         devRole === "coordinator" ? (
           <ClarificationReviewPage key="coordinator" />
+        ) : devRole === "coordinator_lead" ? (
+          <AssignmentQueuePage key="coordinator_lead" />
         ) : devRole === "venue_staff" ? (
           <main className="request-page">
             <p className="request-empty">Event requests aren't part of the Venue staff role. Switch Acting as to see them.</p>
@@ -46,12 +49,12 @@ function App() {
           <EventRequestsPage key="organiser" />
         )
       ) : view === "registrations" ? (
-        devRole === "venue_staff" ? (
+        devRole === "organiser" || devRole === "coordinator" ? (
+          <EventRegistrationsPage key={devRole} />
+        ) : (
           <main className="request-page">
             <p className="request-empty">Registrations are for organisers and coordinators. Switch Acting as to see them.</p>
           </main>
-        ) : (
-          <EventRegistrationsPage key={devRole} />
         )
       ) : view === "discovery" ? (
         <EventsBoard registry={registry} search={search} />

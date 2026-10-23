@@ -81,7 +81,7 @@ async def test_tc_us28_03_a_coordinator_sees_any_event_until_assignment_exists(
 
     response = await client.get(url(event), headers=auth(coordinator))
 
-    # D28: no assigned coordinator until US10a.
+    # D29: any coordinator, until the follow-up narrows it to the assigned one.
     assert response.status_code == 200
     assert len(response.json()["registrations"]) == 1
 

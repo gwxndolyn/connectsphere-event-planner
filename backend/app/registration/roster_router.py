@@ -18,7 +18,7 @@ from app.user.models import User, UserRole
 events_router = APIRouter(prefix="/api/v1/events", tags=["event-registrations"])
 me_router = APIRouter(prefix="/api/v1/me", tags=["event-registrations"])
 
-# US28's two roles. Organisers see their own events; coordinators every event until US10a (D28).
+# US28's two roles. Organisers see their own events; coordinators every event for now (D29).
 Manager = Annotated[User, Depends(require_user_roles(UserRole.ORGANISER, UserRole.COORDINATOR))]
 
 

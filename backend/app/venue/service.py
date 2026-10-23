@@ -27,7 +27,7 @@ from app.venue.schemas import VenueOut, VenueSearchCriteria, VenueSearchOut, Ven
 VENUE_STAFF_ROLES = (UserRole.OPERATIONS_MANAGER,)
 
 # DECISION-PENDING: D25 — US2 is the Event Coordinator's story. Coordinators search, and so does
-# operations_manager, which stands in for the Event Coordinator Lead (D11) and Venue Staff (D19)
+# operations_manager, which stands in for Venue Staff (D19)
 # until US16b. Organisers and attendees get 403.
 VENUE_SEARCH_ROLES = (UserRole.COORDINATOR, UserRole.OPERATIONS_MANAGER)
 SEARCH_REQUIRED_FIELDS = ("date", "start_time", "end_time", "attendees")

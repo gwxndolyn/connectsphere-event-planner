@@ -22,7 +22,7 @@
 
 ## Decisions
 
-- **D28: who manages an event?** An Organiser manages the events they created (`created_by_user_id`). Events have no assigned coordinator until US10a (SCRUM-13), so any active Coordinator manages every event, as D14 and D20 assume. US10a narrows `_manages` in `app/registration/roster_service.py`
+- **D29: who manages an event?** An Organiser manages the events they created (`created_by_user_id`). Any active Coordinator manages every event for now. US10a (SCRUM-13) added `events.coordinator_id`; narrowing `_manages` in `app/registration/roster_service.py` to the assigned coordinator is a follow-up
 - Only events past the request stage (`planning`, `confirmed`, `cancelled`, `completed`) have registrations to show. A request is `404`, which also keeps coordinators out of drafts (D11)
 - `expired` offers are hidden by default with withdrawn and declined, since none of them holds or waits for a place
 - A status filter decides on its own: `?status=withdrawn` shows withdrawn rows without `show_all`
@@ -33,7 +33,7 @@
 | --- | --- | --- | --- |
 | TC-US28-01 | 1 | The organiser who created the event gets its registrations | Auto pytest |
 | TC-US28-02 | 1 | Another organiser gets `404 NOT_FOUND`, never `403` | Auto pytest |
-| TC-US28-03 | 1 | A coordinator gets any event's registrations (D28) | Auto pytest |
+| TC-US28-03 | 1 | A coordinator gets any event's registrations (D29) | Auto pytest |
 | TC-US28-04 | 1 | An attendee or operations manager is `403 FORBIDDEN`; no identity is `401` | Auto pytest |
 | TC-US28-05 | 1 | A draft, submitted or approved request, or an unknown id, is `404` for its owner and for coordinators | Auto pytest |
 | TC-US28-06 | 2 | Totals count confirmed, waitlisted and offered; places left is capacity minus confirmed and live offers | Auto pytest |

@@ -180,8 +180,8 @@ describe("event registrations (US28)", () => {
     expect(await screen.findByText(/No events to show yet/)).toBeInTheDocument();
   });
 
-  it("isn't offered to venue staff", async () => {
-    setDevRole("venue_staff");
+  it.each(["venue_staff", "coordinator_lead"] as const)("isn't offered to %s", async (role) => {
+    setDevRole(role);
     const user = userEvent.setup();
     render(<App />);
 

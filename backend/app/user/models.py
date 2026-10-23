@@ -11,6 +11,7 @@ from app.core.database import Base, pg_enum
 class UserRole(enum.StrEnum):
     ORGANISER = "organiser"
     COORDINATOR = "coordinator"
+    COORDINATOR_LEAD = "coordinator_lead"
     OPERATIONS_MANAGER = "operations_manager"
     ATTENDEE = "attendee"
 
@@ -28,6 +29,11 @@ class User(Base):
     auth_user_id: Mapped[uuid.UUID | None] = mapped_column(unique=True)
     full_name: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    @property
+    def display_name(self) -> str:
+        """What other people see: the full name once the profile has one, else the email."""
+        return self.full_name or self.email
 
 
 class Attendee(Base):
