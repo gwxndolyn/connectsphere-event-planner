@@ -756,7 +756,7 @@ The Lead gate is the `coordinator_lead` role, marked `DECISION-PENDING` until SC
 
 **Lead notification (AC 11, D28).** After `POST /api/v1/event-requests/{id}/submit` commits, `event_request_service` calls `Notifier.request_queued` once for each active Coordinator Lead, with `email`, `request_reference`, `event_name`, `organiser_name` (the organiser's display name) and `preferred_dates`. Like the clarification notice it runs after the commit and is best effort: a notifier error is logged and never undoes the submit, and one Lead's failure doesn't stop the next. No active Lead logs a warning. `LoggingNotifier` only logs it for now.
 
-**Assignment notices (SCRUM-68, D29).** After `POST /api/v1/event-requests/{id}/assignment` commits, `assignment_service` calls `Notifier.assignment_made` twice: once for the assigned coordinator (`recipient="coordinator"`) and once for the organiser who created the request (`recipient="organiser"`). Each carries `email`, `request_reference`, `event_name`, `coordinator_name` (display name) and `event_dates` (the preferred dates). Nothing is sent when the assignment is refused (`422`, `409`, `404`, `403`, `401`). Best effort after the commit: a notifier error is logged and never undoes the assignment, and one recipient failing doesn't stop the other. A missing organiser or email logs a warning and still notifies the coordinator; missing request details (no reference or name) log a warning and send nothing. **Reassignment's notices (SCRUM-68's last AC) arrive with SCRUM-83**, which should reuse `assignment_made` and add the previous coordinator as a recipient.
+**Assignment notices (SCRUM-68, D29).** After `POST /api/v1/event-requests/{id}/assignment` commits, `assignment_service` calls `Notifier.assignment_made` twice: once for the assigned coordinator (`recipient="coordinator"`) and once for the organiser who created the request (`recipient="organiser"`). Each carries `email`, `request_reference`, `event_name`, `coordinator_name` (display name) and `event_dates` (the preferred dates). Nothing is sent when the assignment is refused (`422`, `409`, `404`, `403`, `401`). Best effort after the commit: a notifier error is logged and never undoes the assignment, and one recipient failing doesn't stop the other. A missing organiser or email logs a warning and still notifies the coordinator; missing request details (no reference or name) log a warning and the notices still go out, with "no reference yet" and "Untitled event request" in their place. **Reassignment's notices (SCRUM-68's last AC) arrive with SCRUM-83**, which should reuse `assignment_made` and add the previous coordinator as a recipient.
 
 ### `POST /api/v1/event-requests/{id}/clarifications` — SCRUM-53 (US8a)
 
@@ -1075,7 +1075,7 @@ Backend: `tests/registration/test_accept_offer.py` (01–07 accept, SCRUM-51; 08
 | TC-US10C-04 | Inactive or unknown pick, the Lead themselves, already assigned, a draft, an organiser caller, no identity | Assign | `422`, `409`, `404`, `403`, `401`; no notice (AC 3) |
 | TC-US10C-05 | Notifier raises | Assign | `200`, `under_review`, coordinator kept; both notices still tried; error logged |
 | TC-US10C-06 | Request with no owner | Assign | `200`; warning logged; the coordinator is still told |
-| TC-US10C-07 | Request with no reference | Assign | `200`; warning logged; nothing sent |
+| TC-US10C-07 | Request with no reference or name | Assign | `200`; warning logged; both notices still sent, with stand-in labels |
 
 ### Cross-cutting
  
