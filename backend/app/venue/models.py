@@ -80,9 +80,10 @@ class VenueBookingStatus(enum.StrEnum):
     WITHDRAWN = "withdrawn"  # the coordinator withdrew it while pending (AC 5)
 
 
-# DECISION-PENDING: D21 — AC 3 lists approved bookings, but AC 7 (first come, first served) only
-# works if a pending request blocks the window too. The migration's exclusion constraint uses the
-# same pair; change both together.
+# D21 (decided by the team): Requested and Approved both block the window, from the sessions 1-2
+# clarification behind AC 7, "any overlap is prevented; first come, first served". AC 3 lists only
+# approved bookings, but first come, first served needs a pending request to hold the window too.
+# The migration's exclusion constraint uses the same pair; change both together.
 LIVE_BOOKING_STATUSES = (VenueBookingStatus.REQUESTED, VenueBookingStatus.APPROVED)
 
 
@@ -125,7 +126,10 @@ class VenueBooking(Base):
         pg_enum(VenueBookingStatus, "venue_booking_status"), server_default=VenueBookingStatus.REQUESTED.value
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Any ORM update stamps the time unless the caller sets it (withdraw passes its clock).
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
     withdrawn_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 

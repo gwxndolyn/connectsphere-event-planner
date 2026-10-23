@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import inspect, text
+from sqlalchemy import func, inspect, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -14,7 +14,7 @@ from app.event.models import Event, EventStatus
 from app.user.models import User, UserRole
 from app.venue import service as venue_service_module
 from app.venue.models import Venue, VenueBooking, VenueBookingStatus
-from tests.factories import NOW, make_event, make_user, make_venue
+from tests.factories import NOW, make_event, make_user, make_venue, make_venue_booking
 
 AGREED_COLUMNS = {
     "id",
@@ -54,35 +54,6 @@ def coordinator(db: Session) -> User:
 @pytest.fixture
 def venue(db: Session) -> Venue:
     return make_venue(db)
-
-
-def make_venue_booking(
-    db: Session,
-    *,
-    event: Event,
-    venue: Venue,
-    user: User,
-    starts_at: datetime = START,
-    ends_at: datetime = END,
-    status: VenueBookingStatus = VenueBookingStatus.REQUESTED,
-    **overrides: object,
-) -> VenueBooking:
-    fields: dict[str, object] = {
-        "event_id": event.id,
-        "venue_id": venue.id,
-        "requested_by_user_id": user.id,
-        "starts_at": starts_at,
-        "ends_at": ends_at,
-        "expected_attendees": 30,
-        "room_layout": "theatre",
-        "status": status,
-        # venue_bookings_withdrawn_consistent: a withdrawn booking always carries its timestamp.
-        "withdrawn_at": NOW if status == VenueBookingStatus.WITHDRAWN else None,
-    }
-    booking = VenueBooking(**(fields | overrides))
-    db.add(booking)
-    db.flush()
-    return booking
 
 
 def refused_constraint(db: Session, **booking: object) -> str:
@@ -210,6 +181,21 @@ def test_tc_us22_01_withdrawing_without_a_timestamp_is_refused(
     assert raised.value.orig.diag.constraint_name == "venue_bookings_withdrawn_consistent"
 
 
+def test_tc_us22_01_updated_at_changes_on_update(db: Session, event: Event, venue: Venue, coordinator: User) -> None:
+    """PR #64 review: any update stamps updated_at. The test transaction's now() is the same at
+    insert and update, so the booking starts with an older updated_at to see it move."""
+    earlier = NOW - timedelta(days=1)
+    booking = make_venue_booking(db, event=event, venue=venue, user=coordinator, updated_at=earlier)
+    assert booking.updated_at == earlier
+
+    booking.expected_attendees = 35
+    db.flush()
+    db.refresh(booking)
+
+    assert booking.updated_at == db.scalar(select(func.now()))
+    assert booking.updated_at > earlier
+
+
 def test_tc_us22_01_bookings_have_no_buffer_columns(engine) -> None:
     """TC-US20-07's booking half: setup and turnaround belong to the venue, so a booking can't
     carry its own."""
@@ -250,7 +236,7 @@ def test_tc_us22_01_database_rejects_invalid_bookings(
 def test_tc_us22_02_overlapping_live_booking_is_refused(
     db: Session, event: Event, venue: Venue, coordinator: User, existing: VenueBookingStatus
 ) -> None:
-    # DECISION-PENDING: D21 — a Requested booking blocks the window too, so AC 7's first request wins.
+    # D21 (decided): a Requested booking blocks the window too, so AC 7's first request wins.
     make_venue_booking(db, event=event, venue=venue, user=coordinator, status=existing)
 
     constraint = refused_constraint(

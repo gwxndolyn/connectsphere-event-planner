@@ -27,6 +27,17 @@ class Notifier(Protocol):
         comment: str,
     ) -> None: ...
 
+    def venue_booking_requested(
+        self,
+        *,
+        email: str,
+        booking_id: uuid.UUID,
+        event_name: str,
+        venue_name: str,
+        starts_at: datetime,
+        ends_at: datetime,
+    ) -> None: ...
+
     def request_queued(
         self,
         *,
@@ -82,6 +93,26 @@ class LoggingNotifier:
             round,
             ", ".join(sections),
             comment,
+        )
+
+    def venue_booking_requested(
+        self,
+        *,
+        email: str,
+        booking_id: uuid.UUID,
+        event_name: str,
+        venue_name: str,
+        starts_at: datetime,
+        ends_at: datetime,
+    ) -> None:
+        logger.info(
+            "venue booking requested: %s, %r at %r from %s to %s (booking %s)",
+            email,
+            event_name,
+            venue_name,
+            starts_at,
+            ends_at,
+            booking_id,
         )
 
     def request_queued(

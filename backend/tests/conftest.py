@@ -80,6 +80,7 @@ class FakeNotifier:
     def __init__(self) -> None:
         self.offers: list[dict[str, object]] = []
         self.clarifications: list[dict[str, object]] = []
+        self.venue_bookings: list[dict[str, object]] = []
         self.queued: list[dict[str, object]] = []
         self.assignments: list[dict[str, object]] = []
         self.fail = False
@@ -115,6 +116,29 @@ class FakeNotifier:
         )
         if self.fail:
             raise RuntimeError("mail server unavailable")
+
+    def venue_booking_requested(
+        self,
+        *,
+        email: str,
+        booking_id: uuid.UUID,
+        event_name: str,
+        venue_name: str,
+        starts_at: datetime,
+        ends_at: datetime,
+    ) -> None:
+        if self.fail:
+            raise RuntimeError("mail server unavailable")
+        self.venue_bookings.append(
+            {
+                "email": email,
+                "booking_id": booking_id,
+                "event_name": event_name,
+                "venue_name": venue_name,
+                "starts_at": starts_at,
+                "ends_at": ends_at,
+            }
+        )
 
     def request_queued(
         self,

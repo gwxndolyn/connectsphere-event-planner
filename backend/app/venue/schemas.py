@@ -1,7 +1,10 @@
 import uuid
-from datetime import date, time
+from datetime import date, datetime, time
 
 from pydantic import BaseModel, ConfigDict
+
+from app.event.models import EventStatus
+from app.venue.models import VenueBookingStatus
 
 
 class VenueWrite(BaseModel):
@@ -42,6 +45,75 @@ class VenueOut(BaseModel):
 
 class VenuesOut(BaseModel):
     venues: list[VenueOut]
+
+
+class VenueBookingWrite(BaseModel):
+    """Booking request body (US22). Optional here so the service lists every missing field at once.
+    Unknown fields are rejected, so a booking can't send its own setup or turnaround (US20 AC 7)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    event_id: uuid.UUID | None = None
+    venue_id: uuid.UUID | None = None
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+    expected_attendees: int | None = None
+    room_layout: str | None = None
+    required_facilities: list[str] | None = None
+    required_accessibility_features: list[str] | None = None
+    special_requirements: str | None = None
+
+
+class BookingEventOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str | None
+    request_reference: str | None
+    status: EventStatus
+
+
+class BookingVenueOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    location: str
+    capacity: int
+
+
+class VenueBookingOut(BaseModel):
+    id: uuid.UUID
+    event: BookingEventOut
+    venue: BookingVenueOut
+    requested_by_user_id: uuid.UUID
+    starts_at: datetime
+    ends_at: datetime
+    expected_attendees: int
+    room_layout: str
+    required_facilities: list[str]
+    required_accessibility_features: list[str]
+    special_requirements: str | None
+    status: VenueBookingStatus
+    created_at: datetime
+    updated_at: datetime
+    withdrawn_at: datetime | None
+
+
+class BookingWarning(BaseModel):
+    """Something the request needs that the venue lacks (AC 3): the request still saves."""
+
+    field: str
+    item: str
+    message: str
+
+
+class VenueBookingCreatedOut(VenueBookingOut):
+    warnings: list[BookingWarning]
+
+
+class VenueBookingsOut(BaseModel):
+    bookings: list[VenueBookingOut]
 
 
 class VenueSearchCriteria(BaseModel):
