@@ -101,6 +101,53 @@ describe("Coordinator Lead: assign a coordinator (US10a)", () => {
   });
 });
 
+describe("Coordinator Lead: sees workload in the picker (US10b)", () => {
+  it("TC-US10B-07: shows each coordinator's name and how many events they are planning, 0 when none", async () => {
+    seedRequest({ status: "submitted", name: "Alumni night" });
+    const user = userEvent.setup();
+    await openEventRequestsAs(user, "coordinator_lead");
+    await user.click(await screen.findByRole("button", { name: "Assign Alumni night" }));
+
+    const option = (await screen.findByLabelText(/Casey Tan/)).closest("label")!;
+    expect(option).toHaveTextContent("Casey Tan");
+    expect(option).toHaveTextContent("0 events planning");
+  });
+
+  it("TC-US10B-08: counts only events being worked, and is one higher after assigning", async () => {
+    const casey = { id: "coordinator-id", name: "Casey Tan" };
+    seedRequest({ status: "under_review", name: "Careers fair", coordinator: casey });
+    seedRequest({ status: "planning", name: "Open day", coordinator: casey });
+    // Not being worked: rejected and cancelled events don't count.
+    seedRequest({ status: "rejected", name: "Old idea", coordinator: casey });
+    seedRequest({ status: "cancelled", name: "Called off", coordinator: casey });
+    seedRequest({ status: "submitted", name: "Alumni night" });
+    seedRequest({ status: "submitted", name: "Hack night" });
+    const user = userEvent.setup();
+    await openEventRequestsAs(user, "coordinator_lead");
+
+    await user.click(await screen.findByRole("button", { name: "Assign Alumni night" }));
+    expect((await screen.findByLabelText(/Casey Tan/)).closest("label")).toHaveTextContent("2 events planning");
+    await user.click(screen.getByLabelText(/Casey Tan/));
+    await user.click(screen.getByRole("button", { name: "Confirm assignment" }));
+    expect(await screen.findByRole("heading", { level: 2, name: "Coordinator assigned" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Back to queue" }));
+
+    // AC 3: the next time the picker opens, their count is one higher.
+    await user.click(await screen.findByRole("button", { name: "Assign Hack night" }));
+    expect((await screen.findByLabelText(/Casey Tan/)).closest("label")).toHaveTextContent("3 events planning");
+  });
+
+  it("TC-US10B-09: says '1 event planning' in the singular", async () => {
+    seedRequest({ status: "under_review", name: "Careers fair", coordinator: { id: "coordinator-id", name: "Casey Tan" } });
+    seedRequest({ status: "submitted", name: "Alumni night" });
+    const user = userEvent.setup();
+    await openEventRequestsAs(user, "coordinator_lead");
+    await user.click(await screen.findByRole("button", { name: "Assign Alumni night" }));
+
+    expect((await screen.findByLabelText(/Casey Tan/)).closest("label")).toHaveTextContent("1 event planning");
+  });
+});
+
 describe("organiser: sees the coordinator (US10a AC 8)", () => {
   it("TC-US10A-25: shows Unassigned before assignment and the coordinator's name after", async () => {
     seedRequest({ status: "submitted", name: "Alumni night" });
