@@ -8,6 +8,7 @@ from app.core.config import settings
 from app.core.exceptions import DomainError, domain_error_handler
 from app.event.router import router as event_router
 from app.event.router import v1_router as event_v1_router
+from app.event.request_router import coordinators_router as event_request_coordinators_router
 from app.event.request_router import me_router as event_request_me_router
 from app.event.request_router import router as event_request_router
 from app.registration.router import events_router as registration_events_router
@@ -41,5 +42,6 @@ app.include_router(registration_events_router)
 app.include_router(registration_me_router)
 app.include_router(event_request_router)
 app.include_router(event_request_me_router)
+app.include_router(event_request_coordinators_router)
 app.include_router(venue_router)
 app.include_router(auth_router)

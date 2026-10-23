@@ -14,7 +14,15 @@ from app.event.clarification_schemas import (
     ClarificationThreadOut,
 )
 from app.event.clarification_service import clarification_service
-from app.event.request_schemas import EventRequestOut, EventRequestWrite, EventRequestsOut
+from app.event.assignment_service import assignment_service
+from app.event.request_schemas import (
+    AssignmentWrite,
+    CoordinatorOptionsOut,
+    EventRequestOut,
+    EventRequestWrite,
+    EventRequestsOut,
+    UnassignedRequestsOut,
+)
 from app.event.request_service import event_request_service
 from app.notification.service import Notifier, get_notifier
 from app.user.dependencies import get_current_user, require_user_roles
@@ -22,10 +30,17 @@ from app.user.models import User, UserRole
 
 router = APIRouter(prefix="/api/v1/event-requests", tags=["event-requests"])
 me_router = APIRouter(prefix="/api/v1/me", tags=["event-requests"])
+coordinators_router = APIRouter(prefix="/api/v1/coordinators", tags=["event-requests"])
 
 Organiser = Annotated[User, Depends(require_user_roles(UserRole.ORGANISER))]
 Coordinator = Annotated[User, Depends(require_user_roles(UserRole.COORDINATOR))]
-Staff = Annotated[User, Depends(require_user_roles(UserRole.COORDINATOR, UserRole.OPERATIONS_MANAGER))]
+Staff = Annotated[
+    User,
+    Depends(require_user_roles(UserRole.COORDINATOR, UserRole.COORDINATOR_LEAD, UserRole.OPERATIONS_MANAGER)),
+]
+# DECISION-PENDING: SCRUM-82 owns role checks; until it lands, the seeded `coordinator_lead` role is
+# the only one that assigns (SCRUM-13 AC 6).
+Lead = Annotated[User, Depends(require_user_roles(UserRole.COORDINATOR_LEAD))]
 
 
 @router.post("", status_code=201, response_model=EventRequestOut)
@@ -53,6 +68,23 @@ def list_my_requests(
     return EventRequestsOut(event_requests=event_request_service.list_mine(db, organiser))
 
 
+# Registered before `/{request_id}` so "unassigned" is not read as an id.
+@router.get("/unassigned", response_model=UnassignedRequestsOut)
+def list_unassigned(
+    _: Lead,
+    db: Session = Depends(get_db),
+) -> UnassignedRequestsOut:
+    return UnassignedRequestsOut(event_requests=assignment_service.list_unassigned(db))
+
+
+@coordinators_router.get("", response_model=CoordinatorOptionsOut)
+def list_coordinators(
+    _: Lead,
+    db: Session = Depends(get_db),
+) -> CoordinatorOptionsOut:
+    return CoordinatorOptionsOut(coordinators=assignment_service.list_coordinators(db))
+
+
 @router.get("/{request_id}", response_model=EventRequestOut)
 def get_request(
     request_id: uuid.UUID,
@@ -78,8 +110,19 @@ def submit_request(
     organiser: Organiser,
     db: Session = Depends(get_db),
     now: datetime = Depends(get_now),
+    notifier: Notifier = Depends(get_notifier),
 ) -> EventRequestOut:
-    return event_request_service.submit(db, request_id, organiser, now)
+    return event_request_service.submit(db, request_id, organiser, now, notifier)
+
+@router.post("/{request_id}/assignment", response_model=EventRequestOut)
+def assign_coordinator(
+    request_id: uuid.UUID,
+    body: AssignmentWrite,
+    lead: Lead,
+    db: Session = Depends(get_db),
+) -> EventRequestOut:
+    return assignment_service.assign(db, request_id, lead, body.coordinator_id)
+
 
 @router.post("/{request_id}/clarifications", status_code=201, response_model=ClarificationSentOut)
 def send_clarification(
