@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { ApiError, apiClient } from "../../api/client";
+import { EventVenueBookings } from "../venue/EventVenueBookings";
 import { ClarificationThreadView } from "./ClarificationThreadView";
 import { SECTIONS, displayValue, sectionLabel, statusLabel } from "./clarificationSections";
 import type {
@@ -234,6 +235,9 @@ export function ClarificationReviewPage() {
           )}
         </form>
       )}
+
+      {/* US22 (SCRUM-113): an approved request can have a venue requested for it (D20). */}
+      {screen === "review" && activeRequest?.status === "approved" && <EventVenueBookings event={activeRequest} />}
 
       {screen === "sent" && sent && activeRequest && (
         <section className="request-confirmation" aria-labelledby="clarification-sent-title">

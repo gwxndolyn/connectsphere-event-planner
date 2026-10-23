@@ -44,16 +44,22 @@
 | TC-US22-16 | US20 gap | The coordinator assigned to an event with a live booking at a venue that was later deactivated can still read that venue, whoever made the request (D20, since US10a). Other non-staff still get `404`, including a coordinator who made the request but isn't assigned to the event, or whose only booking there is withdrawn | Auto pytest | 2 |
 | TC-US22-17 | US20 AC 7 | A booking body with `setup_minutes` or `turnaround_minutes` is `422` (unknown field): a booking can't override the venue's buffers | Auto pytest | 2 |
 | TC-US22-18 | — | No identity is `401 UNAUTHENTICATED`; an unknown event, venue or booking id is `404 NOT_FOUND` | Auto pytest | 2 |
-| TC-US22-19 | 1, 2, 4 | In the browser, a coordinator opens an approved event, chooses Request venue, picks a venue and times and submits; the booking shows as Requested. Acting as Venue staff, it appears in the pending list | Auto Playwright | 3 |
-| TC-US22-20 | 3 | In the browser, attendance above capacity shows the API's error on the attendance field; a missing layout shows a warning and the request can still be sent | Auto Playwright | 3 |
-| TC-US22-21 | 5 | In the browser, the coordinator withdraws a pending request and it shows as Withdrawn | Auto Playwright | 3 |
+| TC-US22-19 | 1, 2, 4 | In the browser, a coordinator opens the seeded approved event **Venue Booking Demo** from Event requests, chooses Request venue, picks a venue and times and submits; the booking shows as Requested. Acting as Venue staff, it appears in the pending list on Venues | Auto Playwright | 3 |
+| TC-US22-20 | 3 | In the browser, attendance above capacity shows the API's error on the attendance field; a layout the venue doesn't offer shows a warning before sending, the request can still be sent, and the API's warning is shown after | Auto Playwright | 3 |
+| TC-US22-21 | 5 | In the browser, the coordinator chooses Withdraw on a pending request; a confirm step says the window is freed to anyone at once, and backing out keeps it. Once confirmed it shows as Withdrawn | Auto Playwright | 3 |
 
 ## Decisions to confirm with the team
 
 - **D20 (`DECISION-PENDING`): who may book.** Until US10a (SCRUM-13) any coordinator could. Since US10a, only the event's assigned coordinator (`may_book`), and the inactive-venue read (TC-US22-16) follows the event's coordinator rather than whoever made the request. Still to confirm: withdrawing stays with the coordinator who made the request, even after a reassignment.
-- **Nothing sets Approved yet.** US17 (SCRUM-84) approves requests, so tests and the seed put events straight into `approved`.
+- **Nothing sets Approved yet.** US17 (SCRUM-84) approves requests, so tests and the seed put events straight into `approved`. PR 3 seeds **Venue Booking Demo** (`app.seed` `BOOKABLE_EVENT`) for the screens and E2E: owned by the organiser and **assigned to the dev coordinator** (`VITE_DEV_COORDINATOR_ID`), since only the assigned coordinator may book it (D20, since US10a). It's the one seeded event with a coordinator; TC-US10A-04 allows exactly this exception.
+- **PR 3's screens start from the review queue** (deviation 32): an Approved request shows Venue bookings and Request venue. A Planning event can't be opened by a coordinator until US10a widens D11; revisit this when #68 (US10a) lands, since AC 1 allows Planning events too. The E2E books a different venue per test, on a day 60 to 360 days ahead, and withdraws what it booked, so it never touches US2's seeded slot and reruns don't collide.
 - **Pending requests block the window too.** AC 3 lists approved bookings, holds and unavailability; AC 7 (first come, first served) only works if a Requested booking also blocks. So Requested and Approved both block, enforced by a Postgres exclusion constraint (`btree_gist`) on the venue and the time range, which also covers AC 7's race.
 - **Plain start to end for now.** Jira says to check the plain window until US13 (SCRUM-16) adds setup and turnaround buffers to the overlap rule.
 - **Unavailability is US2's `venue_blocks`; holds come later.** US2 (SCRUM-7) added `venue_blocks`, and TC-US22-09 covers it. US23a (SCRUM-90) adds Venue Staff's block screens; US25 (SCRUM-93) adds holds and extends TC-US22-09.
 - **Required facilities and accessibility are tags on the request**, from D18's lists, because the event's own `equipment_needs` and `accessibility_needs` are free text and can't be matched against a venue.
 - **New error codes:** `EVENT_NOT_BOOKABLE` (409), `INVALID_BOOKING` (422), `VENUE_CAPACITY_EXCEEDED` (422), `VENUE_UNAVAILABLE` (409), `BOOKING_NOT_PENDING` (409). Each is recorded as a deviation in §1a by the PR that adds it.
+
+## Not built
+
+- **Requesting a venue from search results** (US2's Find an available venue). Only from the event for now: Request venue on an Approved request in the review queue.
+- **Approving and rejecting a request** (US4), and checking the window against the venue's opening hours or the event's own dates (US13).
