@@ -68,10 +68,14 @@ ATTENDEES = [
     "sofia.lim.2024@smu.edu.sg",
 ]
 EVENT_ORGANISER_EMAIL = "event.organiser@smu.edu.sg"
+EVENT_ORGANISER_NAME = "Olivia Organiser"
 EVENT_COORDINATOR_EMAIL = "event.coordinator@smu.edu.sg"
+# Seeded users get a full name, so what organisers see (SCRUM-13 AC 8) is a name, not an email.
+EVENT_COORDINATOR_NAME = "Casey Tan"
 VENUE_STAFF_EMAIL = "venue.staff@smu.edu.sg"
 # SCRUM-82 AC 7: more than one Lead, never a single hard-coded one.
 EVENT_COORDINATOR_LEAD_EMAILS = ("lead.one@smu.edu.sg", "lead.two@smu.edu.sg")
+EVENT_COORDINATOR_LEAD_NAMES = {"lead.one@smu.edu.sg": "Lena Lim", "lead.two@smu.edu.sg": "Leo Lee"}
 
 EVENTS = [
     EventSpec(
@@ -337,12 +341,14 @@ def upsert_event_organiser(db: Session) -> User:
         organiser = User(
             id=organiser_id,
             email=EVENT_ORGANISER_EMAIL,
+            full_name=EVENT_ORGANISER_NAME,
             role=UserRole.ORGANISER,
             is_active=True,
         )
         db.add(organiser)
     else:
         organiser.email = EVENT_ORGANISER_EMAIL
+        organiser.full_name = EVENT_ORGANISER_NAME
         organiser.role = UserRole.ORGANISER
         organiser.is_active = True
     return organiser
@@ -356,12 +362,14 @@ def upsert_event_coordinator(db: Session) -> User:
         coordinator = User(
             id=coordinator_id,
             email=EVENT_COORDINATOR_EMAIL,
+            full_name=EVENT_COORDINATOR_NAME,
             role=UserRole.COORDINATOR,
             is_active=True,
         )
         db.add(coordinator)
     else:
         coordinator.email = EVENT_COORDINATOR_EMAIL
+        coordinator.full_name = EVENT_COORDINATOR_NAME
         coordinator.role = UserRole.COORDINATOR
         coordinator.is_active = True
     return coordinator
@@ -394,10 +402,17 @@ def upsert_coordinator_leads(db: Session) -> list[User]:
         lead_id = seed_id("user", email)
         lead = db.get(User, lead_id)
         if lead is None:
-            lead = User(id=lead_id, email=email, role=UserRole.COORDINATOR_LEAD, is_active=True)
+            lead = User(
+                id=lead_id,
+                email=email,
+                full_name=EVENT_COORDINATOR_LEAD_NAMES[email],
+                role=UserRole.COORDINATOR_LEAD,
+                is_active=True,
+            )
             db.add(lead)
         else:
             lead.email = email
+            lead.full_name = EVENT_COORDINATOR_LEAD_NAMES[email]
             lead.role = UserRole.COORDINATOR_LEAD
             lead.is_active = True
         leads.append(lead)

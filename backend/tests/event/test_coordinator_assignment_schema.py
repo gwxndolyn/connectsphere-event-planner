@@ -54,4 +54,7 @@ def test_tc_us10a_04_seed_adds_two_active_leads_and_leaves_events_unassigned(db:
     leads = db.scalars(select(User).where(User.role == UserRole.COORDINATOR_LEAD)).all()
     assert sorted(lead.email for lead in leads) == sorted(EVENT_COORDINATOR_LEAD_EMAILS)
     assert all(lead.is_active for lead in leads)
+    # AC 8: organisers see a name, so the seeded coordinator and Leads have one.
+    assert all(lead.full_name for lead in leads)
+    assert db.scalars(select(User).where(User.role == UserRole.COORDINATOR, User.full_name.is_(None))).first() is None
     assert db.scalars(select(Event).where(Event.coordinator_id.is_not(None))).first() is None

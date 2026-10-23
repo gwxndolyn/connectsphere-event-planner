@@ -51,7 +51,7 @@ test("TC-US10A-26: the Coordinator Lead assigns a submitted request and the orga
   const organiserRow = page.getByRole("button", { name: new RegExp(eventName) });
   await expect(organiserRow).toContainText("under review");
   await expect(organiserRow).not.toContainText("Unassigned");
-  await expect(organiserRow).toContainText("Coordinator: event.coordinator@smu.edu.sg");
+  await expect(organiserRow).toContainText("Coordinator: Casey Tan");
 
   // Other roles get no Assign action (AC 6).
   await page.getByLabel("Acting as").selectOption("coordinator");

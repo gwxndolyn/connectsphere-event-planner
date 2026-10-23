@@ -23,7 +23,11 @@ class EventRequestWrite(BaseModel):
 
 
 class CoordinatorOut(BaseModel):
-    """The assigned coordinator as the organiser sees them: a name, never an email (SCRUM-13 AC 8)."""
+    """The assigned coordinator as the organiser sees them (SCRUM-13 AC 8): `name` is the full name.
+
+    A user with no full name yet (not every account has a profile) shows their email instead, so
+    every real account should have one. The seeded users do.
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
