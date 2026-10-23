@@ -120,8 +120,9 @@ def assign_coordinator(
     body: AssignmentWrite,
     lead: Lead,
     db: Session = Depends(get_db),
+    notifier: Notifier = Depends(get_notifier),
 ) -> EventRequestOut:
-    return assignment_service.assign(db, request_id, lead, body.coordinator_id)
+    return assignment_service.assign(db, request_id, lead, body.coordinator_id, notifier)
 
 
 @router.post("/{request_id}/clarifications", status_code=201, response_model=ClarificationSentOut)
