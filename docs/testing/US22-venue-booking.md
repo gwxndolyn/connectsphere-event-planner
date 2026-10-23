@@ -31,7 +31,7 @@
 | TC-US22-03 | US20 AC 2 | `has_approved_future_bookings` is true for an Approved booking ending after now, and false for Requested, past, withdrawn or rejected ones. TC-US20-02's buffer lock now triggers without forcing it | Auto pytest | 1 |
 | TC-US22-04 | 1, 2, 4 | A coordinator requests a venue for an Approved event: `201`, status `requested`, every field read back | Auto pytest | 2 |
 | TC-US22-05 | 1 | Planning events can be booked too. A draft is `404 NOT_FOUND`: it's owner-only (D11), and a 409 would reveal that it exists. Every other status (submitted, under review, awaiting clarification, rejected, confirmed, cancelled, completed) is `409 EVENT_NOT_BOOKABLE` with the current status | Auto pytest | 2 |
-| TC-US22-06 | 1 | Organisers, attendees and Venue Staff get `403 FORBIDDEN`. Until US10a adds assignment, any coordinator may book (D20); after it, only the assigned coordinator | Auto pytest | 2 |
+| TC-US22-06 | 1 | Organisers, attendees and Venue Staff get `403 FORBIDDEN`. Since US10a (#68), only the coordinator assigned to the event (`events.coordinator_id`) may book it and list its bookings (D20). A coordinator not assigned to it, or anyone on an unassigned event, gets `404 NOT_FOUND` and nothing is saved | Auto pytest | 2 |
 | TC-US22-07 | 2 | Missing fields are `422 MISSING_REQUIRED_FIELD` listing them. Start at or after end, a start in the past, or a layout or tag outside D18's lists is `422 INVALID_BOOKING` naming the field | Auto pytest | 2 |
 | TC-US22-08 | 3 | Expected attendance above the venue's capacity is `422 VENUE_CAPACITY_EXCEEDED` naming the capacity; nothing is saved. Attendance equal to capacity is accepted | Auto pytest | 2 |
 | TC-US22-09 | 3 | A window overlapping a Requested or Approved booking, or a venue block (US2's `venue_blocks`), at that venue is `409 VENUE_UNAVAILABLE` with the conflicting window, and nothing is saved; a one-second overlap is refused; back-to-back is accepted; a block at another venue doesn't count | Auto pytest | 2 |
@@ -41,7 +41,7 @@
 | TC-US22-13 | 5 | Withdrawing a Requested booking makes it `withdrawn` and frees the window, so the same window can then be requested. Withdrawing an Approved, rejected or withdrawn booking is `409 BOOKING_NOT_PENDING`. Another coordinator can't withdraw it | Auto pytest | 2 |
 | TC-US22-14 | 6 | A successful request notifies Venue Staff once, with the event, venue and window. A refused request notifies nobody | Auto pytest | 2 |
 | TC-US22-15 | 7 | Two overlapping requests for the same venue sent at the same moment in separate sessions: one gets `201`, the other `409 VENUE_UNAVAILABLE` | Auto pytest | 2 |
-| TC-US22-16 | US20 gap | A coordinator whose event has a booking at a venue that was later deactivated can still read that venue. Other non-staff still get `404` | Auto pytest | 2 |
+| TC-US22-16 | US20 gap | The coordinator assigned to an event with a live booking at a venue that was later deactivated can still read that venue, whoever made the request (D20, since US10a). Other non-staff still get `404`, including a coordinator who made the request but isn't assigned to the event, or whose only booking there is withdrawn | Auto pytest | 2 |
 | TC-US22-17 | US20 AC 7 | A booking body with `setup_minutes` or `turnaround_minutes` is `422` (unknown field): a booking can't override the venue's buffers | Auto pytest | 2 |
 | TC-US22-18 | — | No identity is `401 UNAUTHENTICATED`; an unknown event, venue or booking id is `404 NOT_FOUND` | Auto pytest | 2 |
 | TC-US22-19 | 1, 2, 4 | In the browser, a coordinator opens an approved event, chooses Request venue, picks a venue and times and submits; the booking shows as Requested. Acting as Venue staff, it appears in the pending list | Auto Playwright | 3 |
@@ -50,7 +50,7 @@
 
 ## Decisions to confirm with the team
 
-- **D20 (`DECISION-PENDING`): who may book before US10a.** Events have no assigned coordinator until US10a (SCRUM-13) adds one, so any coordinator may request a venue for an Approved or Planning event. US10a narrows it to the assigned coordinator in one place.
+- **D20 (`DECISION-PENDING`): who may book.** Until US10a (SCRUM-13) any coordinator could. Since US10a, only the event's assigned coordinator (`may_book`), and the inactive-venue read (TC-US22-16) follows the event's coordinator rather than whoever made the request. Still to confirm: withdrawing stays with the coordinator who made the request, even after a reassignment.
 - **Nothing sets Approved yet.** US17 (SCRUM-84) approves requests, so tests and the seed put events straight into `approved`.
 - **Pending requests block the window too.** AC 3 lists approved bookings, holds and unavailability; AC 7 (first come, first served) only works if a Requested booking also blocks. So Requested and Approved both block, enforced by a Postgres exclusion constraint (`btree_gist`) on the venue and the time range, which also covers AC 7's race.
 - **Plain start to end for now.** Jira says to check the plain window until US13 (SCRUM-16) adds setup and turnaround buffers to the overlap rule.
