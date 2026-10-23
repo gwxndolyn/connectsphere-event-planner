@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ApiError } from "../../api/client";
 import type { EventRequest } from "../eventRequest/types";
 import { bookingApi, bookingErrorMessage, bookingStatusLabel, formatBookingWindow } from "./bookingApi";
 import type { VenueBooking, VenueBookingCreated } from "./bookingTypes";
@@ -9,7 +10,7 @@ import "../eventRequest/eventRequests.css";
 import "./venues.css";
 
 interface EventVenueBookingsProps {
-  // An approved request: the only bookable status a coordinator can open until US10a widens D11.
+  // An approved request: the only bookable status a coordinator can open until D11 is widened.
   event: EventRequest;
 }
 
@@ -17,7 +18,8 @@ type Notice = { kind: "booked"; booking: VenueBookingCreated } | { kind: "withdr
 
 /**
  * US22 (SCRUM-113): an event's venue bookings with their status, Withdraw on a pending one (AC 5),
- * and Request venue (AC 2). Any coordinator may book an approved event until US10a (D20).
+ * and Request venue (AC 2). Only the event's assigned coordinator may book it (US10a, D20): the API
+ * answers anyone else with 404, which this panel explains instead of offering Request venue.
  */
 export function EventVenueBookings({ event }: EventVenueBookingsProps) {
   const [bookings, setBookings] = useState<VenueBooking[]>([]);
@@ -27,8 +29,13 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
   const [notice, setNotice] = useState<Notice | null>(null);
   // The booking whose Withdraw is waiting for confirmation (PR #69 review).
   const [confirming, setConfirming] = useState<VenueBooking | null>(null);
+  // The API refused this event's bookings (404): it's assigned to another coordinator (D20).
+  const [notMine, setNotMine] = useState(false);
+  const assigned = event.coordinator !== null;
 
   useEffect(() => {
+    // Nobody may book an unassigned event, so there's nothing to load.
+    if (!assigned) return;
     let current = true;
     bookingApi
       .forEvent(event.id)
@@ -36,7 +43,9 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
         if (current) setBookings(result);
       })
       .catch((reason: unknown) => {
-        if (current) setError(bookingErrorMessage(reason));
+        if (!current) return;
+        if (reason instanceof ApiError && reason.code === "NOT_FOUND") setNotMine(true);
+        else setError(bookingErrorMessage(reason));
       })
       .finally(() => {
         if (current) setLoading(false);
@@ -44,7 +53,13 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
     return () => {
       current = false;
     };
-  }, [event.id]);
+  }, [event.id, assigned]);
+
+  const blocked = !assigned
+    ? "No coordinator is assigned to this event yet, so no venue can be requested for it. A Coordinator Lead assigns one."
+    : notMine
+      ? `Only ${event.coordinator?.name}, the coordinator assigned to this event, can request a venue for it.`
+      : null;
 
   // After a booking or a refused withdrawal: show the list as the API now has it.
   async function reload() {
@@ -75,7 +90,7 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
     <section className="venue-bookings" aria-labelledby="venue-bookings-title">
       <div className="venue-bookings__head">
         <h2 id="venue-bookings-title">Venue bookings</h2>
-        {!requesting && (
+        {!requesting && !blocked && (
           <button
             type="button"
             className="request-button request-button--primary"
@@ -117,7 +132,9 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
         </div>
       )}
 
-      {requesting ? (
+      {blocked ? (
+        <p className="request-empty">{blocked}</p>
+      ) : requesting ? (
         <VenueBookingForm
           event={event}
           onCancel={() => setRequesting(false)}

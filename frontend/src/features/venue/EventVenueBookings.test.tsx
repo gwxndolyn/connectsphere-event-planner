@@ -17,6 +17,8 @@ const EVENT = {
   preferred_start_time: "14:00:00",
   preferred_end_time: "16:00:00",
   request_reference: null,
+  // Assigned to the coordinator the tests act as: only they may book it (US10a, D20).
+  coordinator: { id: "coordinator-id", name: "Casey Tan" },
 } as EventRequest;
 
 function booking(overrides: Partial<VenueBooking> = {}): VenueBooking {
@@ -67,6 +69,30 @@ describe("EventVenueBookings (US22, SCRUM-113)", () => {
     expect(within(approved).getByText("Approved")).toBeInTheDocument();
     expect(within(approved).queryByRole("button", { name: "Withdraw" })).not.toBeInTheDocument();
     expect(forEvent).toHaveBeenCalledWith("event-1");
+  });
+
+  it("on an unassigned event, says no venue can be requested and offers no button (D20)", async () => {
+    render(<EventVenueBookings event={{ ...EVENT, coordinator: null }} />);
+
+    expect(
+      screen.getByText(
+        "No coordinator is assigned to this event yet, so no venue can be requested for it. A Coordinator Lead assigns one.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Request venue" })).not.toBeInTheDocument();
+    expect(forEvent).not.toHaveBeenCalled();
+  });
+
+  it("on someone else's event, names the assigned coordinator instead of a Request venue button (D20)", async () => {
+    // The API answers a coordinator who isn't assigned with 404 (TC-US22-06).
+    forEvent.mockRejectedValue(new ApiError(404, "NOT_FOUND"));
+    render(<EventVenueBookings event={{ ...EVENT, coordinator: { id: "someone-else", name: "Pat Lim" } }} />);
+
+    expect(
+      await screen.findByText("Only Pat Lim, the coordinator assigned to this event, can request a venue for it."),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Request venue" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("says so when nothing is booked yet", async () => {

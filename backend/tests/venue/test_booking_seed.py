@@ -13,7 +13,8 @@ from tests.factories import NOW
 
 def test_tc_us22_19_seed_has_a_bookable_approved_event(db: Session) -> None:
     """TC-US22-19 to 21 need an Approved event with nothing booked yet. Nothing approves requests
-    until US17, so the seed puts it straight into approved (D24); any coordinator may book it (D20)."""
+    until US17, so the seed puts it straight into approved (D24). Only the assigned coordinator may
+    book it (US10a, D20), so it's assigned to the seeded coordinator the frontend acts as."""
     seed(db, now=NOW)
 
     event = db.get(Event, seed_id("event", BOOKABLE_EVENT.slug))
@@ -21,8 +22,9 @@ def test_tc_us22_19_seed_has_a_bookable_approved_event(db: Session) -> None:
     assert event.name == "Venue Booking Demo"
     assert event.status == EventStatus.APPROVED
     assert event.expected_attendees == 40
-    # The organiser owns it: events have no assigned coordinator until US10a.
+    # The organiser owns it; the dev coordinator (VITE_DEV_COORDINATOR_ID) is assigned to it.
     assert db.get(User, event.created_by_user_id).email == "event.organiser@smu.edu.sg"
+    assert event.coordinator_id == seed_id("user", "event-coordinator")
     assert db.scalar(select(func.count()).where(VenueBooking.event_id == event.id)) == 0
 
 

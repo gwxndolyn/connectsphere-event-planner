@@ -349,6 +349,11 @@ export const COORDINATOR_PERSON = { id: COORDINATOR_ID, name: "Casey Tan", email
 const ORGANISER_PERSON = { id: ORGANISER_ID, name: "Olivia Organiser", email: "event.organiser@smu.edu.sg" };
 
 const CLARIFIABLE = new Set(["submitted", "under_review"]);
+
+// US22 after US10a (D20): may this user book, and list the bookings of, this event?
+function assignedTo(request: EventRequest, userId: string): boolean {
+  return request.coordinator?.id === userId;
+}
 const BOOKING_REQUIRED = ["event_id", "venue_id", "starts_at", "ends_at", "expected_attendees", "room_layout"];
 const SECTION_ORDER = ["details", "schedule", "attendance", "layout", "accessibility", "equipment", "registration"];
 
@@ -541,7 +546,10 @@ const handlers = [
     const sent = (body ?? {}) as Record<string, unknown>;
     const missing = BOOKING_REQUIRED.filter((field) => sent[field] === undefined || sent[field] === null || sent[field] === "");
     if (missing.length > 0) return error(422, "MISSING_REQUIRED_FIELD", { fields: missing });
-    const event = db.requests.find((r) => r.id === sent.event_id && r.status !== "draft");
+    // D20 since US10a: only the event's assigned coordinator; anyone else's or an unassigned event is 404.
+    const event = db.requests.find(
+      (r) => r.id === sent.event_id && r.status !== "draft" && assignedTo(r, request.headers.get("X-User-Id")!),
+    );
     const venue = db.venues.find((v) => v.id === sent.venue_id && v.is_active);
     if (!event || !venue) return error(404, "NOT_FOUND");
     if (event.status !== "approved" && event.status !== "planning") {
@@ -582,9 +590,12 @@ const handlers = [
   route("get", "/api/v1/events/:id/venue-bookings", ({ request, params }) => {
     const role = userRole(request);
     if (!role) return error(401, "UNAUTHENTICATED");
-    if (role === "organiser") return error(403, "FORBIDDEN");
+    if (role !== "coordinator" && role !== "operations_manager") return error(403, "FORBIDDEN");
     const event = db.requests.find((r) => r.id === params.id && r.status !== "draft");
-    if (!event) return error(404, "NOT_FOUND");
+    // Venue Staff read any event's bookings; a coordinator only those of an event assigned to them (D20).
+    if (!event || (role === "coordinator" && !assignedTo(event, request.headers.get("X-User-Id")!))) {
+      return error(404, "NOT_FOUND");
+    }
     const bookings = db.bookings.filter((b) => b.event.id === event.id).sort((a, b) => a.starts_at.localeCompare(b.starts_at));
     return HttpResponse.json({ bookings });
   }),

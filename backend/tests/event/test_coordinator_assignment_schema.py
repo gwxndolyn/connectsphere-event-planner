@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.event.models import Event, EventStatus
-from app.seed import EVENT_COORDINATOR_LEAD_EMAILS, seed
+from app.seed import BOOKABLE_EVENT, EVENT_COORDINATOR_LEAD_EMAILS, seed, seed_id
 from app.user.models import User, UserRole
 from tests.factories import make_event
 
@@ -57,4 +57,7 @@ def test_tc_us10a_04_seed_adds_two_active_leads_and_leaves_events_unassigned(db:
     # AC 8: organisers see a name, so the seeded coordinator and Leads have one.
     assert all(lead.full_name for lead in leads)
     assert db.scalars(select(User).where(User.role == UserRole.COORDINATOR, User.full_name.is_(None))).first() is None
-    assert db.scalars(select(Event).where(Event.coordinator_id.is_not(None))).first() is None
+    # Seeded events start unassigned, except US22's Venue Booking Demo: only its assigned coordinator
+    # may book it (D20), so the seed assigns the dev coordinator for the booking screens and E2E.
+    assigned = db.scalars(select(Event.id).where(Event.coordinator_id.is_not(None))).all()
+    assert assigned == [seed_id("event", BOOKABLE_EVENT.slug)]

@@ -4,7 +4,15 @@ import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 import App from "../../App";
 import { setDevRole } from "../../api/client";
-import { callsTo, seedBooking, seedRequest, seedVenue, server, startMockBackend } from "../../test/server";
+import {
+  callsTo,
+  COORDINATOR_PERSON,
+  seedBooking,
+  seedRequest,
+  seedVenue,
+  server,
+  startMockBackend,
+} from "../../test/server";
 
 // US22 (SCRUM-89, PR 3 SCRUM-113): the real App, review queue and booking screens against the fake
 // backend. Whether a window is free, the capacity rule and the venue warnings are the API's rules,
@@ -13,6 +21,10 @@ import { callsTo, seedBooking, seedRequest, seedVenue, server, startMockBackend 
 startMockBackend();
 
 type User = ReturnType<typeof userEvent.setup>;
+
+// Only the event's assigned coordinator may book it (US10a, D20), so the flows' events are assigned
+// to the coordinator the tests act as.
+const MINE = { coordinator: { id: COORDINATOR_PERSON.id, name: COORDINATOR_PERSON.name } };
 
 async function openRequest(user: User, name: string) {
   setDevRole("coordinator");
@@ -28,7 +40,7 @@ function bookings() {
 
 describe("venue booking (US22)", () => {
   it("a coordinator requests a venue for an approved event, which then shows as Requested (TC-US22-19)", async () => {
-    seedRequest({ status: "approved", name: "Venue Booking Demo", expected_attendees: 40 });
+    seedRequest({ status: "approved", name: "Venue Booking Demo", expected_attendees: 40, ...MINE });
     const venue = seedVenue({ name: "Hall A", room_layouts: ["theatre"] });
     const user = userEvent.setup();
     await openRequest(user, "Venue Booking Demo");
@@ -58,7 +70,7 @@ describe("venue booking (US22)", () => {
   });
 
   it("shows the API's capacity error on attendance (TC-US22-20)", async () => {
-    seedRequest({ status: "approved", name: "Venue Booking Demo" });
+    seedRequest({ status: "approved", name: "Venue Booking Demo", ...MINE });
     const venue = seedVenue({ name: "Hall A", capacity: 12, room_layouts: ["theatre"] });
     server.use(
       http.post("http://api.test/api/v1/venue-bookings", () =>
@@ -87,7 +99,7 @@ describe("venue booking (US22)", () => {
   });
 
   it("withdraws a pending request after confirming (TC-US22-21)", async () => {
-    const request = seedRequest({ status: "approved", name: "Venue Booking Demo" });
+    const request = seedRequest({ status: "approved", name: "Venue Booking Demo", ...MINE });
     seedBooking(request, seedVenue({ name: "Hall A" }));
     const user = userEvent.setup();
     await openRequest(user, "Venue Booking Demo");
@@ -102,6 +114,18 @@ describe("venue booking (US22)", () => {
     expect(callsTo("POST", /\/withdraw$/)).toHaveLength(1);
   });
 
+  it("on an approved event assigned to someone else, names them and offers no Request venue (D20)", async () => {
+    seedRequest({ status: "approved", name: "Someone Else's Event", coordinator: { id: "other-coordinator", name: "Pat Lim" } });
+    const user = userEvent.setup();
+    await openRequest(user, "Someone Else's Event");
+
+    expect(
+      await bookings().findByText("Only Pat Lim, the coordinator assigned to this event, can request a venue for it."),
+    ).toBeInTheDocument();
+    expect(bookings().queryByRole("button", { name: "Request venue" })).not.toBeInTheDocument();
+    expect(callsTo("POST", "/api/v1/venue-bookings")).toHaveLength(0);
+  });
+
   it("offers no venue booking on a request that isn't approved (AC 1)", async () => {
     seedRequest({ status: "under_review", name: "Still Under Review" });
     const user = userEvent.setup();
@@ -112,7 +136,7 @@ describe("venue booking (US22)", () => {
   });
 
   it("Venue staff see the pending list on Venues (AC 4)", async () => {
-    const request = seedRequest({ status: "approved", name: "Venue Booking Demo" });
+    const request = seedRequest({ status: "approved", name: "Venue Booking Demo", ...MINE });
     seedBooking(request, seedVenue({ name: "Hall A" }));
     setDevRole("venue_staff");
     const user = userEvent.setup();
