@@ -51,7 +51,7 @@ class RegistrationRosterService:
     def _manages(self, event: Event, user: User) -> bool:
         if user.role == UserRole.ORGANISER:
             return event.created_by_user_id == user.id
-        # DECISION-PENDING: D27 — events have no assigned coordinator until US10a (SCRUM-13), so any
+        # DECISION-PENDING: D28 — events have no assigned coordinator until US10a (SCRUM-13), so any
         # active coordinator manages every event, as D14 and D20 assume. US10a narrows it here.
         return user.role == UserRole.COORDINATOR
 
