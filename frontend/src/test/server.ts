@@ -16,6 +16,7 @@ const API = "http://api.test";
 // The fixed ids vite.config.ts gives the tests (VITE_DEV_*).
 export const ORGANISER_ID = "organiser-id";
 export const COORDINATOR_ID = "coordinator-id";
+export const LEAD_ID = "lead-id";
 export const VENUE_STAFF_ID = "venue-staff-id";
 export const ATTENDEE_ID = "attendee-id";
 export const ATTENDEE_EMAIL = "calvin.ng.2024@smu.edu.sg";
@@ -157,6 +158,7 @@ export function seedRequest(overrides: Partial<EventRequest> = {}): EventRequest
     submitted_at: null,
     request_reference: null,
     created_at: "2026-10-01T02:00:00Z",
+    coordinator: null,
     ...overrides,
   };
   if (request.status !== "draft" && !request.request_reference) {
@@ -302,9 +304,10 @@ function byStart(a: FakeRegistration, b: FakeRegistration) {
   return ea.start_at.localeCompare(eb.start_at) || ea.name.localeCompare(eb.name);
 }
 
-const ROLES: Record<string, "organiser" | "coordinator" | "operations_manager"> = {
+const ROLES: Record<string, "organiser" | "coordinator" | "coordinator_lead" | "operations_manager"> = {
   [ORGANISER_ID]: "organiser",
   [COORDINATOR_ID]: "coordinator",
+  [LEAD_ID]: "coordinator_lead",
   // Venue staff is operations_manager until US16b (D19).
   [VENUE_STAFF_ID]: "operations_manager",
 };
@@ -340,6 +343,10 @@ function visibleTo(request: EventRequest, role: string, userId: string) {
   if (role !== "organiser") return request.status !== "draft";
   return request.created_by_user_id === userId;
 }
+
+// SCRUM-13: who the Lead can pick, as GET /api/v1/coordinators returns them.
+export const COORDINATOR_PERSON = { id: COORDINATOR_ID, name: "Casey Tan", email: "casey.tan@smu.edu.sg" };
+const ORGANISER_PERSON = { id: ORGANISER_ID, name: "Olivia Organiser", email: "event.organiser@smu.edu.sg" };
 
 const CLARIFIABLE = new Set(["submitted", "under_review"]);
 const BOOKING_REQUIRED = ["event_id", "venue_id", "starts_at", "ends_at", "expected_attendees", "room_layout"];
@@ -589,6 +596,40 @@ const handlers = [
     const userId = request.headers.get("X-User-Id")!;
     const mine = db.requests.filter((r) => r.created_by_user_id === userId);
     return HttpResponse.json({ event_requests: [...mine].reverse() });
+  }),
+
+  // SCRUM-13: the Lead's queue, picker and assign. "unassigned" is registered before ":id".
+  route("get", "/api/v1/event-requests/unassigned", ({ request }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "coordinator_lead") return error(403, "FORBIDDEN");
+    const queue = db.requests
+      .filter((r) => r.status === "submitted" && r.coordinator === null)
+      .map((r) => ({ ...r, organiser: r.created_by_user_id === ORGANISER_ID ? ORGANISER_PERSON : null }));
+    return HttpResponse.json({ event_requests: queue });
+  }),
+
+  route("get", "/api/v1/coordinators", ({ request }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "coordinator_lead") return error(403, "FORBIDDEN");
+    return HttpResponse.json({ coordinators: [COORDINATOR_PERSON] });
+  }),
+
+  route("post", "/api/v1/event-requests/:id/assignment", ({ request, params, body }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "coordinator_lead") return error(403, "FORBIDDEN");
+    const found = db.requests.find((r) => r.id === params.id);
+    if (!found || found.status === "draft") return error(404, "NOT_FOUND");
+    if (found.status !== "submitted" || found.coordinator !== null) {
+      return error(409, "ASSIGNMENT_NOT_ALLOWED", { status: found.status });
+    }
+    const target = (body as { coordinator_id?: string } | null)?.coordinator_id;
+    if (target === LEAD_ID) return error(422, "INVALID_COORDINATOR", { reason: "self_assignment" });
+    if (target !== COORDINATOR_PERSON.id) return error(422, "INVALID_COORDINATOR", { reason: "not_a_coordinator" });
+    Object.assign(found, { status: "under_review", coordinator: { id: COORDINATOR_PERSON.id, name: COORDINATOR_PERSON.name } });
+    return HttpResponse.json(found);
   }),
 
   route("get", "/api/v1/event-requests", ({ request }) => {

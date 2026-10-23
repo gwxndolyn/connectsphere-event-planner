@@ -43,6 +43,8 @@ def make_event(
     # True, unlike the column's default: like registration_enabled, the factory builds an event
     # that takes registrations and offers a waitlist when full. Pass False to test US6a AC 2.
     waitlist_enabled: bool = True,
+    # US10a (SCRUM-13): the coordinator assigned to the event; None leaves it unassigned.
+    coordinator_id: uuid.UUID | None = None,
 ) -> Event:
     start_at = start_at or NOW + timedelta(days=1)
     registration_opens_at = (
@@ -63,6 +65,7 @@ def make_event(
         room_number=room_number,
         join_link=join_link,
         waitlist_enabled=waitlist_enabled,
+        coordinator_id=coordinator_id,
     )
     db.add(event)
     db.flush()

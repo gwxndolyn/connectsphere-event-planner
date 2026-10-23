@@ -48,10 +48,11 @@ CONSTRAINT_FIELDS = {
 
 
 def may_book(event: Event, coordinator: User) -> bool:
-    """Whether this coordinator may request venues for, and see the bookings of, this event."""
-    # DECISION-PENDING: D20 — events have no assigned coordinator until US10a (SCRUM-13), so any
-    # coordinator may. US10a changes only this line, to the coordinator assigned to the event.
-    return coordinator.role == UserRole.COORDINATOR
+    """Whether this coordinator may request venues for, and see the bookings of, this event: only the
+    coordinator assigned to it (US22 AC 1). An unassigned event has nobody who may."""
+    # DECISION-PENDING: D20 — since US10a (SCRUM-13), events.coordinator_id. Withdrawing still
+    # belongs to whoever made the request (withdraw), even if the event is later reassigned.
+    return coordinator.role == UserRole.COORDINATOR and event.coordinator_id == coordinator.id
 
 
 def _find_conflict(db: Session, venue_id: uuid.UUID, starts_at: datetime, ends_at: datetime) -> VenueBooking | None:

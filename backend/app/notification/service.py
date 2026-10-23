@@ -1,9 +1,12 @@
 import logging
 import uuid
-from datetime import datetime
-from typing import Protocol
+from datetime import date, datetime
+from typing import Literal, Protocol
 
 logger = logging.getLogger(__name__)
+
+# Who an assignment notice is for (SCRUM-68). Reassignment (SCRUM-83) adds more.
+AssignmentRecipient = Literal["coordinator", "organiser"]
 
 
 class Notifier(Protocol):
@@ -33,6 +36,27 @@ class Notifier(Protocol):
         venue_name: str,
         starts_at: datetime,
         ends_at: datetime,
+    ) -> None: ...
+
+    def request_queued(
+        self,
+        *,
+        email: str,
+        request_reference: str,
+        event_name: str,
+        organiser_name: str,
+        preferred_dates: list[date],
+    ) -> None: ...
+
+    def assignment_made(
+        self,
+        *,
+        email: str,
+        recipient: AssignmentRecipient,
+        request_reference: str,
+        event_name: str,
+        coordinator_name: str,
+        event_dates: list[date],
     ) -> None: ...
 
 
@@ -89,6 +113,46 @@ class LoggingNotifier:
             starts_at,
             ends_at,
             booking_id,
+        )
+
+    def request_queued(
+        self,
+        *,
+        email: str,
+        request_reference: str,
+        event_name: str,
+        organiser_name: str,
+        preferred_dates: list[date],
+    ) -> None:
+        # SCRUM-13 AC 11: tells a Coordinator Lead a new request is waiting in the unassigned queue.
+        logger.info(
+            "request queued: %s, %s (%s) from %s, preferred dates %s",
+            email,
+            request_reference,
+            event_name,
+            organiser_name,
+            ", ".join(day.isoformat() for day in preferred_dates),
+        )
+
+    def assignment_made(
+        self,
+        *,
+        email: str,
+        recipient: AssignmentRecipient,
+        request_reference: str,
+        event_name: str,
+        coordinator_name: str,
+        event_dates: list[date],
+    ) -> None:
+        # SCRUM-68 AC 1, 2: the coordinator hears they own the event, the organiser who it is.
+        logger.info(
+            "coordinator assigned (%s notice): %s, %s (%s), coordinator %s, dates %s",
+            recipient,
+            email,
+            request_reference,
+            event_name,
+            coordinator_name,
+            ", ".join(day.isoformat() for day in event_dates),
         )
 
 

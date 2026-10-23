@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import DomainError
+from app.event.models import Event
 from app.user.models import User, UserRole
 from app.venue.models import (
     ACCESSIBILITY_FEATURES,
@@ -27,7 +28,7 @@ from app.venue.schemas import VenueOut, VenueSearchCriteria, VenueSearchOut, Ven
 VENUE_STAFF_ROLES = (UserRole.OPERATIONS_MANAGER,)
 
 # DECISION-PENDING: D25 — US2 is the Event Coordinator's story. Coordinators search, and so does
-# operations_manager, which stands in for the Event Coordinator Lead (D11) and Venue Staff (D19)
+# operations_manager, which stands in for Venue Staff (D19)
 # until US16b. Organisers and attendees get 403.
 VENUE_SEARCH_ROLES = (UserRole.COORDINATOR, UserRole.OPERATIONS_MANAGER)
 SEARCH_REQUIRED_FIELDS = ("date", "start_time", "end_time", "attendees")
@@ -69,16 +70,17 @@ def has_approved_future_bookings(db: Session, venue_id: uuid.UUID, now: datetime
 
 
 def _has_live_booking_by(db: Session, venue_id: uuid.UUID, reader: User) -> bool:
-    """Whether the reader requested a Requested or Approved booking at this venue, so they can
-    still open it after it's deactivated (US20's gap, closed in US22, TC-US22-16)."""
-    # DECISION-PENDING: D20 — until US10a assigns coordinators to events, "whose event is booked
-    # here" means "who requested the booking". US10a widens this to the reader's assigned events.
+    """Whether an event assigned to the reader has a Requested or Approved booking at this venue,
+    so they can still open it after it's deactivated (US20's gap, closed in US22, TC-US22-16)."""
+    # DECISION-PENDING: D20 — since US10a (SCRUM-13), "whose event is booked here" is the event's
+    # assigned coordinator (events.coordinator_id), whoever made the request.
     return db.scalar(
         select(
             exists().where(
                 VenueBooking.venue_id == venue_id,
-                VenueBooking.requested_by_user_id == reader.id,
                 VenueBooking.status.in_(LIVE_BOOKING_STATUSES),
+                Event.id == VenueBooking.event_id,
+                Event.coordinator_id == reader.id,
             )
         )
     )

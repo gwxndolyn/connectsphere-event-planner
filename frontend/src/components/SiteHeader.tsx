@@ -80,6 +80,7 @@ export function SiteHeader({ search, onSearchChange, view, onNavigate, devRole, 
           <select value={devRole} onChange={(event) => onDevRoleChange(event.target.value as DevRole)}>
             <option value="organiser">Organiser</option>
             <option value="coordinator">Coordinator</option>
+            <option value="coordinator_lead">Coordinator Lead</option>
             <option value="venue_staff">Venue staff</option>
           </select>
         </label>

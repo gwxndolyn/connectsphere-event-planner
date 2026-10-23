@@ -236,7 +236,7 @@ def test_tc_us22_01_database_rejects_invalid_bookings(
 def test_tc_us22_02_overlapping_live_booking_is_refused(
     db: Session, event: Event, venue: Venue, coordinator: User, existing: VenueBookingStatus
 ) -> None:
-    # DECISION-PENDING: D21 — a Requested booking blocks the window too, so AC 7's first request wins.
+    # D21 (decided): a Requested booking blocks the window too, so AC 7's first request wins.
     make_venue_booking(db, event=event, venue=venue, user=coordinator, status=existing)
 
     constraint = refused_constraint(

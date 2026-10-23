@@ -1,7 +1,7 @@
 import os
 import uuid
 from collections.abc import AsyncGenerator, Generator
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 import pytest
@@ -81,6 +81,8 @@ class FakeNotifier:
         self.offers: list[dict[str, object]] = []
         self.clarifications: list[dict[str, object]] = []
         self.venue_bookings: list[dict[str, object]] = []
+        self.queued: list[dict[str, object]] = []
+        self.assignments: list[dict[str, object]] = []
         self.fail = False
 
     def waitlist_offer(
@@ -137,6 +139,50 @@ class FakeNotifier:
                 "ends_at": ends_at,
             }
         )
+
+    def request_queued(
+        self,
+        *,
+        email: str,
+        request_reference: str,
+        event_name: str,
+        organiser_name: str,
+        preferred_dates: list[date],
+    ) -> None:
+        self.queued.append(
+            {
+                "email": email,
+                "request_reference": request_reference,
+                "event_name": event_name,
+                "organiser_name": organiser_name,
+                "preferred_dates": preferred_dates,
+            }
+        )
+        if self.fail:
+            raise RuntimeError("mail server unavailable")
+
+    def assignment_made(
+        self,
+        *,
+        email: str,
+        recipient: str,
+        request_reference: str,
+        event_name: str,
+        coordinator_name: str,
+        event_dates: list[date],
+    ) -> None:
+        self.assignments.append(
+            {
+                "email": email,
+                "recipient": recipient,
+                "request_reference": request_reference,
+                "event_name": event_name,
+                "coordinator_name": coordinator_name,
+                "event_dates": event_dates,
+            }
+        )
+        if self.fail:
+            raise RuntimeError("mail server unavailable")
 
 
 @pytest.fixture

@@ -87,9 +87,10 @@ def staff(db: Session) -> User:
 
 
 @pytest.fixture
-def event(db: Session) -> Event:
+def event(db: Session, coordinator: User) -> Event:
     # DECISION-PENDING: D24 — nothing approves a request until US17, so tests create it approved.
-    return make_event(db, name="Data Science Summit", status=EventStatus.APPROVED)
+    # Assigned to `coordinator` (US10a): only the assigned coordinator may book it (AC 1, D20).
+    return make_event(db, name="Data Science Summit", status=EventStatus.APPROVED, coordinator_id=coordinator.id)
 
 
 @pytest.fixture
@@ -146,7 +147,7 @@ async def test_tc_us22_04_coordinator_requests_a_venue_for_an_approved_event(
 async def test_tc_us22_05_planning_events_can_be_booked(
     client: AsyncClient, db: Session, coordinator: User, venue: Venue
 ) -> None:
-    event = make_event(db, status=EventStatus.PLANNING)
+    event = make_event(db, status=EventStatus.PLANNING, coordinator_id=coordinator.id)
 
     response = await client.post(CREATE_URL, headers=auth(coordinator), json=booking_body(event, venue))
 
@@ -157,7 +158,7 @@ async def test_tc_us22_05_planning_events_can_be_booked(
 async def test_tc_us22_05_other_statuses_are_not_bookable(
     client: AsyncClient, db: Session, coordinator: User, venue: Venue, status: EventStatus
 ) -> None:
-    event = make_event(db, status=status)
+    event = make_event(db, status=status, coordinator_id=coordinator.id)
 
     response = await client.post(CREATE_URL, headers=auth(coordinator), json=booking_body(event, venue))
 
@@ -168,7 +169,7 @@ async def test_tc_us22_05_other_statuses_are_not_bookable(
 
 async def test_tc_us22_05_a_draft_is_not_found(client: AsyncClient, db: Session, coordinator: User, venue: Venue) -> None:
     """D11: a draft is owner-only, so a 409 would reveal that it exists."""
-    event = make_event(db, status=EventStatus.DRAFT)
+    event = make_event(db, status=EventStatus.DRAFT, coordinator_id=coordinator.id)
 
     response = await client.post(CREATE_URL, headers=auth(coordinator), json=booking_body(event, venue))
 
@@ -200,22 +201,49 @@ async def test_tc_us22_06_inactive_coordinator_is_refused(
     assert response.status_code == 403
 
 
-async def test_tc_us22_06_any_coordinator_may_book_until_us10a(
+async def test_tc_us22_06_the_assigned_coordinator_may_book_and_list(
+    client: AsyncClient, db: Session, coordinator: User, event: Event, venue: Venue
+) -> None:
+    # DECISION-PENDING: D20 — US10a (SCRUM-13) assigns the coordinator; AC 1 lets only them book.
+    assert event.coordinator_id == coordinator.id
+
+    response = await client.post(CREATE_URL, headers=auth(coordinator), json=booking_body(event, venue))
+    listed = await client.get(event_bookings_url(event.id), headers=auth(coordinator))
+
+    assert response.status_code == 201
+    assert [row["id"] for row in listed.json()["bookings"]] == [response.json()["id"]]
+
+
+async def test_tc_us22_06_a_coordinator_not_assigned_to_the_event_is_refused(
     client: AsyncClient, db: Session, event: Event, venue: Venue
 ) -> None:
-    # DECISION-PENDING: D20 — no coordinator is assigned to an event until US10a (SCRUM-13).
-    for offset in (0, 3):
-        response = await client.post(
-            CREATE_URL,
-            headers=auth(make_user(db, UserRole.COORDINATOR)),
-            json=booking_body(
-                event,
-                venue,
-                starts_at=(START + timedelta(hours=offset)).isoformat(),
-                ends_at=(END + timedelta(hours=offset)).isoformat(),
-            ),
-        )
-        assert response.status_code == 201
+    """Someone else's event is 404, never 403, as everywhere else: it isn't theirs to see."""
+    other = make_user(db, UserRole.COORDINATOR)
+
+    response = await client.post(CREATE_URL, headers=auth(other), json=booking_body(event, venue))
+    listed = await client.get(event_bookings_url(event.id), headers=auth(other))
+
+    assert response.status_code == 404
+    assert response.json() == {"code": "NOT_FOUND"}
+    assert listed.status_code == 404
+    assert booking_count(db) == 0
+
+
+async def test_tc_us22_06_an_unassigned_event_cannot_be_booked(
+    client: AsyncClient, db: Session, coordinator: User, staff: User, venue: Venue
+) -> None:
+    """Approved but not yet assigned (no Lead has picked a coordinator): no coordinator may book it."""
+    unassigned = make_event(db, status=EventStatus.APPROVED)
+
+    response = await client.post(CREATE_URL, headers=auth(coordinator), json=booking_body(unassigned, venue))
+    listed = await client.get(event_bookings_url(unassigned.id), headers=auth(coordinator))
+
+    assert response.status_code == 404
+    assert response.json() == {"code": "NOT_FOUND"}
+    assert listed.status_code == 404
+    assert booking_count(db) == 0
+    # Venue Staff still read any event's bookings.
+    assert (await client.get(event_bookings_url(unassigned.id), headers=auth(staff))).status_code == 200
 
 
 @pytest.mark.parametrize("role", [UserRole.ORGANISER, UserRole.ATTENDEE])
@@ -363,7 +391,7 @@ async def test_tc_us22_08_attendance_equal_to_capacity_is_accepted(
 async def test_tc_us22_09_overlapping_window_is_refused_with_the_conflict(
     client: AsyncClient, db: Session, coordinator: User, event: Event, venue: Venue, existing: VenueBookingStatus
 ) -> None:
-    # DECISION-PENDING: D21 — Requested blocks as well as Approved.
+    # D21 (decided): Requested blocks as well as Approved.
     make_venue_booking(
         db, event=event, venue=venue, user=make_user(db, UserRole.COORDINATOR), status=existing
     )
@@ -592,7 +620,7 @@ async def test_tc_us22_12_event_list_shows_every_status_by_start(
 async def test_tc_us22_12_a_drafts_bookings_are_not_found(
     client: AsyncClient, db: Session, coordinator: User
 ) -> None:
-    draft = make_event(db, status=EventStatus.DRAFT)
+    draft = make_event(db, status=EventStatus.DRAFT, coordinator_id=coordinator.id)
 
     response = await client.get(event_bookings_url(draft.id), headers=auth(coordinator))
 
@@ -709,6 +737,7 @@ async def test_tc_us22_14_an_unnamed_event_is_named_by_its_reference(
         status=EventStatus.APPROVED,
         request_reference="ER-2026-000042",
         delivery_mode=DeliveryMode.IN_PERSON,
+        coordinator_id=coordinator.id,
     )
     db.add(event)
     db.flush()
@@ -725,12 +754,15 @@ async def test_tc_us22_14_an_unnamed_event_is_named_by_its_reference(
 class Committed:
     """Rows committed for real, so separate sessions (connections) can all see them."""
 
-    def __init__(self, coordinators: list[uuid.UUID], staff: uuid.UUID, event: uuid.UUID, venue: uuid.UUID) -> None:
-        self.coordinators, self.staff, self.event, self.venue = coordinators, staff, event, venue
+    def __init__(
+        self, coordinators: list[uuid.UUID], staff: uuid.UUID, events: dict[uuid.UUID, uuid.UUID], venue: uuid.UUID
+    ) -> None:
+        # events: each coordinator's own assigned event (US10a), all to be held at the same venue.
+        self.coordinators, self.staff, self.events, self.venue = coordinators, staff, events, venue
 
-    def body(self, offset: timedelta = timedelta()) -> VenueBookingWrite:
+    def body(self, event: uuid.UUID, offset: timedelta = timedelta()) -> VenueBookingWrite:
         return VenueBookingWrite(
-            event_id=self.event,
+            event_id=event,
             venue_id=self.venue,
             starts_at=START + offset,
             ends_at=END + offset,
@@ -742,7 +774,8 @@ class Committed:
         """One request in its own session: 201, or the refusal's (status, code)."""
         with Session(engine) as session:
             try:
-                booking_service.create(session, session.get(User, coordinator), self.body(offset), NOW, notifier)
+                body = self.body(self.events[coordinator], offset)
+                booking_service.create(session, session.get(User, coordinator), body, NOW, notifier)
                 return 201
             except DomainError as error:
                 return (error.status_code, error.code)
@@ -757,17 +790,20 @@ def committed(engine: Engine) -> Generator[Committed, None, None]:
         staff = User(email=f"{uuid.uuid4().hex}@smu.edu.sg", role=UserRole.OPERATIONS_MANAGER)
         setup.add_all([*coordinators, staff])
         setup.flush()
-        event = make_event(setup, status=EventStatus.APPROVED)
+        # AC 7: two coordinators, each requesting for the event assigned to them, at one venue.
+        events = {
+            user.id: make_event(setup, status=EventStatus.APPROVED, coordinator_id=user.id).id for user in coordinators
+        }
         venue = make_venue(setup)
         setup.commit()
-        rows = Committed([user.id for user in coordinators], staff.id, event.id, venue.id)
+        rows = Committed([user.id for user in coordinators], staff.id, events, venue.id)
     try:
         yield rows
     finally:
         with Session(engine) as cleanup:
             cleanup.execute(delete(VenueBooking).where(VenueBooking.venue_id == rows.venue))
             cleanup.execute(delete(Venue).where(Venue.id == rows.venue))
-            cleanup.execute(delete(Event).where(Event.id == rows.event))
+            cleanup.execute(delete(Event).where(Event.id.in_(list(rows.events.values()))))
             cleanup.execute(delete(User).where(User.id.in_([*rows.coordinators, rows.staff])))
             cleanup.commit()
 
@@ -860,11 +896,13 @@ def test_tc_us22_15_a_second_deadlock_is_refused_as_unavailable(
 # --- TC-US22-16 US20's inactive-venue gap ---
 
 
-async def test_tc_us22_16_a_booked_coordinator_can_read_a_deactivated_venue(
+async def test_tc_us22_16_the_events_coordinator_can_read_a_deactivated_venue(
     client: AsyncClient, db: Session, coordinator: User, event: Event
 ) -> None:
+    """D20 after US10a: the coordinator assigned to the booked event, even if someone else (e.g. the
+    coordinator before a reassignment) made the request."""
     venue = make_venue(db, name="Closed Hall")
-    make_venue_booking(db, event=event, venue=venue, user=coordinator)
+    make_venue_booking(db, event=event, venue=venue, user=make_user(db, UserRole.COORDINATOR))
     venue.is_active = False
     db.flush()
 
@@ -879,11 +917,14 @@ async def test_tc_us22_16_everyone_else_still_gets_not_found(
     client: AsyncClient, db: Session, coordinator: User, event: Event
 ) -> None:
     venue = make_venue(db, is_active=False)
-    make_venue_booking(db, event=event, venue=venue, user=coordinator)
+    # The live booking is on `event` (assigned to `coordinator`), requested by someone not assigned.
+    requester = make_user(db, UserRole.COORDINATOR)
+    make_venue_booking(db, event=event, venue=venue, user=requester)
+    # Another coordinator's event has only a withdrawn booking here.
     withdrawn_only = make_user(db, UserRole.COORDINATOR)
     make_venue_booking(
         db,
-        event=event,
+        event=make_event(db, status=EventStatus.APPROVED, coordinator_id=withdrawn_only.id),
         venue=venue,
         user=withdrawn_only,
         status=VenueBookingStatus.WITHDRAWN,
@@ -891,13 +932,14 @@ async def test_tc_us22_16_everyone_else_still_gets_not_found(
     )
 
     for reader in (
-        make_user(db, UserRole.COORDINATOR),
+        requester,
         withdrawn_only,
+        make_user(db, UserRole.COORDINATOR),
         make_user(db, UserRole.ORGANISER),
         make_user(db, UserRole.ATTENDEE),
     ):
         response = await client.get(f"/api/v1/venues/{venue.id}", headers=auth(reader))
-        assert response.status_code == 404, reader.role
+        assert response.status_code == 404, reader.email
 
 
 async def test_tc_us22_16_the_venue_still_leaves_the_coordinators_list(
