@@ -1,9 +1,10 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { http, HttpResponse } from "msw";
 import { beforeEach, describe, expect, it } from "vitest";
 import App from "../../App";
 import { setDevRole } from "../../api/client";
-import { callsTo, seedManagedEvent, startMockBackend } from "../../test/server";
+import { callsTo, seedManagedEvent, server, startMockBackend } from "../../test/server";
 
 // US28 (SCRUM-96): the real App and EventRegistrationsPage against the fake backend. The fake returns
 // what `seedManagedEvent` seeds, so these tests check what the screen sends and how it shows the
@@ -120,6 +121,29 @@ describe("event registrations (US28)", () => {
     expect(Object.fromEntries(lastRegistrationsCall().url.searchParams)).toEqual({ status: "withdrawn" });
     // A status filter decides on its own, so Show all doesn't apply while one is chosen.
     expect(screen.getByRole("checkbox", { name: /Show all/ })).toBeDisabled();
+  });
+
+  it("keeps the filters on screen when a load fails, so a different filter retries", async () => {
+    const user = userEvent.setup();
+    bootcamp();
+    await openRegistrations(user);
+    await user.click(await screen.findByRole("button", { name: /Design Sprint Bootcamp/ }));
+    await screen.findByRole("table", { name: "Registrants" });
+
+    server.use(
+      http.get("http://api.test/api/v1/events/:eventId/registrations", () => HttpResponse.json({}, { status: 500 }), {
+        once: true,
+      }),
+    );
+    await user.selectOptions(screen.getByLabelText("Status"), "waitlisted");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/could not be completed/);
+    expect(screen.getByLabelText("Status")).toBeInTheDocument();
+    expect(screen.queryByRole("table", { name: "Registrants" })).not.toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText("Status"), "all");
+    expect(await screen.findByRole("table", { name: "Registrants" })).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("goes back to the event list", async () => {

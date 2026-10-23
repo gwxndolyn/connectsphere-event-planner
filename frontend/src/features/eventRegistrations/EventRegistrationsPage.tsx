@@ -73,7 +73,7 @@ export function EventRegistrationsPage() {
       ) : events === null ? (
         <p className="request-empty">Loading events…</p>
       ) : events.length === 0 ? (
-        !error && <p className="request-empty">No events to show yet. Registrations appear once an event is confirmed.</p>
+        !error && <p className="request-empty">No events to show yet. Registrations appear once an event is in planning.</p>
       ) : (
         <section className="request-list" aria-label="Events you manage">
           {events.map((event) => (
@@ -117,40 +117,39 @@ function EventRegistrationsPanel({ event }: { event: ManagedEvent }) {
     };
   }, [event.id, filter]);
 
-  if (error) {
-    return (
-      <div className="request-alert" role="alert">
-        {error}
-      </div>
-    );
-  }
-  if (!data) return <p className="request-empty">Loading registrations…</p>;
-
-  const { totals, registration_fields: questions, registrations } = data;
   return (
     <>
       <p className="registrations-when">
         {formatEventDate(timed(event))} · {formatEventTimeRange(timed(event))} · Capacity {event.capacity}
       </p>
 
-      <dl className="registrations-totals" aria-label="Registration totals">
-        <div>
-          <dt>Confirmed</dt>
-          <dd>{totals.confirmed}</dd>
+      {data && (
+        <dl className="registrations-totals" aria-label="Registration totals">
+          <div>
+            <dt>Confirmed</dt>
+            <dd>{data.totals.confirmed}</dd>
+          </div>
+          <div>
+            <dt>Waitlisted</dt>
+            <dd>{data.totals.waitlisted}</dd>
+          </div>
+          <div>
+            <dt>Offered a place</dt>
+            <dd>{data.totals.offered}</dd>
+          </div>
+          <div>
+            <dt>Places left</dt>
+            <dd>{data.totals.seats_remaining}</dd>
+          </div>
+        </dl>
+      )}
+
+      {/* Above the filters, not instead of them, so a failed load can be retried by changing one. */}
+      {error && (
+        <div className="request-alert" role="alert">
+          {error}
         </div>
-        <div>
-          <dt>Waitlisted</dt>
-          <dd>{totals.waitlisted}</dd>
-        </div>
-        <div>
-          <dt>Offered a place</dt>
-          <dd>{totals.offered}</dd>
-        </div>
-        <div>
-          <dt>Places left</dt>
-          <dd>{totals.seats_remaining}</dd>
-        </div>
-      </dl>
+      )}
 
       <section className="registrations-filters" aria-label="Registration filters">
         <label className="request-field">
@@ -174,11 +173,13 @@ function EventRegistrationsPanel({ event }: { event: ManagedEvent }) {
             disabled={filter.status !== "all"}
             onChange={(change) => setFilter({ ...filter, showAll: change.target.checked })}
           />
-          Show all, including withdrawn and declined
+          Show all, including withdrawn, declined and expired offers
         </label>
       </section>
 
-      {registrations.length === 0 ? (
+      {error ? null : !data ? (
+        <p className="request-empty">Loading registrations…</p>
+      ) : data.registrations.length === 0 ? (
         <p className="request-empty">No registrations match.</p>
       ) : (
         <div className="registrations-table-wrap">
@@ -190,7 +191,7 @@ function EventRegistrationsPanel({ event }: { event: ManagedEvent }) {
                 <th scope="col">Status</th>
                 <th scope="col">Registered</th>
                 <th scope="col">Waitlist position</th>
-                {questions.map((question) => (
+                {data.registration_fields.map((question) => (
                   <th scope="col" key={question.field_key}>
                     {question.label}
                   </th>
@@ -198,7 +199,7 @@ function EventRegistrationsPanel({ event }: { event: ManagedEvent }) {
               </tr>
             </thead>
             <tbody>
-              {registrations.map((row) => (
+              {data.registrations.map((row) => (
                 <tr key={row.registration_id}>
                   <td>{row.attendee_name ?? "—"}</td>
                   <td>{row.attendee_email}</td>
@@ -210,7 +211,7 @@ function EventRegistrationsPanel({ event }: { event: ManagedEvent }) {
                   </td>
                   <td>{formatInstantDateTime(row.registered_at)}</td>
                   <td>{row.waitlist_position ?? "—"}</td>
-                  {questions.map((question) => (
+                  {data.registration_fields.map((question) => (
                     <td key={question.field_key}>{row.answers[question.field_key] || "—"}</td>
                   ))}
                 </tr>
