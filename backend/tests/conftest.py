@@ -82,6 +82,7 @@ class FakeNotifier:
         self.clarifications: list[dict[str, object]] = []
         self.venue_bookings: list[dict[str, object]] = []
         self.queued: list[dict[str, object]] = []
+        self.assignments: list[dict[str, object]] = []
         self.fail = False
 
     def waitlist_offer(
@@ -155,6 +156,29 @@ class FakeNotifier:
                 "event_name": event_name,
                 "organiser_name": organiser_name,
                 "preferred_dates": preferred_dates,
+            }
+        )
+        if self.fail:
+            raise RuntimeError("mail server unavailable")
+
+    def assignment_made(
+        self,
+        *,
+        email: str,
+        recipient: str,
+        request_reference: str,
+        event_name: str,
+        coordinator_name: str,
+        event_dates: list[date],
+    ) -> None:
+        self.assignments.append(
+            {
+                "email": email,
+                "recipient": recipient,
+                "request_reference": request_reference,
+                "event_name": event_name,
+                "coordinator_name": coordinator_name,
+                "event_dates": event_dates,
             }
         )
         if self.fail:
