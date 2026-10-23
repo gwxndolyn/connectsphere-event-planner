@@ -363,7 +363,7 @@ async def test_tc_us22_08_attendance_equal_to_capacity_is_accepted(
 async def test_tc_us22_09_overlapping_window_is_refused_with_the_conflict(
     client: AsyncClient, db: Session, coordinator: User, event: Event, venue: Venue, existing: VenueBookingStatus
 ) -> None:
-    # DECISION-PENDING: D21 — Requested blocks as well as Approved.
+    # D21 (decided): Requested blocks as well as Approved.
     make_venue_booking(
         db, event=event, venue=venue, user=make_user(db, UserRole.COORDINATOR), status=existing
     )
