@@ -76,7 +76,33 @@ describe("EventVenueBookings (US22, SCRUM-113)", () => {
     expect(await screen.findByText("No venue requested for this event yet.")).toBeInTheDocument();
   });
 
-  it("withdraws a pending request, which then shows as Withdrawn (TC-US22-21)", async () => {
+  it("asks before withdrawing, explaining the window is freed at once (TC-US22-21, PR #69 review)", async () => {
+    const withdraw = vi.spyOn(bookingApi, "withdraw");
+    render(<EventVenueBookings event={EVENT} />);
+    const user = userEvent.setup();
+
+    await user.click(within(await screen.findByRole("listitem", { name: /^Hall A/ })).getByRole("button", { name: "Withdraw" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Withdraw this venue request?" });
+    expect(dialog).toHaveTextContent("Hall A · Fri, Nov 20, 10:00 AM – 12:00 PM");
+    expect(dialog).toHaveTextContent("The window is released straight away: any coordinator can request Hall A for that time");
+    expect(withdraw).not.toHaveBeenCalled();
+  });
+
+  it("keeps the request when the coordinator backs out", async () => {
+    const withdraw = vi.spyOn(bookingApi, "withdraw");
+    render(<EventVenueBookings event={EVENT} />);
+    const user = userEvent.setup();
+
+    await user.click(within(await screen.findByRole("listitem", { name: /^Hall A/ })).getByRole("button", { name: "Withdraw" }));
+    await user.click(screen.getByRole("button", { name: "Keep request" }));
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(withdraw).not.toHaveBeenCalled();
+    expect(within(row(/^Hall A/)).getByText("Requested")).toBeInTheDocument();
+  });
+
+  it("withdraws once confirmed, and the request then shows as Withdrawn (TC-US22-21)", async () => {
     const withdraw = vi
       .spyOn(bookingApi, "withdraw")
       .mockResolvedValue(booking({ status: "withdrawn", withdrawn_at: "2026-10-01T03:00:00Z" }));
@@ -84,14 +110,16 @@ describe("EventVenueBookings (US22, SCRUM-113)", () => {
     const user = userEvent.setup();
 
     await user.click(within(await screen.findByRole("listitem", { name: /^Hall A/ })).getByRole("button", { name: "Withdraw" }));
+    await user.click(screen.getByRole("button", { name: "Withdraw request" }));
 
     expect(withdraw).toHaveBeenCalledWith("booking-1");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(within(row(/^Hall A/)).getByText("Withdrawn")).toBeInTheDocument();
     expect(within(row(/^Hall A/)).queryByRole("button", { name: "Withdraw" })).not.toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("Request for Hall A withdrawn.");
   });
 
-  it("explains BOOKING_NOT_PENDING and reloads the list to show the real status", async () => {
+  it("explains BOOKING_NOT_PENDING in the dialog and reloads the list to show the real status", async () => {
     vi.spyOn(bookingApi, "withdraw").mockRejectedValue(new ApiError(409, "BOOKING_NOT_PENDING", [], { status: "approved" }));
     render(<EventVenueBookings event={EVENT} />);
     const user = userEvent.setup();
@@ -99,9 +127,16 @@ describe("EventVenueBookings (US22, SCRUM-113)", () => {
 
     forEvent.mockResolvedValue([booking({ status: "approved" })]);
     await user.click(within(row(/^Hall A/)).getByRole("button", { name: "Withdraw" }));
+    await user.click(screen.getByRole("button", { name: "Withdraw request" }));
 
-    expect(screen.getByRole("alert")).toHaveTextContent("This booking is no longer pending (it's approved now)");
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("This booking is no longer pending (it's approved now)");
+    // Nothing left to confirm: only the way back.
+    expect(within(dialog).queryByRole("button", { name: "Withdraw request" })).not.toBeInTheDocument();
     expect(await within(row(/^Hall A/)).findByText("Approved")).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole("button", { name: "Back to bookings" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("opens the request form, then shows the booking and the API's warnings (TC-US22-19, 20)", async () => {

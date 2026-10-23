@@ -67,6 +67,7 @@ function bookingRow(page: Page, venue: string, window: string) {
 async function withdraw(page: Page, venue: string, window: string) {
   const row = bookingRow(page, venue, window);
   await row.getByRole("button", { name: "Withdraw" }).click();
+  await page.getByRole("dialog", { name: "Withdraw this venue request?" }).getByRole("button", { name: "Withdraw request" }).click();
   await expect(row).toContainText("Withdrawn");
 }
 
@@ -123,7 +124,7 @@ test("TC-US22-20: attendance over capacity is refused on the field; a missing la
   await withdraw(page, "SMU Connexion Studio 3-2", window);
 });
 
-test("TC-US22-21: the coordinator withdraws a pending request, which shows as Withdrawn (AC 5)", async ({ page }) => {
+test("TC-US22-21: the coordinator confirms withdrawing a pending request, which shows as Withdrawn (AC 5)", async ({ page }) => {
   const day = runDay();
   const window = shownWindow(day, "16:00", "18:00");
   await openEvent(page);
@@ -133,7 +134,16 @@ test("TC-US22-21: the coordinator withdraws a pending request, which shows as Wi
   const row = bookingRow(page, "Li Ka Shing Library Seminar Room 3-4", window);
   await expect(row).toContainText("Requested");
 
+  // Withdraw asks first, saying the window is freed to anyone at once; backing out keeps it.
   await row.getByRole("button", { name: "Withdraw" }).click();
+  const dialog = page.getByRole("dialog", { name: "Withdraw this venue request?" });
+  await expect(dialog).toContainText("The window is released straight away");
+  await dialog.getByRole("button", { name: "Keep request" }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(row).toContainText("Requested");
+
+  await row.getByRole("button", { name: "Withdraw" }).click();
+  await dialog.getByRole("button", { name: "Withdraw request" }).click();
 
   await expect(row).toContainText("Withdrawn");
   await expect(row.getByRole("button", { name: "Withdraw" })).toHaveCount(0);

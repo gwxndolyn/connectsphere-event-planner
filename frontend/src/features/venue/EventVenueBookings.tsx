@@ -4,6 +4,7 @@ import { bookingApi, bookingErrorMessage, bookingStatusLabel, formatBookingWindo
 import type { VenueBooking, VenueBookingCreated } from "./bookingTypes";
 import { tagLabel } from "./tags";
 import { VenueBookingForm } from "./VenueBookingForm";
+import { WithdrawBookingDialog } from "./WithdrawBookingDialog";
 import "../eventRequest/eventRequests.css";
 import "./venues.css";
 
@@ -24,7 +25,8 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
   const [error, setError] = useState<string | null>(null);
   const [requesting, setRequesting] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
-  const [withdrawing, setWithdrawing] = useState<string | null>(null);
+  // The booking whose Withdraw is waiting for confirmation (PR #69 review).
+  const [confirming, setConfirming] = useState<VenueBooking | null>(null);
 
   useEffect(() => {
     let current = true;
@@ -53,20 +55,19 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
     }
   }
 
+  /** Runs once the coordinator confirms in the dialog; a refusal is rethrown for it to explain. */
   async function withdraw(booking: VenueBooking) {
-    setWithdrawing(booking.id);
     setError(null);
     setNotice(null);
     try {
       const withdrawn = await bookingApi.withdraw(booking.id);
       setBookings((current) => current.map((b) => (b.id === withdrawn.id ? withdrawn : b)));
       setNotice({ kind: "withdrawn", booking: withdrawn });
+      setConfirming(null);
     } catch (reason) {
-      setError(bookingErrorMessage(reason));
-      // BOOKING_NOT_PENDING: Venue Staff decided it meanwhile, so show what it is now.
+      // BOOKING_NOT_PENDING: Venue Staff decided it meanwhile, so show what it is now behind the dialog.
       await reload();
-    } finally {
-      setWithdrawing(null);
+      throw reason;
     }
   }
 
@@ -150,8 +151,10 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
                   <button
                     type="button"
                     className="request-button request-button--quiet"
-                    disabled={withdrawing === booking.id}
-                    onClick={() => void withdraw(booking)}
+                    onClick={() => {
+                      setNotice(null);
+                      setConfirming(booking);
+                    }}
                   >
                     Withdraw
                   </button>
@@ -160,6 +163,14 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
             );
           })}
         </ul>
+      )}
+
+      {confirming && (
+        <WithdrawBookingDialog
+          booking={confirming}
+          onConfirm={() => withdraw(confirming)}
+          onClose={() => setConfirming(null)}
+        />
       )}
     </section>
   );

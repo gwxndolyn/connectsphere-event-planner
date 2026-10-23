@@ -86,7 +86,7 @@ describe("venue booking (US22)", () => {
     );
   });
 
-  it("withdraws a pending request (TC-US22-21)", async () => {
+  it("withdraws a pending request after confirming (TC-US22-21)", async () => {
     const request = seedRequest({ status: "approved", name: "Venue Booking Demo" });
     seedBooking(request, seedVenue({ name: "Hall A" }));
     const user = userEvent.setup();
@@ -94,6 +94,9 @@ describe("venue booking (US22)", () => {
 
     const row = await bookings().findByRole("listitem", { name: /^Hall A/ });
     await user.click(within(row).getByRole("button", { name: "Withdraw" }));
+    // Nothing is sent until the coordinator confirms.
+    expect(callsTo("POST", /\/withdraw$/)).toHaveLength(0);
+    await user.click(within(screen.getByRole("dialog", { name: "Withdraw this venue request?" })).getByRole("button", { name: "Withdraw request" }));
 
     expect(await within(row).findByText("Withdrawn")).toBeInTheDocument();
     expect(callsTo("POST", /\/withdraw$/)).toHaveLength(1);
