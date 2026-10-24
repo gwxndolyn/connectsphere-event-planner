@@ -37,6 +37,11 @@ class EventStatus(enum.StrEnum):
     COMPLETED = "completed"
 
 
+class AssignmentKind(enum.StrEnum):
+    ASSIGNMENT = "assignment"
+    REASSIGNMENT = "reassignment"  # written by US10e (SCRUM-83); the history already has room for it
+
+
 class DeliveryMode(enum.StrEnum):
     IN_PERSON = "in_person"
     ONLINE = "online"
@@ -164,3 +169,20 @@ class EventRequestClarification(Base):
     comment: Mapped[str] = mapped_column(Text)
     author_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class CoordinatorAssignment(Base):
+    """One row of an event's Assignment History (SCRUM-69, US10d): who assigned which coordinator,
+    and when. Written in the same transaction as the change to `events.coordinator_id`; never edited."""
+
+    __tablename__ = "coordinator_assignments"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, server_default=text("gen_random_uuid()"))
+    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id"), index=True)
+    assigned_by_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    coordinator_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    kind: Mapped[AssignmentKind] = mapped_column(pg_enum(AssignmentKind, "assignment_kind"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    assigned_by: Mapped["User"] = relationship(foreign_keys=[assigned_by_user_id])
+    coordinator: Mapped["User"] = relationship(foreign_keys=[coordinator_id])
