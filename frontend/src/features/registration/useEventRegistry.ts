@@ -21,11 +21,14 @@ function loadBoth() {
  *
  * Joining a waitlist (SCRUM-52) and accepting an offer (SCRUM-76) work the same way: call
  * `registrationApi`, then `refresh()`.
+ *
+ * `enabled` is false for a logged-in staff user, who has no attendee screens, so the attendee routes
+ * are never called with their token (SCRUM-105).
  */
-export function useEventRegistry() {
+export function useEventRegistry(enabled = true) {
   const [events, setEvents] = useState<EventAvailability[]>([]);
   const [myRegistrations, setMyRegistrations] = useState<MyRegistrations>(NO_REGISTRATIONS);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState<unknown>(null);
 
   const applyLoad = useCallback((isCurrent: () => boolean = () => true) => {
@@ -45,12 +48,13 @@ export function useEventRegistry() {
   }, []);
 
   useEffect(() => {
+    if (!enabled) return;
     let current = true;
     void applyLoad(() => current);
     return () => {
       current = false;
     };
-  }, [applyLoad]);
+  }, [applyLoad, enabled]);
 
   const refresh = useCallback(() => applyLoad(), [applyLoad]);
 

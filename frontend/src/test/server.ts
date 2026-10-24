@@ -772,6 +772,15 @@ const handlers = [
     found.status = "under_review";
     return HttpResponse.json({ clarification, status: found.status }, { status: 201 });
   }),
+
+  // SCRUM-103/106: the first login after confirming creates the profile; Organiser or Attendee only.
+  route("post", "/api/v1/auth/profile", ({ body }) => {
+    const { full_name, role } = (body ?? {}) as { full_name?: string; role?: string };
+    const missing = [["full_name", full_name], ["role", role]].filter(([, value]) => !value?.trim()).map(([name]) => name);
+    if (missing.length) return error(422, "MISSING_REQUIRED_FIELD", { fields: missing });
+    if (role !== "organiser" && role !== "attendee") return error(422, "INVALID_ROLE");
+    return HttpResponse.json({ id: "new-user-id", email: "pat@example.com", full_name, role }, { status: 201 });
+  }),
 ];
 
 export const server = setupServer(...handlers);

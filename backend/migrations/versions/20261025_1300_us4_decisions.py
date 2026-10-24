@@ -1,8 +1,8 @@
 """record Venue Staff's decision on a venue booking
 
-Revision ID: 20261024_1300_us4_decisions
-Revises: 20261022_1300_us10a_coordinator
-Create Date: 2026-10-24
+Revision ID: 20261025_1300_us4_decisions
+Revises: 20261025_1200_us26_equipment
+Create Date: 2026-10-25
 
 """
 from typing import Sequence, Union
@@ -11,8 +11,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "20261024_1300_us4_decisions"
-down_revision: Union[str, None] = "20261022_1300_us10a_coordinator"
+revision: str = "20261025_1300_us4_decisions"
+down_revision: Union[str, None] = "20261025_1200_us26_equipment"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
