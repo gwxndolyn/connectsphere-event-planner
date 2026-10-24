@@ -1,15 +1,33 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { SiteHeader } from "./SiteHeader";
+import { SiteHeader, type View } from "./SiteHeader";
 
 function renderHeader(props: Partial<Parameters<typeof SiteHeader>[0]> = {}) {
   const handlers = { onSearchChange: vi.fn(), onNavigate: vi.fn(), onDevRoleChange: vi.fn() };
-  render(<SiteHeader search="" view="discovery" devRole="organiser" {...handlers} {...props} />);
+  const views: View[] = ["discovery", "my-events", "event-requests", "venues"];
+  render(<SiteHeader search="" view="discovery" devRole="organiser" views={views} {...handlers} {...props} />);
   return handlers;
 }
 
 describe("SiteHeader", () => {
+  it("shows a logged-in user only their own screens (TC-US16A-32, 33)", async () => {
+    const { onNavigate } = renderHeader({ view: "event-requests", views: ["event-requests", "venues"] });
+    expect(screen.queryByRole("button", { name: "My events" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Venues" })).toBeInTheDocument();
+    // The logo opens the user's home screen.
+    await userEvent.click(screen.getByRole("button", { name: "ConnectSphere" }));
+    expect(onNavigate).toHaveBeenCalledWith("event-requests");
+  });
+
+  it("shows an attendee no staff screens", () => {
+    renderHeader({ views: ["discovery", "my-events"] });
+    expect(screen.getByRole("button", { name: "My events" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Event requests" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Venues" })).not.toBeInTheDocument();
+  });
+
   it("reports each search keystroke", async () => {
     const { onSearchChange } = renderHeader();
     await userEvent.type(screen.getByRole("searchbox", { name: "Search campus events" }), "y");
