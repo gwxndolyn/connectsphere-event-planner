@@ -40,7 +40,7 @@
 | TC-US13-12 | 6 | A buffer edit with only Requested future bookings recomputes their windows; an edit that would make two overlap, or run one outside hours, is `409 VENUE_BUFFERS_CONFLICT`, naming them, with nothing saved; past bookings are untouched; approved future bookings are still `VENUE_BUFFERS_LOCKED` | Auto pytest | 2 |
 | TC-US13-13 | 1, 3, 5 | US2 search hides a venue whose occupied window clashes or runs outside its hours; a touching window is shown | Auto pytest | 2 |
 | TC-US13-14 | 3 | Race: two requests whose plain windows don't overlap but whose occupied windows do; one is `201`, the other `409` | Auto pytest | 2 |
-| TC-US13-15 | 7 | Buffers apply to venue bookings only; equipment has no reservations yet, so this is recorded as not applicable, and a test asserts no other table has buffer columns | Auto pytest | 2 |
+| TC-US13-15 | 7 | Buffers apply to venue bookings only: only `venues` has buffer columns, and US26's equipment tables (`equipment_types`, `equipment_request_lines`) have no buffer, occupied-window or own-time columns, so equipment uses the event's own times | Auto pytest | 2 |
 | TC-US13-16 | 2 | In the browser, the form previews the occupied window for the chosen venue | Auto Vitest | 3 |
 | TC-US13-17 | 3, 5 | In the browser, an overlap shows its period; outside hours shows on the time fields | Auto Vitest | 3 |
 | TC-US13-18 | 4 | In the browser, Venue staff's pending list shows each request's occupied window and any conflict with its overlap and reference | Auto Vitest | 3 |

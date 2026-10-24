@@ -614,9 +614,10 @@ def test_tc_us13_14_simultaneous_requests_clashing_only_through_buffers(
 # --- TC-US13-15 buffers are for venue bookings only (AC 7) ---
 
 
-def test_tc_us13_15_no_other_table_has_buffers_and_there_are_no_equipment_reservations(engine: Engine) -> None:
-    """AC 7: equipment uses the event's own times. No equipment reservations exist yet, so there is
-    nothing to exempt; this records it, and fails if a later story adds buffer columns elsewhere."""
+def test_tc_us13_15_buffers_apply_to_venue_bookings_only_not_equipment(engine: Engine) -> None:
+    """AC 7: equipment reservations use the event's own times. US26 (SCRUM-108) added them as
+    request lines on an event, with no times of their own, so no buffer, occupied window or own
+    window can apply to them. Fails if a later story adds buffers or a window to equipment."""
     inspector = inspect(engine)
     tables = inspector.get_table_names()
     with_buffers = {
@@ -626,4 +627,8 @@ def test_tc_us13_15_no_other_table_has_buffers_and_there_are_no_equipment_reserv
     }
 
     assert with_buffers == {"venues"}
-    assert not [table for table in tables if "equipment" in table]
+    equipment = [table for table in tables if table.startswith("equipment")]
+    assert {"equipment_types", "equipment_request_lines"} <= set(equipment)
+    windowed = {"starts_at", "ends_at", "occupied_starts_at", "occupied_ends_at", "setup_minutes", "turnaround_minutes"}
+    for table in equipment:
+        assert not windowed & {column["name"] for column in inspector.get_columns(table)}, table
