@@ -132,3 +132,21 @@ with `E2E_SEED_PASSWORD`.
 - A role the frontend doesn't know yet (e.g. `tech_support` from US16b) gets "Your account's role doesn't have any
   screens yet" and Log out instead of a broken page; unit tests in `frontend/src/auth/screens.test.ts`.
 - Rerun: backend 526, frontend 208, login project 9 of 9, full E2E suite 31 of 31.
+
+### 24 Oct 2026: SCRUM-106 sign-up with real Supabase
+
+Setup: local Postgres seeded from `main`; backend checking real tokens; Playwright `login` project with `SUPABASE_URL` and `SUPABASE_SECRET_KEY`. Supabase as in `claude_instructions.md` §9 (Confirm email on, Gmail SMTP, Site URL `http://localhost:5173`).
+
+| Test case | Result | Note |
+| --- | --- | --- |
+| TC-US16A-40 | Pass | Attendee signs up, confirmed through the Admin API, first login creates the profile, lands on the events board; My events is empty |
+| TC-US16A-41 | Pass | Organiser lands on "My event requests" |
+| TC-US16A-42 | Pass | Unit: only the two radios, and metadata never yields a staff role |
+| TC-US16A-43 | Pass | `event.coordinator@smu.edu.sg` refused; the existing Supabase account is unchanged |
+| TC-US16A-44 | Pass | Unit: field errors, nothing sent |
+| TC-US16A-45 | Pass | Log out and back in: same account and home screen |
+| TC-US16A-50 | Pass | "Check your email to confirm your account", not logged in, account unconfirmed until confirmed |
+
+- The test accounts are deleted from Supabase after each run; their profile rows stay in the local database (harmless: unique emails, and CI starts fresh).
+- Full E2E suite: 34 of 34. Frontend: 225 tests, lint and build clean.
+- An Admin-API-confirmed account's token carries `user_metadata.email_verified: true`, which the profile endpoint requires; checked before writing the E2E.
