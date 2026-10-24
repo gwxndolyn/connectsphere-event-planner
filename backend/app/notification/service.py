@@ -59,6 +59,18 @@ class Notifier(Protocol):
         event_dates: list[date],
     ) -> None: ...
 
+    def equipment_line_reviewed(
+        self,
+        *,
+        email: str,
+        line_id: uuid.UUID,
+        event_name: str,
+        equipment_type: str,
+        quantity: int,
+        decision: str,
+        note: str | None,
+    ) -> None: ...
+
 
 class LoggingNotifier:
     """Sprint 1 stand-in: no mail is sent, the call is logged (spec §7)."""
@@ -153,6 +165,29 @@ class LoggingNotifier:
             event_name,
             coordinator_name,
             ", ".join(day.isoformat() for day in event_dates),
+        )
+
+    def equipment_line_reviewed(
+        self,
+        *,
+        email: str,
+        line_id: uuid.UUID,
+        event_name: str,
+        equipment_type: str,
+        quantity: int,
+        decision: str,
+        note: str | None,
+    ) -> None:
+        # US26 AC 5: the coordinator who asked hears Tech Support's decision on the line.
+        logger.info(
+            "equipment line %s: %s, %d x %s for %r (line %s), note: %s",
+            decision,
+            email,
+            quantity,
+            equipment_type,
+            event_name,
+            line_id,
+            note or "none",
         )
 
 
