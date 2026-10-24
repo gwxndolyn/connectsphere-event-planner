@@ -823,18 +823,20 @@ def test_tc_us22_15_simultaneous_overlapping_requests_only_the_first_wins(
     or, now and then, a deadlock between the two inserts followed by one retry."""
     barrier = threading.Barrier(2, timeout=10)
     held = threading.local()
-    original = booking_service_module._find_conflict
+    # Since US13 PR 2 the pre-check is availability.evaluate_window, as booking_service imports it.
+    original = booking_service_module.evaluate_window
     lookups: list[object] = []
 
-    def find_then_wait(*args: object, **kwargs: object) -> object:
-        conflict = original(*args, **kwargs)
-        lookups.append(conflict)
+    def evaluate_then_wait(*args: object, **kwargs: object) -> object:
+        evaluation = original(*args, **kwargs)
+        # The first clashing booking each look found, or None: what the US22 pre-check returned.
+        lookups.append(next((c for c in evaluation.conflicts if c.kind == "booking"), None))
         if not getattr(held, "done", False):  # only the first pre-check waits, not later lookups
             held.done = True
             barrier.wait()
-        return conflict
+        return evaluation
 
-    monkeypatch.setattr(booking_service_module, "_find_conflict", find_then_wait)
+    monkeypatch.setattr(booking_service_module, "evaluate_window", evaluate_then_wait)
     notifier = FakeNotifier()
     outcomes: list[object] = []
     threads = [

@@ -19,7 +19,7 @@
 | PR | Subtask | Scope | Tests |
 | --- | --- | --- | --- |
 | 1 | SCRUM-114 | Each booking stores its occupied window; `venue_bookings_no_overlap` covers it; bookings get a reference; the seed, factories and US2 search's booking check read the stored window | `backend/tests/venue/test_buffer_schema.py`, plus the whole E2E suite on a reseeded database |
-| 2 | | The reusable rule for US4 (`evaluate_window`, `evaluate_booking`); opening hours (`VENUE_OUTSIDE_HOURS`); the overlap and reference in `VENUE_UNAVAILABLE`; the staff evaluation endpoint; buffer-edit recompute (`VENUE_BUFFERS_CONFLICT`); US2 search with the searched venue's own buffers and hours | `backend/tests/venue/test_buffer_api.py` |
+| 2 | SCRUM-115 | The reusable rule for US4 (`evaluate_window`, `evaluate_booking`); opening hours (`VENUE_OUTSIDE_HOURS`); the overlap and reference in `VENUE_UNAVAILABLE`; the staff evaluation endpoint; buffer-edit recompute (`VENUE_BUFFERS_CONFLICT`); US2 search with the searched venue's own buffers and hours | `backend/tests/venue/test_buffer_api.py` |
 | 3 | | The occupied window in the booking form, panel and pending list; conflicts on Venue staff's pending list | lint, build, unit and integration tests, `e2e/tests/venue-buffers.spec.ts` |
 
 ## Test cases
@@ -35,12 +35,12 @@
 | TC-US13-07 | 3, 4 | A request whose occupied window overlaps a live booking's, even by one second, is `409 VENUE_UNAVAILABLE` with the overlap period; touching is accepted | Auto pytest | 2 |
 | TC-US13-08 | 3 | Setup or turnaround inside a venue block is refused with the overlap; touching a block is accepted | Auto pytest | 2 |
 | TC-US13-09 | 5 | An occupied window starting before opening or ending after closing is `422 VENUE_OUTSIDE_HOURS`; exactly opening to closing is accepted; a window crossing midnight is refused | Auto pytest | 2 |
-| TC-US13-10 | 3, 4, 5 | `evaluate_booking` lists every conflict (bookings, blocks) with overlap and reference, plus any hours breach, excluding the booking itself; it's empty when clear (US4's contract) | Auto pytest | 2 |
+| TC-US13-10 | 3, 4, 5 | `evaluate_booking` lists every conflict (bookings, blocks) with overlap and reference, plus any hours breach, excluding the booking itself, for the booking's stored occupied window; it's empty when clear (US4's contract) | Auto pytest | 2 |
 | TC-US13-11 | 4 | `GET /api/v1/venue-bookings/{id}/evaluation`: Venue Staff only (`403` otherwise), `404` for an unknown id; it shows a block added after the request | Auto pytest | 2 |
-| TC-US13-12 | 6 | A buffer edit with only Requested future bookings recomputes their windows; an edit that would make two overlap, or run one outside hours, is `409 VENUE_BUFFERS_CONFLICT`, naming them, with nothing saved; past bookings are untouched; approved future bookings are still `VENUE_BUFFERS_LOCKED` | Auto pytest | 2 |
+| TC-US13-12 | 6 | A buffer edit with only Requested future bookings recomputes their windows; an edit that would make two overlap, or run one outside hours, is `409 VENUE_BUFFERS_CONFLICT`, naming them, with nothing saved; past bookings are untouched; approved future bookings are still `VENUE_BUFFERS_LOCKED`. Buffers swapping sides between touching bookings is `200` whatever order the rows are written in: 0/30 with A 10:00–12:00 and B 12:30–14:00, then 30/0, run with A's id lower and with B's (PR #79 review) | Auto pytest | 2 |
 | TC-US13-13 | 1, 3, 5 | US2 search hides a venue whose occupied window clashes or runs outside its hours; a touching window is shown | Auto pytest | 2 |
 | TC-US13-14 | 3 | Race: two requests whose plain windows don't overlap but whose occupied windows do; one is `201`, the other `409` | Auto pytest | 2 |
-| TC-US13-15 | 7 | Buffers apply to venue bookings only; equipment has no reservations yet, so this is recorded as not applicable, and a test asserts no other table has buffer columns | Auto pytest | 2 |
+| TC-US13-15 | 7 | Buffers apply to venue bookings only: only `venues` has buffer columns, and US26's equipment tables (`equipment_types`, `equipment_request_lines`) have no buffer, occupied-window or own-time columns, so equipment uses the event's own times | Auto pytest | 2 |
 | TC-US13-16 | 2 | In the browser, the form previews the occupied window for the chosen venue | Auto Vitest | 3 |
 | TC-US13-17 | 3, 5 | In the browser, an overlap shows its period; outside hours shows on the time fields | Auto Vitest | 3 |
 | TC-US13-18 | 4 | In the browser, Venue staff's pending list shows each request's occupied window and any conflict with its overlap and reference | Auto Vitest | 3 |
@@ -49,7 +49,7 @@
 ## Decisions (story owner's choices, 24 Oct; `DECISION-PENDING` for the team)
 
 - **D31: buffer edits while Requested future bookings exist.** Recompute their occupied windows in the same transaction, and refuse the edit with `409 VENUE_BUFFERS_CONFLICT` if any would then clash or run outside hours (PR 2).
-- **D32: when AC 5 applies.** At request time too, and again at approval through `evaluate_booking`, since hours can change (PR 2).
+- **D32: when AC 5 applies.** At request time too, and again at approval through `evaluate_booking`, since hours can change (PR 2). Approval refuses with `409 VENUE_OUTSIDE_HOURS` (TC-US4-03).
 - **D33: booking reference.** `VB-<year>-<6 digits>` on every booking, from `next_venue_booking_reference()` (the column default), the year it was made in Singapore (PR 1).
 - **D34: overlaps the buffers create in existing data.** The migration refuses and names each pair, for a person to withdraw or reject one of them. CR-01 says such bookings are identified, not removed, and an exclusion constraint can't be added `NOT VALID` (PR 1).
 - **D35: what a coordinator sees in a 409.** The overlap period and the kind of clash, but not the other booking's reference, which AC 4 gives to Venue Staff (PR 2).
@@ -62,3 +62,11 @@
 - **Buffers are on for every booking from PR 1:** the guard covers the stored occupied window. Tests that prove US22's and US2's plain `[)` rule (back-to-back, one-second overlap, withdrawn and rejected, blocks, search next to a booking) use venues with 0/0 buffers, so they keep proving that rule; TC-US13-03 covers the buffered one.
 - **US2 search's booking check reads the stored occupied window,** which is the range the exclusion constraint's GiST index holds (TC-US2-08 needs the index). So an existing booking's buffers already keep a venue out of search; the searched venue's own buffers and hours come in PR 2.
 - **Not until PR 2:** opening hours, the overlap period and reference in errors, the block check on the occupied window, and recomputing windows when buffers change. Until PR 2, a buffer edit leaves Requested bookings' stored windows as they were made.
+
+## PR 2 notes
+
+- **One rule:** `evaluate_window` / `evaluate_booking` (`app/venue/availability.py`) serve the request, the buffer-edit recompute's hours check, Venue Staff's evaluation and US4's approval. `evaluate_window` uses the venue's current buffers; `evaluate_booking` uses the booking's stored occupied window. A request is refused for hours before overlaps.
+- **What a coordinator sees (D35):** a 409's `conflict` carries `kind`, `occupied` and the exact `overlap`, never the other booking's reference. Venue Staff get the reference from `GET /api/v1/venue-bookings/{id}/evaluation`.
+- **Existing tests changed for buffers:** US2's TC-US2-06 hours case uses a 0/0 venue (the plain rule; TC-US13-13 has the buffered one). US22's TC-US22-15 race test wraps `evaluate_window`, the new pre-check, instead of the removed `_find_conflict`.
+- **E2E times changed:** TC-US22-21 books the Library 15:00–17:00, not 16:00–18:00 (its 20-minute turnaround must end by its 18:00 closing). TC-US2-14 searches 17:00–17:50, not 17:30–18:30: Lawn C (90/60) still fits by its 19:00 closing and the Library's turnaround still runs past 18:00.
+- **Search plan (TC-US2-08):** each venue now has its own window, so each `EXISTS` carries `OFFSET 0` to stay a per-venue subplan on the GiST indexes rather than an anti-join that scans every block.

@@ -87,8 +87,12 @@ class VenueBookingOut(BaseModel):
     event: BookingEventOut
     venue: BookingVenueOut
     requested_by_user_id: uuid.UUID
+    reference: str  # US13 D33
     starts_at: datetime
     ends_at: datetime
+    # US13: [starts_at - setup, ends_at + turnaround), as the overlap guard holds it.
+    occupied_starts_at: datetime
+    occupied_ends_at: datetime
     expected_attendees: int
     room_layout: str
     required_facilities: list[str]
@@ -139,6 +143,43 @@ class VenueBookingCreatedOut(VenueBookingOut):
 
 class VenueBookingsOut(BaseModel):
     bookings: list[VenueBookingOut]
+
+
+class WindowOut(BaseModel):
+    starts_at: datetime
+    ends_at: datetime
+
+
+class BookingConflictOut(BaseModel):
+    """US13 AC 4: something occupying part of the booking's window. starts_at/ends_at are the
+    clashing booking's own times or the block's; `occupied` adds that booking's buffers."""
+
+    kind: str  # "booking" or "block"
+    reference: str | None
+    note: str | None
+    starts_at: datetime
+    ends_at: datetime
+    occupied: WindowOut
+    overlap: WindowOut
+
+
+class BookingHoursOut(BaseModel):
+    """US13 AC 5: the occupied window runs outside these hours; `fields` names the end."""
+
+    opens_at: time
+    closes_at: time
+    fields: list[str]
+
+
+class BookingEvaluationOut(BaseModel):
+    """GET /api/v1/venue-bookings/{id}/evaluation (D36): what stands in the way of the booking now."""
+
+    booking_id: uuid.UUID
+    reference: str
+    occupied: WindowOut
+    conflicts: list[BookingConflictOut]
+    outside_hours: BookingHoursOut | None
+    clear: bool
 
 
 class VenueSearchCriteria(BaseModel):
