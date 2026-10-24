@@ -79,7 +79,7 @@
 | TC-US16A-35 | 4 | Logged in | The page is refreshed | Still logged in, on the same screen | SCRUM-105 |
 | TC-US16A-36 | 5 | Logged in | Logs out, then opens My events or Event requests | The login page is shown | SCRUM-105 |
 | TC-US16A-37 | 5 | Not logged in | Opens any protected screen directly | The login page is shown | SCRUM-105 |
-| TC-US16A-38 | — | `VITE_DEV_AUTH` unset | The app loads | No **Acting as** switch | SCRUM-105 |
+| TC-US16A-38 | — | `VITE_DEV_AUTH` unset | The app loads, then a user logs in | No **Acting as** switch, before or after logging in | SCRUM-105 |
 | TC-US16A-39 | — | Logged in | Any API call | Carries `Authorization: Bearer …` and no `X-User-Id` / `X-Attendee-Id` | SCRUM-105 |
 | TC-US16A-40 | 6 | A new email | Signs up as Attendee, confirms the email, logs in | First login creates the profile; lands on the events board; My events shows the empty state | SCRUM-106 |
 | TC-US16A-41 | 6 | A new email | Signs up as Organiser, confirms the email, logs in | First login creates the profile; lands on Event requests | SCRUM-106 |
@@ -92,7 +92,7 @@
 | TC-US16A-48 | — | `AUTH_DEV_HEADERS=true` | The backend starts | A warning is logged that the header stubs bypass login | SCRUM-102 |
 | TC-US16A-49 | — | Any token is refused (401) | The refusal happens | A warning names the reason; the token never appears in the log | SCRUM-102 |
 | TC-US16A-50 | 6 | A new email | Signs up | Sees "Check your email to confirm your account"; not logged in until the link is clicked | SCRUM-106 |
-| TC-US16A-51 | 2 | A valid token | `GET /api/v1/me` | `200 {id, email, full_name, role}` for a user with a profile (`full_name` null until a name is set); `403 PROFILE_REQUIRED` without one; `401` without a token | SCRUM-105 |
+| TC-US16A-51 | 2 | A valid token | `GET /api/v1/me` | `200 {id, email, full_name, role}` for a user with a profile (`full_name` null until a name is set); `403 PROFILE_REQUIRED` without one; `403 FORBIDDEN` for a deactivated user; `401` without a token | SCRUM-105 |
 
 ## Run log
 
@@ -122,3 +122,11 @@ with `E2E_SEED_PASSWORD`.
 - **Fixed the same day:** each logged-in role now gets only its own screens (`SCREENS` in `App.tsx`), and the
   attendee lists load only for attendees. TC-US16A-32 and 33 now also check there are no attendee links or failed
   calls for staff and no staff links for the attendee. Rerun: login project 8 of 8, full E2E suite 30 of 30.
+
+### 24 Oct 2026: PR #62 review notes
+
+- TC-US16A-38 now also checks there's no **Acting as** switch once logged in; the old check alone couldn't fail.
+- TC-US16A-51 has a deactivated-user case (`403 FORBIDDEN`), which the frontend now names in its own message.
+- Login errors other than wrong details (unconfirmed email, 429, no connection) get their own message; unit tests in
+  `frontend/src/auth/messages.test.ts`. Log out is `scope: "local"`.
+- Rerun: backend 526, frontend 206, login project 9 of 9, full E2E suite 31 of 31.
