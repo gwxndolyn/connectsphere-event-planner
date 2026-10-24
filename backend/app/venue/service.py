@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Callable
 from types import SimpleNamespace
 from datetime import date, datetime, time
 from zoneinfo import ZoneInfo
@@ -354,8 +355,16 @@ class VenueService:
 
         for field in changes:
             setattr(venue, field, cleaned[field])
-        for booking, (starts_at, ends_at) in recomputed.items():
-            booking.occupied_starts_at, booking.occupied_ends_at = starts_at, ends_at
+        if recomputed:
+            # venue_bookings_no_overlap is checked row by row, so a new window can clash with another
+            # booking's old one (buffers swapping sides between touching bookings, PR #79 review).
+            # Shrink every recomputed window to its booking's own times first, which can't overlap
+            # (any overlap there would already overlap the stored windows), then widen them.
+            for booking in recomputed:
+                booking.occupied_starts_at, booking.occupied_ends_at = booking.starts_at, booking.ends_at
+            self._flush(db, buffer_edits)
+            for booking, (starts_at, ends_at) in recomputed.items():
+                booking.occupied_starts_at, booking.occupied_ends_at = starts_at, ends_at
         self._commit(db, buffer_edits)
         db.refresh(venue)
         return VenueOut.model_validate(venue)
@@ -422,8 +431,14 @@ class VenueService:
         return windows
 
     def _commit(self, db: Session, buffer_edits: list[str] | None = None) -> None:
+        self._write(db, db.commit, buffer_edits)
+
+    def _flush(self, db: Session, buffer_edits: list[str] | None = None) -> None:
+        self._write(db, db.flush, buffer_edits)
+
+    def _write(self, db: Session, write: Callable[[], None], buffer_edits: list[str] | None) -> None:
         try:
-            db.commit()
+            write()
         except IntegrityError as error:
             db.rollback()
             constraint = getattr(getattr(error.orig, "diag", None), "constraint_name", None)
