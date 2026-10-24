@@ -115,13 +115,14 @@ All three Sprint 1 stories have working backends, tested against a real Postgres
 | SCRUM-13 — assign a Coordinator (US10a) | Done: schema + seed, unassigned queue, coordinator picker and assign endpoints, Lead notified on submit (log-only, D28) | **Real screens, wired to API**: Lead's unassigned queue, coordinator picker and confirm, **Coordinator Lead** in Acting as, the organiser sees "Unassigned" or the coordinator's name | TC-US10A-01 to 31 |
 | SCRUM-68 — notify Coordinator and Organiser of an assignment (US10c) | Done: `Notifier.assignment_made`, called after a successful assign (log-only) | No change needed | TC-US10C-01 to 07 |
 | SCRUM-67 — see Coordinator workload when assigning (US10b) | Done: `GET /api/v1/coordinators` gives each entry a `planning_count` (D30) | **Real screens, wired to API**: the picker shows each coordinator's name and "N events planning" | TC-US10B-01 to 06 (backend), 07 to 09 (frontend) + the E2E picker check |
-| SCRUM-69 — assignment history (US10d) | Done: `coordinator_assignments` table (SCRUM-63), written in the assign transaction; `GET /api/v1/event-requests/{id}/assignment-history`, Lead only, newest first (SCRUM-64) | **Real screens, wired to API**: the Lead's queue page lists Assigned requests, each with History, and Coordinator assigned offers View assignment history (SCRUM-65; deviation 33) | TC-US10D-01 to 10 (backend), 11 to 14 (frontend) + the E2E assign journey checks the history |
+| SCRUM-69 — assignment history (US10d) | Done: `coordinator_assignments` table (SCRUM-63), written in the assign transaction; `GET /api/v1/event-requests/{id}/assignment-history`, Lead only, newest first (SCRUM-64) | **Real screens, wired to API**: the Lead's queue page lists Assigned requests, each with History, and Coordinator assigned offers View assignment history (SCRUM-66; deviation 35) | TC-US10D-01 to 10 and 15 (backend), 11 to 14 (frontend) + the E2E assign journey checks the history |
 | SCRUM-87 — venue catalogue (US20) | Done: schema + seed (PR 1, #53); endpoints, Venue Staff stub (D19), validation, buffer-lock stub (PR 2) | **Real screens, wired to API**: Venues list with filters, staff create/edit form (PR 2) | TC-US20-01 to 19 (07's booking half is TC-US22-01) + 2 E2E; see `docs/testing/US20-venue-catalogue.md` |
 | SCRUM-89 — request a venue booking (US22) | Schema (PR 1, SCRUM-111): `venue_bookings`, the no-overlap exclusion constraint, the real buffer-lock query. Endpoints (PR 2, SCRUM-112): create with warnings, withdraw, Venue Staff's pending list, an event's bookings, the Venue Staff notice, the inactive-venue read for booked coordinators | **Real screens, wired to API** (PR 3, SCRUM-113): Request venue and the event's bookings with Withdraw on an Approved request in the coordinator's review queue; Venue staff's pending list on Venues (deviation 32) | TC-US22-01 to 21 + 3 E2E; see `docs/testing/US22-venue-booking.md` |
 | SCRUM-7 — search for suitable venues (US2) | Done: `GET /api/v1/venues/available` (hides live US22 bookings and `venue_blocks`), `venue_blocks` table, seeded slot | **Real screen, wired to API**: search form on Venues for Coordinator and Venue staff | TC-US2-01 to 16 (12 pytest + 4 E2E) + frontend unit and integration; see `docs/testing/US2-venue-search.md` |
-| SCRUM-81 — sign up, log in, log out (US16a) | Schema (SCRUM-101), token check (SCRUM-102) and sign-up profile endpoint (SCRUM-103) done; seeded Supabase logins in review (SCRUM-104, #56); login page next (SCRUM-105) | Not started (SCRUM-105, 106) | TC-US16A-01 to 26, 46 to 49; all 50 in `docs/testing/US16a-sign-up-log-in.md` |
+| SCRUM-81 — sign up, log in, log out (US16a) | Schema (SCRUM-101), token check (SCRUM-102), sign-up profile endpoint (SCRUM-103), seeded Supabase logins (SCRUM-104) and `GET /api/v1/me` (SCRUM-105) done | **Login page, logout, session** (SCRUM-105); sign-up page next (SCRUM-106) | TC-US16A-01 to 39, 46 to 49, 51; all 51 in `docs/testing/US16a-sign-up-log-in.md`. Logged-in E2E (32, 33, 35, 36, 38, 39) skips without `E2E_SEED_PASSWORD`, so not in CI; run locally with the seeded logins on 24 Oct, all pass (run log in the test doc) |
+| SCRUM-94 — equipment requests (US26) | Schema + seed + `tech_support` role done (SCRUM-108); endpoints next (SCRUM-109) | Not started (SCRUM-110) | TC-US26-01 to 05, 18; all 18 in `docs/testing/US26-equipment-requests.md` |
  
-Every endpoint in §3 exists, plus `POST /registrations/{id}/decline` (deviation 3 below) and `POST /registrations/{id}/accept` (deviation 13). Identity is a Supabase access token (`Authorization: Bearer`, SCRUM-102), plus two dev stubs when `AUTH_DEV_HEADERS=true`: `X-Attendee-Id` for the Sprint 1 routes and `X-User-Id` (role-aware) for the event-request and venue routes. The frontend still uses the stubs until SCRUM-105. The database is the tables in §2 plus `attendees` and `users`. Backend suite: 530 tests; frontend suite (Vitest): 199 tests, 143 unit + 56 integration; E2E: 22 tests (US10a journey: organiser submits, Lead assigns and reads the history entry, organiser sees the coordinator; health check, US1 journey, US8 clarification journey: ask, answer, read the thread, attendee journey: list, register, My events, withdraw; waitlist journey: leave, rejoin, see position; offer journey: freed place offered, accepted; US20 venue list and search; US20 venue staff journey: add with a field error, edit, deactivate; US1 draft round-trip: save, reload, reopen, edit, submit; events board: only open events listed, Open/Full tabs, search by title and venue, online event's join link; Acting as switch remembered across a reload; US2 venue search: seeded slot drops booked and blocked venues, filters and hours, no-match criteria and a marked bad time, organisers not offered search; US22 venue booking: request then Venue staff's pending list, capacity error and layout warning, withdraw). **Supabase may lag `main`**: it was at `20261015_1200_us16a_auth_link` on 15 Oct (reseeded the same day). Migrations merged after that must be applied there by Calvin — check with `alembic current`. US22's `20261021_1200_us22_bookings` runs `CREATE EXTENSION IF NOT EXISTS btree_gist`; Supabase ships the extension, but if the migration fails on permissions, enable `btree_gist` under Database → Extensions and rerun it. US2's `20261022_1200_us2_venue_blocks` follows it, then US10a's `20261022_1300_us10a_coordinator` and US10d's `20261024_1200_us10d_history`.
+Every endpoint in §3 exists, plus `POST /registrations/{id}/decline` (deviation 3 below) and `POST /registrations/{id}/accept` (deviation 13). Identity is a Supabase access token (`Authorization: Bearer`, SCRUM-102), plus two dev stubs when `AUTH_DEV_HEADERS=true`: `X-Attendee-Id` for the Sprint 1 routes and `X-User-Id` (role-aware) for the event-request and venue routes. The frontend logs in with Supabase (SCRUM-105) and shows each role only its own screens (attendees: the events board and My events; organiser, coordinator, Lead: Event requests and Venues; venue staff: Venues); with `VITE_DEV_AUTH=true` it skips login, sends the stubs and shows every screen. The database is the tables in §2 plus `attendees` and `users`. Backend suite: 579 tests; frontend suite (Vitest): 212 tests, 156 unit + 56 integration; E2E: 31 tests (US16a login: 9, the five logged-in ones skip without `E2E_SEED_PASSWORD`; US10a journey: organiser submits, Lead assigns and reads the history entry, organiser sees the coordinator; health check, US1 journey, US8 clarification journey: ask, answer, read the thread, attendee journey: list, register, My events, withdraw; waitlist journey: leave, rejoin, see position; offer journey: freed place offered, accepted; US20 venue list and search; US20 venue staff journey: add with a field error, edit, deactivate; US1 draft round-trip: save, reload, reopen, edit, submit; events board: only open events listed, Open/Full tabs, search by title and venue, online event's join link; Acting as switch remembered across a reload; US2 venue search: seeded slot drops booked and blocked venues, filters and hours, no-match criteria and a marked bad time, organisers not offered search; US22 venue booking: request then Venue staff's pending list, capacity error and layout warning, withdraw). **Supabase may lag `main`**: it was at `20261015_1200_us16a_auth_link` on 15 Oct (reseeded the same day). Migrations merged after that must be applied there by Calvin — check with `alembic current`, then run `alembic upgrade head` (never one named revision). Pending there, in order: `20261021_1200_us22_bookings`, `20261022_1200_us2_venue_blocks`, `20261022_1300_us10a_coordinator`, and US26's `20261025_1200_us26_equipment`, and US10d's `20261026_1200_us10d_history`. US22's `20261021_1200_us22_bookings` runs `CREATE EXTENSION IF NOT EXISTS btree_gist`; Supabase ships the extension, but if the migration fails on permissions, enable `btree_gist` under Database → Extensions and rerun it. US2's `20261022_1200_us2_venue_blocks` follows it.
  
 ### Get it running
  
@@ -135,16 +136,20 @@ cp .env.example .env                   # keep DATABASE_URL on localhost and AUTH
 alembic upgrade head                   # create the tables — the seed fails without this
 pytest                                 # whole suite, seconds (tests build their own DB)
  
-python -m app.seed                     # seven events, attendees, the organiser, a coordinator, two Coordinator Leads and six venues
+python -m app.seed                     # seven events, attendees, the organiser, a coordinator, two Coordinator Leads and six venues;
+                                       # with SUPABASE_SECRET_KEY + SEED_AUTH_PASSWORD set, also their Supabase logins
 uvicorn app.main:app --reload          # http://localhost:8000/docs
  
 cd ../frontend
-cp .env.example .env                   # REQUIRED: VITE_DEV_USER_ID (organiser), VITE_DEV_COORDINATOR_ID, VITE_DEV_LEAD_ID, VITE_DEV_ATTENDEE_ID (Calvin)
+cp .env.example .env                   # REQUIRED: VITE_DEV_USER_ID (organiser), VITE_DEV_COORDINATOR_ID, VITE_DEV_LEAD_ID, VITE_DEV_ATTENDEE_ID (Calvin), VITE_DEV_AUTH=true;
+                                       # plus VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY for the login page
 npm install && npm run dev             # http://localhost:5173 — restart after editing .env
 npm test                               # Vitest unit + integration tests; no backend needed
  
 cd ../e2e && npm ci && npx playwright install chromium
 npm test                               # backend must be running; don't also run npm run dev. Reseed first (python -m app.seed) on a reused database
+                                       # login.spec.ts runs on a second frontend (port 5174, VITE_DEV_AUTH unset); its logged-in
+                                       # cases need E2E_SEED_PASSWORD (the seeded logins' password) and SUPABASE_URL in backend/.env
 ```
 
 **Windows (PowerShell):** activate with `.venv\Scripts\activate`; copy with `Copy-Item .env.example .env`. Create `.env` files by copying or in VS Code, not with `echo >` — PowerShell writes UTF-16, which Vite can't read.
@@ -158,6 +163,8 @@ npm test                               # backend must be running; don't also run
 - **Passes locally, fails in CI** → check Python is 3.12, and see the lockfile note under Environment.
 - **The page says "backend unreachable"** → the API isn't running, or your origin isn't in `CORS_ORIGINS`.
 - **Event requests says "Set VITE_DEV_USER_ID…"** → `frontend/.env` doesn't exist (only `.env.example` does). Copy it and restart `npm run dev`.
+- **The app shows a Log in page locally** → `frontend/.env` predates SCRUM-105, so `VITE_DEV_AUTH` is missing and login is required. Add `VITE_DEV_AUTH=true` for dev mode (Acting as), or log in with a seeded account. Restart `npm run dev`.
+- **The login page says "Login isn't set up"** → add `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` (Project Settings → API Keys, `sb_publishable_…`) to `frontend/.env` and restart `npm run dev`.
 - **The review queue says "Set VITE_DEV_COORDINATOR_ID…"** → your `frontend/.env` predates SCRUM-57. Copy that line from `.env.example` and restart `npm run dev`.
 - **The events board or My events says "Set VITE_DEV_ATTENDEE_ID…"** → your `frontend/.env` predates SCRUM-79. Copy that line from `.env.example` (seeded attendee Calvin, `83565d3f-e757-5c0e-8c6e-8dadb298ce18`) and restart `npm run dev`.
 - **The attendee E2E fails at its first step (Tech Talk not "You're registered")** → it ran before against this database and left Calvin withdrawn. Run `python -m app.seed`, then rerun.
@@ -184,7 +191,7 @@ npm test                               # backend must be running; don't also run
 - **Deviating from §2/§3 is allowed; doing it silently is not.** Add a `# DECISION-PENDING: <id>` at the code site and a line under "Deviations awaiting a decision" below.
 - **New screens call the real API** (changed in Sprint 2 — the Sprint 1 "mockups stay mockups" rule is retired; *needs team confirmation*). Build through `frontend/src/api/client.ts`, with TypeScript types that match the API's snake_case names. Don't add new mock data.
 - **Two identity headers, one per route family.** Sprint 1 routes take `X-Attendee-Id` (`get_current_attendee`); event-request and venue routes take `X-User-Id` (`get_current_user` / `require_user_roles`). Every attendee has a `users` row with the **same id** and role `attendee`, so one id works in both. In the frontend, `apiClient` sends `X-User-Id` by default and `X-Attendee-Id` (from `VITE_DEV_ATTENDEE_ID`) when a call passes `identity` `"attendee"`, as every call in `features/registration/api.ts` does (SCRUM-79). Since SCRUM-102 both stubs work **only when `AUTH_DEV_HEADERS=true`** (local dev, tests via `conftest.py`, CI E2E); otherwise only `Authorization: Bearer <Supabase token>` identifies the caller. A token that fails verification is `401`, never a fallback to a stub.
-- **New roles arrive with US16b (SCRUM-82):** `venue_staff`, `tech_support`, `safety_officer`. `coordinator_lead` was added early by US10a's migration (`20261022_1300_us10a_coordinator`) because SCRUM-13 needs it first, so SCRUM-82 must not add it again. Until then the enum is `organiser`, `coordinator`, `coordinator_lead`, `operations_manager`, `attendee`, and `operations_manager` stands in for Venue Staff on the venue routes (D19).
+- **New roles arrive with US16b (SCRUM-82):** `venue_staff`, `tech_support`, `safety_officer`. `coordinator_lead` was added early by US10a's migration (`20261022_1300_us10a_coordinator`) because SCRUM-13 needs it first, so SCRUM-82 must not add it again. Until then the enum is `organiser`, `coordinator`, `coordinator_lead`, `operations_manager`, `attendee`, and `operations_manager` stands in for Venue Staff on the venue routes (D19). Exception: `tech_support` arrived early with SCRUM-108 (US26) under the planned name, so US26's review routes check a real role (deviation 34); US16b keeps it and adds the rest.
 - **Another person's record is `404 NOT_FOUND`, never `403`.** Applies to drafts as well as registrations (TC-US7-02, TC-US1-13).
 - **Schema changes go in the first PR of a story, alone.** US1 split into schema → API → screens PRs; the API and screen PRs added no migration. Keeps one Alembic head and a reviewable migration.
 - **E2E specs share one seeded database and run in parallel.** `attendee-registration.spec.ts` is the only spec that changes seeded registrations (serial within itself); others either only read seeded rows that it never touches (`events-board.spec.ts`, `venue-search.spec.ts`) or create their own uniquely named rows (`event-request*.spec.ts`, `clarification-request.spec.ts`, `venue-catalogue.spec.ts`). Keep a new spec in one of those two kinds, or it will flake against the attendee journeys.
@@ -228,11 +235,12 @@ Each is implemented and defensible; each departs from the contract in §2/§3 an
 | 30 | `venue_blocks` (US2, SCRUM-7) is in no earlier §: AC 5's "blocked" venue has no event behind it, so it can't be a `venue_bookings` row (event and requester required). Minimal: `venue_id`, `starts_at`, `ends_at`, `note`. Blocks may overlap each other and bookings. US23a (SCRUM-90, CR-02) adds Venue Staff's screens for it. Numbered 30 because US22 PR 2 takes 24 to 29 | `app/venue/models.py`, migration `20261022_1200_us2_venue_blocks` |
 | 31 | New error code `INVALID_VENUE_SEARCH` (422, with `fields` and `errors`) on `GET /api/v1/venues/available` for a past date, end not after start, attendance below 1 or not a whole number, or an unknown tag. `attendees` is read as text so `1.5` is this error on `attendees`, not FastAPI's generic 422. Missing criteria are `MISSING_REQUIRED_FIELD` | `app/venue/service.py` |
 | 32 | US22's screens (SCRUM-113). **Where:** Request venue and the event's bookings appear on an **Approved** request opened from the coordinator's review queue, the only place a coordinator sees an Approved event; a **Planning** event can't be reached in the app, because D11 hides it from coordinators. **Still open after #68 (US10a):** AC 1 allows Planning events too, but US10a didn't widen D11, so a Planning event is still out of reach; once D11 covers it, the panel should show there too. **Who:** only the event's assigned coordinator may book it (D20, since US10a). The review queue still lists every Approved request to every coordinator, so on an **unassigned** one the panel says no coordinator is assigned yet, and on one assigned to someone else (the API answers `404`) it names that coordinator; neither shows Request venue. Venue staff see the pending list at the top of Venues. **How:** date and times are Singapore wall-clock, sent as ISO 8601 with `+08:00` (D9); the form starts from the request's first preferred date, times and attendance; before sending it lists what the chosen venue lacks of the required facilities, accessibility and layout but never blocks (AC 3), and after booking it shows the API's `warnings`. The layout field is labelled **Layout**, not Room layout, because the review screen already has a Room layout section checkbox. Withdraw asks first (PR #69 review), like the registration WithdrawDialog: the dialog says the window is released to any coordinator at once, and nothing is sent until **Withdraw request**; a refusal (e.g. `BOOKING_NOT_PENDING`) is explained in the dialog while the list reloads behind it. A withdrawn window can be requested again | `frontend/src/features/venue/EventVenueBookings.tsx`, `VenueBookingForm.tsx`, `PendingBookings.tsx` |
-| 33 | US10d's screen (SCRUM-65). The Lead reaches an event's history from **Assigned requests** on the queue page, built from `GET /api/v1/event-requests` (the review queue, which the Lead may already read) filtered to requests with a coordinator. That list stops at `rejected` (D11), so the history of a **Planning** or later event has an endpoint but no screen yet, the same gap as deviation 32. A failure to load the list shows the page's usual alert | `frontend/src/features/eventRequest/AssignmentQueuePage.tsx` |
+| 34 | `tech_support` added to `user_role` by SCRUM-108 (US26) ahead of US16b (SCRUM-82), using the name §1a already planned, so Tech Support's routes check a real role instead of a stand-in (D19 already makes `operations_manager` mean two jobs). The seed adds `tech.support@smu.edu.sg`. Postgres can't drop an enum value, so the US26 downgrade leaves it | `migrations/versions/20261025_1200_us26_equipment.py`, `app/user/models.py` |
+| 35 | US10d's screen (SCRUM-66). The Lead reaches an event's history from **Assigned requests** on the queue page, built from `GET /api/v1/event-requests` (the review queue, which the Lead may already read) filtered to requests with a coordinator. That list stops at `rejected` (D11), so the history of a **Planning** or later event has an endpoint but no screen yet, the same gap as deviation 32. A failure to load the list shows the page's usual alert | `frontend/src/features/eventRequest/AssignmentQueuePage.tsx` |
  
 ### Open decisions still unanswered
  
-§6 defines D1–D6 and a Sprint 1 default for each. All six are coded to their defaults and marked in the code; **none has been confirmed by the team**. D7 is new and not in §6. D8–D12 came from US1 and D13–D15 from US8 and D16–D17 from US6a; D18–D19 from US20; D20–D24 from US22; D25–D26 from US2; D27–D28 from US10a; D31 from US10d; all are marked `DECISION-PENDING` in the code (D20 from US22 PR 2, where its check lives), **except D21, which the team has decided** (no longer marked).
+§6 defines D1–D6 and a Sprint 1 default for each. All six are coded to their defaults and marked in the code; **none has been confirmed by the team**. D7 is new and not in §6. D8–D12 came from US1 and D13–D15 from US8 and D16–D17 from US6a; D18–D19 from US20; D20–D24 from US22; D25–D26 from US2; D27–D28 from US10a; D42 from US10d; all are marked `DECISION-PENDING` in the code (D20 from US22 PR 2, where its check lives), **except D21, which the team has decided** (no longer marked).
  
 | id | Question | What we assumed |
 |---|---|---|
@@ -266,7 +274,8 @@ Each is implemented and defensible; each departs from the contract in §2/§3 an
 | D28 | Which Leads are told when a request joins the unassigned queue (SCRUM-13 AC 11)? | Every active user with role `coordinator_lead`, once each, since there can be more than one Lead (SCRUM-82 AC 7). No active Lead logs a warning and the request is still queued. This is not SCRUM-68, which tells the coordinator and organiser about an assignment |
 | D29 | What "event date" does the assignment notice carry (SCRUM-68 AC 1, 2)? | The request's `preferred_dates`: a request has no confirmed date (`start_at`) until much later, and the Coordinator and Organiser are told at assignment. Revisit if the team wants the notice to wait for a confirmed date. Recipients are the assigned Coordinator and the submitting Organiser only; other Leads are not told (the ticket leaves that optional). Log-only, like the other notices |
 | D30 | What does the picker's workload count (SCRUM-67 AC 1, 2) count? | Events the coordinator owns in `under_review`, `awaiting_clarification`, `approved` or `planning`, 0 when none. Counting only `planning` is what the ticket words say, but an assignment leaves the request `under_review` (D27), so that count would not rise after assigning (AC 3) until approval moves it to `planning` (SCRUM-84). `rejected`, `confirmed`, `cancelled` and `completed` events are not counted. Field name `planning_count` keeps the ticket's wording. `WORKLOAD_STATUSES` in `assignment_service.py`. Raise with the PO alongside D27 |
-| D31 | Who sees an Assignment History, and what about assignments made before the table existed (SCRUM-69)? | The Coordinator Lead only (`403` for every other role, `401` without identity), the same gate as assigning (AC 3). Any non-draft event, whatever its status: a draft `404`s like an unknown id. An event with no records returns an empty list. **No backfill:** events assigned before `20261024_1200_us10d_history` start with an empty history, because who assigned them was never stored and a guessed name would defeat an accountable record. Entries are ordered by `created_at` (the database clock at the assign transaction) descending, then `id` |
+| D41 | Can an event have two pending or approved equipment lines for the same type (US26)? | No: one live line per type per event (`equipment_request_lines_one_live_per_type`, unique on event and type where `status <> 'rejected'`). The 12 Oct customer clarification lets the team track equipment by type, and splitting one need across lines would get round AC 6 (no partial fulfilment). A rejected type can be requested again. Gap for the PO: more of a type that's already approved needs a new decision, since AC 2 only edits pending lines. `DECISION-PENDING` | `migrations/versions/20261025_1200_us26_equipment.py` |
+| D42 | Who sees an Assignment History, and what about assignments made before the table existed (SCRUM-69)? | The Coordinator Lead only (`403` for every other role, `401` without identity), the same gate as assigning (AC 3). Any non-draft event, whatever its status: a draft `404`s like an unknown id. An event with no records returns an empty list. **No backfill:** events assigned before `20261026_1200_us10d_history` start with an empty history, because who assigned them was never stored and a guessed name would defeat an accountable record. Entries are ordered by `created_at` (the database clock at the assign transaction) descending, then `id` |
  
 ### Environment
  
@@ -355,7 +364,7 @@ create sequence event_request_reference_seq;
 
 ### `coordinator_assignments` — Assignment History (SCRUM-69, US10d)
 
-Migration `20261024_1200_us10d_history`:
+Migration `20261026_1200_us10d_history`:
 
 ```sql
 create type assignment_kind as enum ('assignment', 'reassignment');
@@ -368,11 +377,12 @@ create table coordinator_assignments (
   created_at timestamptz not null default now()
 );
 create index ix_coordinator_assignments_event_id on coordinator_assignments (event_id);
+alter table coordinator_assignments enable row level security;
 ```
 
 - Append-only: one row per assignment, written in the same transaction as the change to `events.coordinator_id`, so a refused or rolled-back assignment leaves none (AC 1).
 - US10a only ever writes `assignment`. `reassignment` is there for US10e (SCRUM-83) so its rows need no further migration.
-- Downgrade drops the table and the enum type; it discards history.
+- Downgrade drops the table and the enum type, and refuses (like US22 and US26) while any row exists, because it would discard an accountability record.
 
 ### `events.coordinator_id` — coordinator assignment (SCRUM-13, US10a)
 
@@ -533,6 +543,52 @@ alter table venue_blocks enable row level security;
 - Nothing creates blocks in the product yet: US23a (SCRUM-90, CR-02) adds Venue Staff's screens. The seed adds one.
 - The seed's US2 slot: five days ahead, 10:00–12:00 Singapore time, SCIS Seminar Room 2-1 has a `requested` booking, Mochtar Riady Auditorium an `approved` one (each for a seeded approved event, requested by the seeded coordinator, D24), and SMU Connexion Studio 3-2 a block (`VENUE_BOOKINGS`, `VENUE_BLOCKS` in `app/seed.py`). The approved booking means **the auditorium's buffers are locked** (deviation 22).
 - Downgrade refuses if any block exists.
+
+### `equipment_types` and `equipment_request_lines` — US26 equipment requests (SCRUM-108)
+
+Migration `20261025_1200_us26_equipment`:
+
+```sql
+alter type user_role add value if not exists 'tech_support';   -- deviation 34
+
+create table equipment_types (           -- the catalogue (AC 4); stock, condition, location come with US5
+  id         uuid primary key default gen_random_uuid(),
+  name       text not null unique check (btrim(name) <> ''),
+  created_at timestamptz not null default now()
+);
+create unique index equipment_types_name_lower_unique on equipment_types (lower(btrim(name)));  -- `Projector` = ` projector`
+
+create type equipment_line_status as enum ('pending', 'approved', 'rejected');
+create table equipment_request_lines (
+  id                   uuid primary key default gen_random_uuid(),
+  event_id             uuid not null references events(id),
+  equipment_type_id    uuid not null references equipment_types(id),
+  quantity             integer not null check (quantity > 0),   -- equipment_request_lines_quantity_positive
+  notes                text,
+  status               equipment_line_status not null default 'pending',
+  review_note          text,
+  requested_by_user_id uuid not null references users(id),
+  reviewed_by_user_id  uuid references users(id),
+  reviewed_at          timestamptz,
+  created_at           timestamptz not null default now(),
+  updated_at           timestamptz not null default now(),
+  -- equipment_request_lines_reviewed_consistent: pending = no reviewer and no time; reviewed = both
+  check ((status = 'pending' and reviewed_at is null and reviewed_by_user_id is null)
+      or (status <> 'pending' and reviewed_at is not null and reviewed_by_user_id is not null)),
+  -- equipment_request_lines_note_only_when_reviewed
+  check (review_note is null or status <> 'pending')
+);
+create index ix_equipment_request_lines_event_id on equipment_request_lines (event_id);
+create index ix_equipment_request_lines_pending on equipment_request_lines (created_at) where status = 'pending';
+create unique index equipment_request_lines_one_live_per_type            -- D41
+  on equipment_request_lines (event_id, equipment_type_id) where status <> 'rejected';
+-- RLS on for both tables
+```
+
+- Approval is always for the full requested quantity (AC 6), so there's no approved-quantity column.
+- **One live line per type per event (D41, `DECISION-PENDING`):** a second pending or approved line for the same type is refused; the coordinator changes the quantity instead (AC 2). A rejected line doesn't count, so the type can be requested again. SCRUM-109 turns the refusal into an API error.
+- The seed adds eight equipment types (`EQUIPMENT_TYPES` in `app/seed.py`) and the Tech Support user. The API (SCRUM-109) and screen (SCRUM-110) come next; test cases and the PR split: `docs/testing/US26-equipment-requests.md`.
+- Downgrade refuses while any request line exists.
 
 ### `registrations` — the core table (SCRUM-24)
  
@@ -758,7 +814,7 @@ Router: `app/event/request_router.py`; logic: `app/event/request_service.py`. **
 | `GET /api/v1/event-requests/unassigned` | The Lead's queue: `submitted` requests with no coordinator, oldest first, each with `organiser` (`id`, `name`, `email`) → `{"event_requests": [...]}`. Coordinator Lead only (SCRUM-13) |
 | `GET /api/v1/coordinators` | Picker: active users with role `coordinator`, `{"coordinators": [{id, name, email, planning_count}]}`; `planning_count` is how many events they are currently planning, 0 when none (SCRUM-67, D30). Lead only |
 | `POST /api/v1/event-requests/{id}/assignment` | Body `{"coordinator_id": "<uuid>"}`; sets the coordinator and moves the request to `under_review` (D27). Lead only |
-| `GET /api/v1/event-requests/{id}/assignment-history` | `{"assignments": [{id, kind, assigned_by, coordinator, created_at}]}`, newest first; `kind` is `assignment` or `reassignment`, and `assigned_by` and `coordinator` are `{id, name, email}` (SCRUM-69, D31). Lead only; `404` for a draft or unknown id |
+| `GET /api/v1/event-requests/{id}/assignment-history` | `{"assignments": [{id, kind, assigned_by, coordinator, created_at}]}`, newest first; `kind` is `assignment` or `reassignment`, and `assigned_by` and `coordinator` are `{id, name, email}` (SCRUM-69, D42). Lead only; `404` for a draft or unknown id |
 | `GET /api/v1/event-requests/{id}` | Read one (owner; staff per D11) |
 | `PATCH /api/v1/event-requests/{id}` | Update a draft; only fields sent are changed |
 | `POST /api/v1/event-requests/{id}/submit` | Validate and submit |
@@ -902,6 +958,11 @@ Create checks, in order; each refusal saves nothing and notifies nobody:
 - The event and venue rows are read `FOR SHARE`, so a concurrent status change or venue edit waits for the request, and two requests don't block each other.
 - The notice (`Notifier.venue_booking_requested`) goes out after the commit; a failure is logged and the booking stands. An unnamed approved event is named by its request reference.
 - **Not built:** checking the window against the venue's opening hours or the event's own dates (no AC asks; US13's territory); holds (US25, D22); a database guard between blocks and bookings (D22); approve and reject (US4); requesting a venue from search results (only from the event for now).
+
+### `GET /api/v1/me` — SCRUM-105 (US16a)
+
+Who is logged in, so the login page can show the role's home screen (AC 2). Same identity as any role route (`get_current_user`: a token, or `X-User-Id` with dev headers on). `200 {"id", "email", "full_name", "role"}` (`MeOut`); `full_name` is null until a name is set, unlike `POST /auth/profile`'s `ProfileOut`, where it is always present. No profile yet: `403 PROFILE_REQUIRED`; deactivated: `403 FORBIDDEN`; no identity: `401 UNAUTHENTICATED`.
+
 ### `POST /api/v1/auth/profile` — SCRUM-103 (US16a)
 
 Called on a confirmed user's **first login**, after the token check answered `403 PROFILE_REQUIRED`. **Token only**: the dev header stubs never apply (`get_token_claims`). Body: `{"full_name": "...", "role": "organiser" | "attendee"}` (lowercase; `"Organiser"` is `INVALID_ROLE`), unknown fields rejected. The token's email must be verified (`user_metadata.email_verified`), as for #55's linking. `auth_user_id` and `email` come from the token, never the body. An `attendee` also gets its `attendees` row with the same id.
@@ -1157,10 +1218,11 @@ Backend: `tests/registration/test_accept_offer.py` (01–07 accept, SCRUM-51; 08
 | TC-US10D-07, 08 | No records; another event with records | Lead reads the history | `{"assignments": []}`, never another event's rows |
 | TC-US10D-09 | Organiser, coordinator, ops manager, attendee, no identity | Read the history | `403` each; `401` without identity (AC 3) |
 | TC-US10D-10 | Draft, unknown id | Lead reads the history | `404` |
-| TC-US10D-11 | Submitted request | Frontend: Lead assigns, then View assignment history | One entry: Assignment, "Lena Lead assigned Casey Tan", the date (SCRUM-65) |
+| TC-US10D-11 | Submitted request | Frontend: Lead assigns, then View assignment history | One entry: Assignment, "Lena Lead assigned Casey Tan", the date (SCRUM-66) |
 | TC-US10D-12 | Assigned request with a reassignment | Frontend: Lead opens its History from Assigned requests | Two entries, newest first, the first marked Reassignment |
 | TC-US10D-13 | Assigned request, no records | Frontend: Lead opens History | "No assignments have been recorded for this event." |
 | TC-US10D-14 | Coordinator, then organiser | Frontend: open Event requests | No History action |
+| TC-US10D-15 | — | Schema | Row-level security is enabled on `coordinator_assignments` |
 
 ### SCRUM-67 / US10b — See Coordinator workload when assigning
 
@@ -1315,10 +1377,20 @@ Test cases in full: `docs/testing/US16a-sign-up-log-in.md`, mirroring the subtas
 |---|---|---|---|
 | SCRUM-101 | `users.auth_user_id` (unique) + `users.full_name`; downgrade refuses while any user is linked or named | TC-US16A-01 to 04; one Alembic head | #54 |
 | SCRUM-102 | Verify the Supabase token in `get_current_user` / `get_current_attendee` (`app/user/auth.py`); header stubs only when `AUTH_DEV_HEADERS=true`; email linking for active Organiser and Attendee rows with a verified email only; 503/500 for key outages and missing config; startup warning while the stubs are on | TC-US16A-05 to 17, 46 to 49 (`tests/user/test_token_identity.py`) | #55 |
-| SCRUM-103 | `POST /api/v1/auth/profile` (`app/user/router.py`, `service.py`, `schemas.py`; `get_token_claims` in `dependencies.py`): Organiser or Attendee only; any existing email refused; returns `{id, email, full_name, role}` | TC-US16A-18 to 26 (`tests/user/test_profile.py`) | |
-| SCRUM-104 | Seed Supabase Auth logins for the seeded users via the Admin API | TC-US16A-27 to 31 | |
-| SCRUM-105 | Login page, logout, session; Bearer token per request; **Acting as** dev-only | TC-US16A-32 to 39; lint + build; E2E | |
+| SCRUM-103 | `POST /api/v1/auth/profile` (`app/user/router.py`, `service.py`, `schemas.py`; `get_token_claims` in `dependencies.py`): Organiser or Attendee only; any existing email refused; returns `{id, email, full_name, role}` | TC-US16A-18 to 26 (`tests/user/test_profile.py`) | #61 |
+| SCRUM-104 | Seed Supabase Auth logins for the seeded users via the Admin API (`app/user/supabase_admin.py`, `seed_auth_logins` in `app/seed.py`); skipped without `SUPABASE_SECRET_KEY` / `SEED_AUTH_PASSWORD` | TC-US16A-27 to 31 (`tests/user/test_seed_auth_logins.py`) | #56 |
+| SCRUM-105 | Login page (`frontend/src/auth/`), logout, session; Bearer token per request; **Acting as** only with `VITE_DEV_AUTH=true`; last screen remembered for refresh; `GET /api/v1/me` for the role | TC-US16A-32 to 39, 51 (`tests/user/test_me.py`, `e2e/tests/login.spec.ts`); lint + build | #62 |
 | SCRUM-106 | Sign-up page | TC-US16A-40 to 45; lint + build; E2E | |
+
+### SCRUM-94 (US26)
+
+Test cases in full: `docs/testing/US26-equipment-requests.md`, mirroring the subtasks in Jira.
+
+| Subtask | Work | Done when | PR |
+|---|---|---|---|
+| SCRUM-108 | `equipment_types` (seeded) + `equipment_request_lines`; `tech_support` role and a seeded Tech Support user | TC-US26-01 to 05, 18 (`tests/equipment/test_equipment_schema.py`); one Alembic head | |
+| SCRUM-109 | Coordinator add/edit/remove lines while pending; Tech Support queue and approve/reject with a note; coordinator notified | TC-US26-06 to 15 | |
+| SCRUM-110 | Equipment screen for coordinators and the Tech Support queue; **Acting as** gains Tech support | TC-US26-16, 17; lint + build; E2E | |
 
 **Build order** (dependencies are real — SCRUM-23 and SCRUM-24 unblock everything):
  
@@ -1403,6 +1475,8 @@ Keys come from **Project Settings → API**. Current naming: **publishable** (`s
 ### Frontend
  
 `@supabase/supabase-js`, created with `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`. Every request in `api/client.ts` carries `Authorization: Bearer <session.access_token>` in place of **both `X-User-Id` and `X-Attendee-Id`**. The **Acting as** toggle and `apiClient`'s `identity` option become dev-only. Read the session per request — tokens last an hour and supabase-js refreshes them, which a value cached at startup would miss. `VITE_*` values are compiled into the bundle and readable by anyone: the publishable key only.
+
+**Done in SCRUM-105:** `frontend/src/auth/supabase.ts` holds the client; `LoginPage.tsx` shows one message for any wrong email or password (AC 3), and its own message for an unconfirmed email, too many attempts (429) or no connection (`auth/messages.ts`). A failed `GET /api/v1/me` says which: no profile, deactivated, login unavailable (500/503) or backend unreachable. Log out ends the session in this browser only (`scope: "local"`). Not logged in and `VITE_DEV_AUTH` unset, every screen is the login page; with `VITE_DEV_AUTH=true` the app runs as before (Acting as, dev stubs) unless someone logs in. After a login the app reads `GET /api/v1/me` and opens the role's home: organiser → Event requests, coordinator → review queue, Coordinator Lead → unassigned queue, operations manager (Venue staff stand-in, D19) → Venues, attendee → events board. Each role gets only its own screens (`frontend/src/auth/screens.ts`); a role the frontend doesn't know yet gets a message and Log out, not a broken page. The last screen is kept in `localStorage` (`connectsphere.view`), so a refresh returns to it.
  
 ### Backend
  
@@ -1439,6 +1513,10 @@ The key fetch is built on the first token, not at startup, and uses certifi's CA
 - RLS stays on with no policies. The browser only calls Supabase Auth and the Data API stays disabled, so the publishable key reads no tables. Policies are needed only if the Data API is ever enabled; until then FastAPI's role checks (US16b) are the access control. New tables still enable RLS in their migration.
 - **CORS already allows `Authorization`** (`allow_headers=["*"]`). Cookie-based sessions would instead need `allow_credentials=True` and specific origins.
  
+### Seeded logins (SCRUM-104)
+
+Staff can't sign up (US16a AC 7), so `python -m app.seed` creates a confirmed Supabase login for each seeded user (`SEEDED_LOGIN_EMAILS`: the organiser, the coordinator, venue staff, the two Coordinator Leads and the four demo attendees) through the Admin API, then links each row by `auth_user_id`. It needs `SUPABASE_URL`, `SUPABASE_SECRET_KEY` (`sb_secret_…`) and `SEED_AUTH_PASSWORD` in `backend/.env`; without them it prints that logins were skipped and seeds everything else as before. Every login it creates carries `app_metadata.seeded_by = "app.seed"`. An account that already exists is found by email and reused, password unchanged, **only if it has that mark and a confirmed email**; anyone can sign up with an unused staff address first, so any other account is refused and nothing is linked (PR #56 review). A row already linked to a different account is never re-pointed. Every login is fetched and checked before any row is linked, so a failure (an Admin API refusal, a timeout or a malformed reply) names the email and links nothing, and `python -m app.seed` exits 1. The key and password are `SecretStr` in `Settings`; the password must be at least 12 characters. Demo accounts only: they share one password. The nine logins were created on Supabase on 24 Oct (for the SCRUM-105 login E2E) and marked the same day.
+
 Sources: [Supabase JWTs](https://supabase.com/docs/guides/auth/jwts), [API keys](https://supabase.com/docs/guides/api/api-keys).
  
 ---

@@ -1,8 +1,8 @@
 """add the coordinator assignment history
 
-Revision ID: 20261024_1200_us10d_history
-Revises: 20261022_1300_us10a_coordinator
-Create Date: 2026-10-24
+Revision ID: 20261026_1200_us10d_history
+Revises: 20261025_1200_us26_equipment
+Create Date: 2026-10-26
 
 """
 from typing import Sequence, Union
@@ -11,8 +11,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "20261024_1200_us10d_history"
-down_revision: Union[str, None] = "20261022_1300_us10a_coordinator"
+revision: str = "20261026_1200_us10d_history"
+down_revision: Union[str, None] = "20261025_1200_us26_equipment"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -36,11 +36,15 @@ def upgrade() -> None:
         ),
     )
     op.create_index("ix_coordinator_assignments_event_id", "coordinator_assignments", ["event_id"])
+    op.execute("ALTER TABLE coordinator_assignments ENABLE ROW LEVEL SECURITY")
     # No backfill: who assigned an earlier request was never recorded, and a guessed name would
     # defeat an accountable record. Those events simply start with an empty history.
 
 
 def downgrade() -> None:
+    bind = op.get_bind()
+    if bind.scalar(sa.text("SELECT EXISTS (SELECT 1 FROM coordinator_assignments)")):
+        raise RuntimeError("Refusing lossy downgrade: the coordinator assignment history would be discarded.")
     op.drop_index("ix_coordinator_assignments_event_id", table_name="coordinator_assignments")
     op.drop_table("coordinator_assignments")
     op.execute("DROP TYPE assignment_kind")

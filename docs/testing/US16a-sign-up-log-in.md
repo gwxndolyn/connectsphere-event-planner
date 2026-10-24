@@ -14,7 +14,7 @@
 6. Organisers and Attendees can sign up with name, email and password, choosing their role, confirm their email through the link sent to them, and can then log in. An email that already exists is refused. (Changed 16 Oct: email confirmation before first login.)
 7. Staff accounts can't be created through sign-up; they're seeded. There's no System Administrator role.
 
-**Test case ids 46 to 50** were added on 16 Oct (PR #55 review), after 01 to 45, so existing ids didn't move.
+**Test case ids 46 to 50** were added on 16 Oct (PR #55 review), and 51 on 20 Oct (SCRUM-105), after 01 to 45, so existing ids didn't move.
 
 **Delivery:** one PR per subtask, in this order. The design follows `claude_instructions.md` §9.
 
@@ -24,7 +24,7 @@
 | 2 | SCRUM-102 | Verify the Supabase token in the identity dependency; dev header fallback behind `AUTH_DEV_HEADERS` | to be added |
 | 3 | SCRUM-103 | `POST /api/v1/auth/profile` for sign-up | to be added |
 | 4 | SCRUM-104 | Seed Supabase Auth logins for the seeded users | to be added |
-| 5 | SCRUM-105 | Login page, logout, session handling | to be added (lint, build, Playwright) |
+| 5 | SCRUM-105 | Login page, logout, session handling; `GET /api/v1/me` | `backend/tests/user/test_me.py`; `e2e/tests/login.spec.ts` (login project, `VITE_DEV_AUTH` unset; logged-in cases need `E2E_SEED_PASSWORD`); lint, build |
 | 6 | SCRUM-106 | Sign-up page | to be added (lint, build, Playwright) |
 
 ## Decisions agreed for this story
@@ -69,17 +69,17 @@
 | TC-US16A-25 | 6 | The body includes `email` or `auth_user_id` | Profile created | `422`; identity can't be set from the body | SCRUM-103 |
 | TC-US16A-26 | 6 | No token, an invalid one, or one whose email isn't verified | Profile created | `401 UNAUTHENTICATED`; nothing is created | SCRUM-103 |
 | TC-US16A-27 | 7 | Secret key and password set | Seed runs | One confirmed auth account per seeded user; each `users` row gets its `auth_user_id` | SCRUM-104 |
-| TC-US16A-28 | 7 | Auth accounts already exist | Seed runs again | Accounts found by email and reused; no duplicates; links unchanged | SCRUM-104 |
-| TC-US16A-29 | — | No secret key | Seed runs | Seeds as today; output says auth logins were skipped | SCRUM-104 |
+| TC-US16A-28 | 7 | Auth accounts already exist | Seed runs again | Accounts the seed created (marked, confirmed) found by email and reused; no duplicates; links unchanged. An account the seed didn't create, or an unconfirmed one, is refused; a row linked to a different account is never re-pointed | SCRUM-104 |
+| TC-US16A-29 | — | No URL, secret key or password; or a password under 12 characters | Seed runs | Missing: seeds as today; output says logins were skipped and names what's missing. Too short: refused, nothing linked | SCRUM-104 |
 | TC-US16A-30 | — | Secret key set | Seed runs | Neither the secret key nor the password appears in the output | SCRUM-104 |
-| TC-US16A-31 | — | The Admin API errors for one user | Seed runs | Stops with a message naming that email; no half-linked row | SCRUM-104 |
+| TC-US16A-31 | — | The Admin API errors, times out or replies badly for one user | Seed runs | Stops with a message naming that email and exits 1; no half-linked row | SCRUM-104 |
 | TC-US16A-32 | 1, 2 | The seeded organiser's email and password | Logs in | Lands on Event requests | SCRUM-105 |
 | TC-US16A-33 | 2 | The seeded coordinator; a seeded attendee | Each logs in | Coordinator lands on the review queue; attendee on the events board | SCRUM-105 |
 | TC-US16A-34 | 3 | A wrong password; an email with no account | Each is submitted | Both show exactly "Email or password is incorrect" | SCRUM-105 |
 | TC-US16A-35 | 4 | Logged in | The page is refreshed | Still logged in, on the same screen | SCRUM-105 |
 | TC-US16A-36 | 5 | Logged in | Logs out, then opens My events or Event requests | The login page is shown | SCRUM-105 |
 | TC-US16A-37 | 5 | Not logged in | Opens any protected screen directly | The login page is shown | SCRUM-105 |
-| TC-US16A-38 | — | `VITE_DEV_AUTH` unset | The app loads | No **Acting as** switch | SCRUM-105 |
+| TC-US16A-38 | — | `VITE_DEV_AUTH` unset | The app loads, then a user logs in | No **Acting as** switch, before or after logging in | SCRUM-105 |
 | TC-US16A-39 | — | Logged in | Any API call | Carries `Authorization: Bearer …` and no `X-User-Id` / `X-Attendee-Id` | SCRUM-105 |
 | TC-US16A-40 | 6 | A new email | Signs up as Attendee, confirms the email, logs in | First login creates the profile; lands on the events board; My events shows the empty state | SCRUM-106 |
 | TC-US16A-41 | 6 | A new email | Signs up as Organiser, confirms the email, logs in | First login creates the profile; lands on Event requests | SCRUM-106 |
@@ -92,3 +92,43 @@
 | TC-US16A-48 | — | `AUTH_DEV_HEADERS=true` | The backend starts | A warning is logged that the header stubs bypass login | SCRUM-102 |
 | TC-US16A-49 | — | Any token is refused (401) | The refusal happens | A warning names the reason; the token never appears in the log | SCRUM-102 |
 | TC-US16A-50 | 6 | A new email | Signs up | Sees "Check your email to confirm your account"; not logged in until the link is clicked | SCRUM-106 |
+| TC-US16A-51 | 2 | A valid token | `GET /api/v1/me` | `200 {id, email, full_name, role}` for a user with a profile (`full_name` null until a name is set); `403 PROFILE_REQUIRED` without one; `403 FORBIDDEN` for a deactivated user; `401` without a token | SCRUM-105 |
+
+## Run log
+
+### 24 Oct 2026: SCRUM-105 login E2E with real logins (PR #62)
+
+Setup: local Postgres at `alembic` head, seeded from #56's branch (SCRUM-104) with `SEED_AUTH_PASSWORD`, which
+created and linked nine Supabase logins. Backend from #62 with `SUPABASE_URL` set; Playwright `login` project
+with `E2E_SEED_PASSWORD`.
+
+| Test case | Result | Note |
+| --- | --- | --- |
+| TC-US16A-32 | Pass | Organiser lands on "My event requests" |
+| TC-US16A-33 | Pass | Coordinator on "Requests to review"; attendee on the events board |
+| TC-US16A-34 | Pass | Wrong password and unknown email |
+| TC-US16A-35 | Pass | Refresh keeps the login and My events |
+| TC-US16A-36 | Pass | Log out, then reload: login page |
+| TC-US16A-37 | Pass | No login: login page |
+| TC-US16A-38 | Pass | Checks the login page only, so it passes either way (PR #62 review, point 5) |
+| TC-US16A-39 | Pass | Bearer token, no dev headers |
+
+- **First run: TC-32, 33, 35 and 36 failed.** The backend's CORS list allowed only `localhost:5173`, so the browser
+  blocked `GET /api/v1/me` from the login frontend on `:5174`. Fixed by adding `:5174` to the default `CORS_ORIGINS`.
+- **Staff screens with a real login (PR #62 review, point 1):** the organiser, coordinator, Coordinator Lead and venue
+  staff each land on their home screen, but every one gets `401` from `GET /api/v1/me/registrations` and
+  `GET /api/v1/events/available` straight after logging in, and My events shows "Set VITE_DEV_ATTENDEE_ID in
+  frontend/.env…". The attendee has no failed calls.
+- **Fixed the same day:** each logged-in role now gets only its own screens (`frontend/src/auth/screens.ts`), and the
+  attendee lists load only for attendees. TC-US16A-32 and 33 now also check there are no attendee links or failed
+  calls for staff and no staff links for the attendee. Rerun: login project 8 of 8, full E2E suite 30 of 30.
+
+### 24 Oct 2026: PR #62 review notes
+
+- TC-US16A-38 now also checks there's no **Acting as** switch once logged in; the old check alone couldn't fail.
+- TC-US16A-51 has a deactivated-user case (`403 FORBIDDEN`), which the frontend now names in its own message.
+- Login errors other than wrong details (unconfirmed email, 429, no connection) get their own message; unit tests in
+  `frontend/src/auth/messages.test.ts`. Log out is `scope: "local"`.
+- A role the frontend doesn't know yet (e.g. `tech_support` from US16b) gets "Your account's role doesn't have any
+  screens yet" and Log out instead of a broken page; unit tests in `frontend/src/auth/screens.test.ts`.
+- Rerun: backend 526, frontend 208, login project 9 of 9, full E2E suite 31 of 31.

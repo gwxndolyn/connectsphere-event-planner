@@ -4,6 +4,7 @@ from alembic import context
 from sqlalchemy import create_engine, pool
 
 # Import every domain's models so autogenerate can see their tables.
+import app.equipment.models  # noqa: F401
 import app.event.models  # noqa: F401
 import app.registration.models  # noqa: F401
 import app.user.models  # noqa: F401

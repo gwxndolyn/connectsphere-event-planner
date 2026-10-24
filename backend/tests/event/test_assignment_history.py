@@ -3,7 +3,7 @@ from datetime import timedelta
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import inspect, select
+from sqlalchemy import inspect, select, text
 from sqlalchemy.orm import Session
 
 from app.event.models import AssignmentKind, CoordinatorAssignment, EventStatus
@@ -174,3 +174,9 @@ async def test_tc_us10d_10_a_draft_or_unknown_event_is_not_found(
 
     assert (await client.get(history_url(draft.id), headers=auth(lead))).status_code == 404
     assert (await client.get(history_url(uuid.uuid4()), headers=auth(lead))).status_code == 404
+
+
+def test_tc_us10d_15_the_history_table_has_row_level_security(db: Session) -> None:
+    assert db.execute(
+        text("select relrowsecurity from pg_class where oid = 'coordinator_assignments'::regclass")
+    ).scalar_one() is True

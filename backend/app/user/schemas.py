@@ -26,3 +26,9 @@ class ProfileOut(BaseModel):
     email: str
     full_name: str
     role: UserRole
+
+
+class MeOut(ProfileOut):
+    """GET /api/v1/me (SCRUM-105): as ProfileOut, but a user who never signed up may have no name."""
+
+    full_name: str | None
