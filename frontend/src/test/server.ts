@@ -346,6 +346,8 @@ function visibleTo(request: EventRequest, role: string, userId: string) {
 
 // SCRUM-13: who the Lead can pick, as GET /api/v1/coordinators returns them.
 export const COORDINATOR_PERSON = { id: COORDINATOR_ID, name: "Casey Tan", email: "casey.tan@smu.edu.sg" };
+// SCRUM-67, D30: the statuses a coordinator is actively working an event through.
+const WORKLOAD_STATUSES = new Set(["under_review", "awaiting_clarification", "approved", "planning"]);
 const ORGANISER_PERSON = { id: ORGANISER_ID, name: "Olivia Organiser", email: "event.organiser@smu.edu.sg" };
 
 const CLARIFIABLE = new Set(["submitted", "under_review"]);
@@ -624,7 +626,10 @@ const handlers = [
     const role = userRole(request);
     if (!role) return error(401, "UNAUTHENTICATED");
     if (role !== "coordinator_lead") return error(403, "FORBIDDEN");
-    return HttpResponse.json({ coordinators: [COORDINATOR_PERSON] });
+    const planning_count = db.requests.filter(
+      (r) => r.coordinator?.id === COORDINATOR_PERSON.id && WORKLOAD_STATUSES.has(r.status),
+    ).length;
+    return HttpResponse.json({ coordinators: [{ ...COORDINATOR_PERSON, planning_count }] });
   }),
 
   route("post", "/api/v1/event-requests/:id/assignment", ({ request, params, body }) => {

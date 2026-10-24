@@ -38,6 +38,8 @@ test("TC-US10A-26: the Coordinator Lead assigns a submitted request and the orga
   await row.getByRole("button", { name: /^Assign/ }).click();
   await expect(page.getByRole("heading", { name: "Assign a coordinator" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Confirm assignment" })).toBeDisabled();
+  // SCRUM-67: each picker entry shows how many events that coordinator is planning.
+  await expect(page.locator(".assign-picker__option").first()).toContainText(/\d+ events? planning/);
   await page.getByRole("radio").first().check();
   await page.getByRole("button", { name: "Confirm assignment" }).click();
 

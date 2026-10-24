@@ -35,14 +35,20 @@ class CoordinatorOut(BaseModel):
     name: str = Field(validation_alias="display_name")
 
 
-class CoordinatorOptionOut(CoordinatorOut):
-    """A picker row for the Lead, who can tell people apart by email."""
+class PersonOut(CoordinatorOut):
+    """A person the Lead can tell apart by email."""
 
     email: str
 
 
-class OrganiserOut(CoordinatorOptionOut):
+class OrganiserOut(PersonOut):
     pass
+
+
+class CoordinatorOptionOut(PersonOut):
+    """A picker row (SCRUM-67): the coordinator and how many events they are currently planning."""
+
+    planning_count: int
 
 
 class EventRequestOut(BaseModel):

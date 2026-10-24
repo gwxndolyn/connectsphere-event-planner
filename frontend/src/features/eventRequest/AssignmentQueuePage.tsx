@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 import { ApiError, apiClient } from "../../api/client";
 import { statusLabel } from "./clarificationSections";
 import type {
+  CoordinatorOption,
   CoordinatorOptionsResponse,
   EventRequest,
-  QueuePerson,
   UnassignedRequest,
   UnassignedRequestsResponse,
 } from "./types";
@@ -34,6 +34,11 @@ function errorMessage(error: unknown): string {
   return `The backend rejected the request (${error.status}).`;
 }
 
+// SCRUM-67 AC 1, 2: how many events the coordinator is currently planning; 0 when none.
+function workloadLabel(count: number): string {
+  return `${count} ${count === 1 ? "event" : "events"} planning`;
+}
+
 function dates(request: EventRequest): string {
   return request.preferred_dates?.length ? request.preferred_dates.join(", ") : "Dates not set";
 }
@@ -43,7 +48,7 @@ export function AssignmentQueuePage() {
   const [requests, setRequests] = useState<UnassignedRequest[]>([]);
   const [screen, setScreen] = useState<Screen>("queue");
   const [active, setActive] = useState<UnassignedRequest | null>(null);
-  const [coordinators, setCoordinators] = useState<QueuePerson[]>([]);
+  const [coordinators, setCoordinators] = useState<CoordinatorOption[]>([]);
   const [picked, setPicked] = useState("");
   const [assignedTo, setAssignedTo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -185,6 +190,7 @@ export function AssignmentQueuePage() {
                     }}
                   />
                   {person.name} <span>({person.email})</span>
+                  <span className="assign-picker__workload">{workloadLabel(person.planning_count)}</span>
                 </label>
               ))}
             </fieldset>

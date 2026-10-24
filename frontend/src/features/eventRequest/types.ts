@@ -57,8 +57,13 @@ export interface UnassignedRequestsResponse {
   event_requests: UnassignedRequest[];
 }
 
+// A picker row: the coordinator and how many events they are currently planning (SCRUM-67, D30).
+export interface CoordinatorOption extends QueuePerson {
+  planning_count: number;
+}
+
 export interface CoordinatorOptionsResponse {
-  coordinators: QueuePerson[];
+  coordinators: CoordinatorOption[];
 }
 
 export interface EventRequestsResponse {
