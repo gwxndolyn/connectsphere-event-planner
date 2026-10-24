@@ -351,6 +351,17 @@ class BookableEventSpec:
 # Approved straight away (D24).
 BOOKABLE_EVENT = BookableEventSpec(slug="bookable-venue-booking-demo", name="Venue Booking Demo", expected_attendees=40)
 
+# US26 (SCRUM-109): the dev coordinator adds equipment lines to it (SCRUM-110, TC-US26-16). Only a
+# planning or confirmed event takes them, from its assigned coordinator (D20), and no other seeded
+# event is both. Registration is off, so it stays off the attendees' events board.
+EQUIPMENT_EVENT = EventSpec(
+    slug="equipment-request-demo",
+    name="Equipment Request Demo",
+    note="confirmed, assigned to the seeded coordinator, registration off (US26)",
+    registration_enabled=False,
+    starts_in=timedelta(days=14),
+)
+
 VENUE_BLOCKS = [
     VenueBlockSpec(
         slug="connexion-maintenance",
@@ -594,6 +605,17 @@ def upsert_bookable_event(db: Session, spec: BookableEventSpec, organiser: User,
     return event
 
 
+def upsert_equipment_event(
+    db: Session, spec: EventSpec, organiser: User, coordinator: User, now: datetime
+) -> Event:
+    """The confirmed event the equipment screens add lines to, assigned to `coordinator`. Its lines are
+    made through the app, so a reseed leaves them alone: the seed owns only the event row."""
+    event = upsert_event(db, spec, now)
+    event.created_by_user_id = organiser.id
+    event.coordinator_id = coordinator.id
+    return event
+
+
 def upsert_venue_booking(
     db: Session, spec: VenueBookingSpec, event: Event, coordinator: User, now: datetime
 ) -> VenueBooking:
@@ -726,6 +748,7 @@ def seed(db: Session, now: datetime | None = None) -> None:
     for spec in VENUE_BLOCKS:
         upsert_venue_block(db, spec, now)
     upsert_bookable_event(db, BOOKABLE_EVENT, organiser, coordinator)
+    upsert_equipment_event(db, EQUIPMENT_EVENT, organiser, coordinator, now)
     for name in EQUIPMENT_TYPES:
         upsert_equipment_type(db, name)
     db.flush()
