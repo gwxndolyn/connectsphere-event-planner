@@ -9,6 +9,7 @@ from httpx import AsyncClient
 from sqlalchemy.orm import Session
 
 from app.user.models import User, UserRole
+from app.user.schemas import MeOut, ProfileOut
 from tests.tokens import api_client, bearer, make_token
 
 pytestmark = pytest.mark.anyio
@@ -41,13 +42,28 @@ async def test_tc_us16a_51_returns_the_logged_in_users_profile(
     assert response.json() == {"id": str(user.id), "email": user.email, "full_name": "Pat Person", "role": role.value}
 
 
-async def test_tc_us16a_51_a_seeded_user_has_no_name(client: AsyncClient, db: Session) -> None:
+async def test_tc_us16a_51_a_user_without_a_name_gets_null(client: AsyncClient, db: Session) -> None:
     user = make_user(db, UserRole.COORDINATOR)
 
     response = await client.get(ME, headers=bearer(make_token(user.auth_user_id, user.email)))
 
     assert response.status_code == 200
     assert response.json()["full_name"] is None
+
+
+async def test_tc_us16a_51_an_inactive_user_is_forbidden(client: AsyncClient, db: Session) -> None:
+    # The frontend shows its own message for this one, so the body must stay FORBIDDEN (PR #62 review).
+    user = make_user(db, UserRole.ORGANISER, full_name="Pat Person", is_active=False)
+
+    response = await client.get(ME, headers=bearer(make_token(user.auth_user_id, user.email)))
+
+    assert (response.status_code, response.json()) == (403, {"code": "FORBIDDEN"})
+
+
+def test_tc_us16a_51_only_me_allows_a_missing_name() -> None:
+    # POST /auth/profile always sets the name; GET /me can return a user without one (PR #62 review).
+    assert MeOut.model_fields["full_name"].annotation == str | None
+    assert ProfileOut.model_fields["full_name"].annotation is str
 
 
 async def test_tc_us16a_51_no_profile_yet_is_profile_required(client: AsyncClient) -> None:

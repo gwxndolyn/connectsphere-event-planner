@@ -120,6 +120,14 @@ test.describe("logged in", () => {
     await expect(page.getByRole("heading", { name: "My events" })).toHaveCount(0);
   });
 
+  test("TC-US16A-38: no Acting as switch once logged in", async ({ page }) => {
+    // The page without a login has no header at all, so this is the check that can fail (PR #62 review).
+    await logIn(page, ORGANISER, SEED_PASSWORD!);
+    await expect(page.getByRole("button", { name: "Log out" })).toBeVisible();
+
+    await expect(page.getByLabel("Acting as")).toHaveCount(0);
+  });
+
   test("TC-US16A-39: API calls carry the token and no dev headers", async ({ page }) => {
     const apiCall = page.waitForRequest((request) => request.url().includes("/api/v1/"));
     await logIn(page, ORGANISER, SEED_PASSWORD!);
