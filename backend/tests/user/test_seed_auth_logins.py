@@ -51,7 +51,7 @@ def test_tc_us16a_27_every_seeded_user_gets_a_confirmed_linked_login(db: Session
 
     seed_auth_logins(db, admin, PASSWORD)
 
-    assert len(SEEDED_LOGIN_EMAILS) == 9
+    assert len(SEEDED_LOGIN_EMAILS) == 10
     assert {account["email"] for account in admin.created} == set(SEEDED_LOGIN_EMAILS)
     assert all(account["password"] == PASSWORD and account["email_confirm"] for account in admin.created)
     users = seeded_users(db)
