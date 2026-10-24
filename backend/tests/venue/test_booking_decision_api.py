@@ -162,6 +162,12 @@ async def test_tc_us4_02_approving_leaves_the_event_status(
 # --- TC-US4-03 no approval over a conflict, no override ---
 
 
+def without_overlap_guard(db: Session) -> None:
+    """Lets a test add bookings that venue_bookings_no_overlap would refuse, as rows made before it
+    (or by raw SQL) could be. Dropped inside the test's transaction, so it's back for the next test."""
+    db.execute(text("ALTER TABLE venue_bookings DROP CONSTRAINT venue_bookings_no_overlap"))
+
+
 @pytest.mark.parametrize(
     ("other_starts", "other_ends"),
     [
@@ -172,7 +178,7 @@ async def test_tc_us4_02_approving_leaves_the_event_status(
     ],
     ids=["before", "after"],
 )
-async def test_tc_us4_03_a_clash_with_an_approved_booking_is_refused(
+async def test_tc_us4_03_a_clash_in_the_buffers_is_refused(
     client: AsyncClient,
     db: Session,
     staff: User,
@@ -183,9 +189,10 @@ async def test_tc_us4_03_a_clash_with_an_approved_booking_is_refused(
     other_starts: datetime,
     other_ends: datetime,
 ) -> None:
-    """A buffer-only conflict: the plain windows don't overlap (that is refused already at request
-    time, US22), but the venue's setup and turnaround do, so approving would leave no time to turn the
-    venue round. The message says too close, not already booked (PR #73 review)."""
+    """A buffer-only conflict: the plain windows don't overlap, the occupied windows (US13) do.
+    Since US13 the request would be refused when made, so this is the backstop for an older row.
+    The message says too close, not already booked (PR #73 review)."""
+    without_overlap_guard(db)
     other = make_venue_booking(
         db,
         event=make_event(db, status=EventStatus.APPROVED),
@@ -211,36 +218,11 @@ async def test_tc_us4_03_a_clash_with_an_approved_booking_is_refused(
     assert notifier.booking_decisions == []
 
 
-async def test_tc_us4_03_a_pending_neighbour_inside_the_buffers_does_not_block(
-    client: AsyncClient, db: Session, staff: User, coordinator: User, venue: Venue, booking: VenueBooking
-) -> None:
-    """Two pending requests 10 minutes apart: either can be approved first. Only then does the other
-    clash (PR #73 review: counting pending ones would leave both stuck until one was rejected)."""
-    neighbour = make_venue_booking(
-        db,
-        event=make_event(db, status=EventStatus.APPROVED),
-        venue=venue,
-        user=coordinator,
-        starts_at=END + timedelta(minutes=10),
-    )
-
-    assert (await client.post(approve_url(booking.id), headers=auth(staff))).status_code == 200
-    refused = await client.post(approve_url(neighbour.id), headers=auth(staff))
-    assert refused.status_code == 409
-    assert refused.json()["buffers"] is True
-
-
 async def test_tc_us4_03_a_window_overlap_says_already_booked(
     client: AsyncClient, db: Session, staff: User, coordinator: User, venue: Venue, booking: VenueBooking
 ) -> None:
-    """An approved booking overlapping the window itself. US22's constraint stops that being made
-    through the API, so this one predates it: raw SQL, as the seed or a fix-up script might."""
-    with db.begin_nested():
-        db.execute(
-            VenueBooking.__table__.update()
-            .where(VenueBooking.id == booking.id)
-            .values(status=VenueBookingStatus.WITHDRAWN, withdrawn_at=NOW)
-        )
+    """An approved booking overlapping the window itself, again only possible for an older row."""
+    without_overlap_guard(db)
     make_venue_booking(
         db,
         event=make_event(db, status=EventStatus.APPROVED),
@@ -249,19 +231,46 @@ async def test_tc_us4_03_a_window_overlap_says_already_booked(
         starts_at=START + timedelta(hours=1),
         status=VenueBookingStatus.APPROVED,
     )
-    db.execute(text("ALTER TABLE venue_bookings DROP CONSTRAINT venue_bookings_no_overlap"))
-    db.execute(
-        VenueBooking.__table__.update()
-        .where(VenueBooking.id == booking.id)
-        .values(status=VenueBookingStatus.REQUESTED, withdrawn_at=None)
-    )
-    db.expire_all()
 
     response = await client.post(approve_url(booking.id), headers=auth(staff))
 
     assert response.status_code == 409
     assert "buffers" not in response.json()
     assert response.json()["message"].startswith("This venue is already booked from ")
+
+
+async def test_tc_us4_03_the_stored_occupied_window_is_what_counts(
+    client: AsyncClient, db: Session, staff: User, coordinator: User, event: Event, venue: Venue
+) -> None:
+    """Approval reads the booking's stored occupied window (US13), not the venue's buffers now: a
+    block inside the buffers the request was made with refuses it, one just outside doesn't."""
+    booking = make_venue_booking(
+        db,
+        event=event,
+        venue=venue,
+        user=coordinator,
+        starts_at=START,
+        ends_at=END,
+        occupied_starts_at=START - timedelta(hours=1),
+        occupied_ends_at=END,
+    )
+    make_venue_block(db, venue, START - timedelta(hours=2), START - timedelta(hours=1))
+    assert (await client.post(approve_url(booking.id), headers=auth(staff))).status_code == 200
+
+    other = make_venue_booking(
+        db,
+        event=event,
+        venue=venue,
+        user=coordinator,
+        starts_at=START + timedelta(days=1),
+        ends_at=END + timedelta(days=1),
+        occupied_starts_at=START + timedelta(days=1, minutes=-50),
+        occupied_ends_at=END + timedelta(days=1),
+    )
+    make_venue_block(db, venue, START + timedelta(days=1, minutes=-55), START + timedelta(days=1, minutes=-45))
+    refused = await client.post(approve_url(other.id), headers=auth(staff))
+    assert refused.status_code == 409
+    assert refused.json()["buffers"] is True
 
 
 async def test_tc_us4_03_back_to_back_with_buffers_clear_is_approved(

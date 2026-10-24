@@ -1,6 +1,6 @@
 import logging
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from sqlalchemy import func, literal, select
 from sqlalchemy.exc import IntegrityError, OperationalError
@@ -95,37 +95,27 @@ def _find_block(db: Session, venue_id: uuid.UUID, starts_at: datetime, ends_at: 
     ).first()
 
 
-def _find_buffered_conflict(db: Session, booking: VenueBooking, venue: Venue) -> VenueBooking | VenueBlock | None:
-    """US4 AC 3: what stops this request being approved. Its window, widened by the venue's setup
-    before and turnaround after, may not overlap an approved booking's widened window or a block at
-    the venue. Both bookings are at one venue, so they share its buffers: two windows clash when one
-    starts less than setup + turnaround after the other ends. A booking is reported before a block.
-
-    Only approved bookings count for the buffers: a pending one can't overlap this window at all
-    (venue_bookings_no_overlap), and if a pending neighbour inside the buffers counted too, two
-    requests close together would each block the other until one was rejected (PR #73 review)."""
-    # DECISION-PENDING: D38 — buffers from the venue as it is now, checked only on approval: create
-    # still checks the plain window (D22), so a request can be made and then fail approval on buffers.
-    # US13 (SCRUM-16) moves the buffers into create and stores each booking's occupied window; once it
-    # lands, compare those here and drop this function.
-    setup = timedelta(minutes=venue.setup_minutes)
-    turnaround = timedelta(minutes=venue.turnaround_minutes)
-    gap = setup + turnaround
+def _find_approval_conflict(db: Session, booking: VenueBooking) -> VenueBooking | VenueBlock | None:
+    """US4 AC 3: what stops this request being approved. Its stored occupied window (US13: setup
+    before, turnaround after) may not overlap another live booking's occupied window or a block at
+    the venue. venue_bookings_no_overlap already keeps live bookings' occupied windows apart, so the
+    booking half is a backstop for rows made before it; blocks are only ever checked by the service
+    (D22), and one may have been added since the request. A booking is reported before a block."""
     other = db.scalars(
         select(VenueBooking)
         .where(
-            VenueBooking.venue_id == venue.id,
+            VenueBooking.venue_id == booking.venue_id,
             VenueBooking.id != booking.id,
-            VenueBooking.status == VenueBookingStatus.APPROVED,
-            VenueBooking.starts_at < booking.ends_at + gap,
-            VenueBooking.ends_at > booking.starts_at - gap,
+            VenueBooking.status.in_(LIVE_BOOKING_STATUSES),
+            VenueBooking.occupied_starts_at < booking.occupied_ends_at,
+            VenueBooking.occupied_ends_at > booking.occupied_starts_at,
         )
         .order_by(VenueBooking.starts_at)
         .limit(1)
     ).first()
     if other is not None:
         return other
-    return _find_block(db, venue.id, booking.starts_at - setup, booking.ends_at + turnaround)
+    return _find_block(db, booking.venue_id, booking.occupied_starts_at, booking.occupied_ends_at)
 
 
 def _overlaps(conflict: VenueBooking | VenueBlock, booking: VenueBooking) -> bool:
@@ -347,9 +337,8 @@ class VenueBookingService:
             raise DomainError(
                 409, "BOOKING_EXPIRED", message="This request's start time has passed. It can only be rejected."
             )
-        # The event FOR SHARE, as create reads it. The venue FOR UPDATE: the exclusion constraint
-        # doesn't cover buffers, so two approvals at one venue take turns, and a new request there
-        # (which reads the venue FOR SHARE) waits for the decision.
+        # The event FOR SHARE, as create reads it. The venue FOR UPDATE, so a buffer or capacity edit,
+        # or a new request there (which reads it FOR SHARE), waits for the decision.
         event = db.scalars(select(Event).where(Event.id == booking.event_id).with_for_update(read=True)).one()
         venue = db.scalars(select(Venue).where(Venue.id == booking.venue_id).with_for_update()).one()
         if event.status not in BOOKABLE_STATUSES:
@@ -366,7 +355,7 @@ class VenueBookingService:
                 message=f"Expected attendance is now more than this venue's capacity of {venue.capacity}.",
             )
         # DECISION-PENDING: D22 — blocks are checked here only, not by a constraint (see _insert).
-        conflict = _find_buffered_conflict(db, booking, venue)
+        conflict = _find_approval_conflict(db, booking)
         if conflict is not None:
             raise _unavailable(conflict, buffers=not _overlaps(conflict, booking))
         return self._decide(db, notifier, staff, booking, event, venue, VenueBookingStatus.APPROVED, now)
