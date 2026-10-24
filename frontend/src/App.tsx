@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
-import { apiClient, getDevRole, setDevRole, type DevRole } from "./api/client";
+import { ApiError, apiClient, getDevRole, setDevRole, type DevRole } from "./api/client";
 import { LoginPage } from "./auth/LoginPage";
 import { accountErrorMessage } from "./auth/messages";
+import { SignUpPage } from "./auth/SignUpPage";
+import { completeProfile, profileFromMetadata } from "./auth/signUp";
 import { screensFor } from "./auth/screens";
 import { DEV_AUTH, supabase } from "./auth/supabase";
 import { SiteHeader, type View } from "./components/SiteHeader";
@@ -66,13 +68,27 @@ function App() {
     return () => data.subscription.unsubscribe();
   }, []);
 
+  // Without a login: the login page, or the sign-up page it links to (SCRUM-106).
+  const [authScreen, setAuthScreen] = useState<"login" | "sign-up">("login");
+
   const userId = session?.user.id;
+  // The name and role saved at sign-up, for the first login after confirming (SCRUM-106).
+  const signUpMetadata = session?.user.user_metadata;
   useEffect(() => {
     if (!userId) return;
     // A late answer for a previous login must not move the next user's screen.
     let current = true;
     apiClient
       .get<Me>("/api/v1/me")
+      .catch((reason: unknown) => {
+        // First login after confirming the email: create the profile from what sign-up saved, then
+        // open the role's home screen (TC-US16A-40, 41). Anyone else without a profile keeps the message.
+        if (reason instanceof ApiError && reason.code === "PROFILE_REQUIRED" && profileFromMetadata(signUpMetadata)) {
+          goHome.current = true;
+          return completeProfile(signUpMetadata);
+        }
+        throw reason;
+      })
       .then((me) => {
         if (!current) return;
         setAccount({ userId, me });
@@ -88,6 +104,8 @@ function App() {
     return () => {
       current = false;
     };
+    // Re-read only when a different user logs in, not on every token refresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
   const current = account && account.userId === userId ? account : null;
   const me = current?.me ?? null;
@@ -107,7 +125,8 @@ function App() {
     return <main className="request-page">Loading…</main>;
   }
   if (!session && !DEV_AUTH) {
-    return <LoginPage onLoggedIn={() => (goHome.current = true)} />;
+    if (authScreen === "sign-up") return <SignUpPage onShowLogin={() => setAuthScreen("login")} />;
+    return <LoginPage onLoggedIn={() => (goHome.current = true)} onShowSignUp={() => setAuthScreen("sign-up")} />;
   }
   // A role with no screens yet (one US16b adds before the frontend knows it) can only log out.
   const blocked = me && !screensFor(me.role) ? "Your account's role doesn't have any screens yet." : meError;

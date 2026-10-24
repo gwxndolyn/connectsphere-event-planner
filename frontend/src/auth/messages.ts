@@ -18,6 +18,8 @@ export function accountErrorMessage(reason: unknown): string {
   if (reason instanceof ApiError) {
     if (reason.code === "PROFILE_REQUIRED") return "Your account doesn't have a profile yet.";
     if (reason.code === "FORBIDDEN") return "This account is deactivated. Ask an administrator to reactivate it.";
+    // SCRUM-106: sign-up's email already belongs to a profile, e.g. a seeded staff account (TC-US16A-43).
+    if (reason.code === "EMAIL_ALREADY_REGISTERED") return "This email already belongs to an account. Log in with that account instead.";
     return "Login is unavailable right now. Try again shortly.";
   }
   return "Couldn't load your account. Check the backend is running, then refresh.";
