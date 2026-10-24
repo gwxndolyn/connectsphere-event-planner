@@ -225,6 +225,10 @@ export function seedBooking(request: EventRequest, venue: Venue, overrides: Part
     created_at: "2026-10-01T02:00:00Z",
     updated_at: "2026-10-01T02:00:00Z",
     withdrawn_at: null,
+    decided_at: null,
+    decided_by_user_id: null,
+    rejection_reason: null,
+    alternative_suggestion: null,
     ...overrides,
   };
   db.bookings.push(booking);
@@ -580,6 +584,30 @@ const handlers = [
     Object.assign(booking, { status: "withdrawn", withdrawn_at: "2026-10-01T03:00:00Z", updated_at: "2026-10-01T03:00:00Z" });
     return HttpResponse.json(booking);
   }),
+
+  // US4 (SCRUM-8): Venue Staff decide a pending request as a whole. Whether the venue is free (with
+  // buffers) is the API's rule (backend/tests/venue/test_booking_decision_api.py); a test queues a
+  // VENUE_UNAVAILABLE refusal with server.use(...).
+  ...(["approve", "reject"] as const).map((action) =>
+    route("post", `/api/v1/venue-bookings/:id/${action}`, ({ request, params, body }) => {
+      const role = userRole(request);
+      if (!role) return error(401, "UNAUTHENTICATED");
+      if (role !== "operations_manager") return error(403, "FORBIDDEN");
+      const booking = db.bookings.find((b) => b.id === params.id);
+      if (!booking) return error(404, "NOT_FOUND");
+      if (booking.status !== "requested") return error(409, "BOOKING_NOT_PENDING", { status: booking.status });
+      const notes = (body ?? {}) as { reason?: string; alternative_suggestion?: string };
+      Object.assign(booking, {
+        status: action === "approve" ? "approved" : "rejected",
+        decided_at: "2026-10-01T03:00:00Z",
+        decided_by_user_id: request.headers.get("X-User-Id"),
+        updated_at: "2026-10-01T03:00:00Z",
+        rejection_reason: action === "reject" ? (notes.reason ?? null) : null,
+        alternative_suggestion: action === "reject" ? (notes.alternative_suggestion ?? null) : null,
+      });
+      return HttpResponse.json(booking);
+    }),
+  ),
 
   route("get", "/api/v1/venue-bookings/pending", ({ request }) => {
     const role = userRole(request);

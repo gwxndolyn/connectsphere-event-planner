@@ -1,4 +1,5 @@
 import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../api/client";
 import { bookingApi } from "./bookingApi";
@@ -22,6 +23,10 @@ function booking(overrides: Partial<VenueBooking> = {}): VenueBooking {
     created_at: "2026-10-01T02:00:00Z",
     updated_at: "2026-10-01T02:00:00Z",
     withdrawn_at: null,
+    decided_at: null,
+    decided_by_user_id: null,
+    rejection_reason: null,
+    alternative_suggestion: null,
     ...overrides,
   };
 }
@@ -57,5 +62,89 @@ describe("PendingBookings (US22 AC 4)", () => {
     render(<PendingBookings />);
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Only Venue staff can see pending venue requests.");
+  });
+});
+
+describe("PendingBookings decisions (US4, SCRUM-8)", () => {
+  it("approves a request as a whole and takes it off the list (TC-US4-02)", async () => {
+    vi.spyOn(bookingApi, "pending").mockResolvedValue([booking()]);
+    const approve = vi.spyOn(bookingApi, "approve").mockResolvedValue(booking({ status: "approved" }));
+    const user = userEvent.setup();
+    render(<PendingBookings />);
+
+    const row = await screen.findByRole("listitem", { name: "Venue Booking Demo at Hall A" });
+    await user.click(within(row).getByRole("button", { name: "Approve" }));
+
+    expect(approve).toHaveBeenCalledWith("booking-1");
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Approved: Hall A is reserved for Venue Booking Demo, Fri, Nov 20, 10:00 AM – 12:00 PM. The coordinator has been notified.",
+    );
+    expect(screen.getByText("No venue requests are waiting for review.")).toBeInTheDocument();
+  });
+
+  it("explains a refused approval on the row, which stays pending with Reject still offered (TC-US4-03)", async () => {
+    vi.spyOn(bookingApi, "pending").mockResolvedValue([booking()]);
+    vi.spyOn(bookingApi, "approve").mockRejectedValue(
+      new ApiError(409, "VENUE_UNAVAILABLE", [], {
+        conflict: { starts_at: "2026-11-20T00:00:00Z", ends_at: "2026-11-20T01:50:00Z" },
+        message: "This venue is already booked.",
+      }),
+    );
+    const user = userEvent.setup();
+    render(<PendingBookings />);
+
+    const row = await screen.findByRole("listitem", { name: "Venue Booking Demo at Hall A" });
+    await user.click(within(row).getByRole("button", { name: "Approve" }));
+
+    expect(await within(row).findByRole("alert")).toHaveTextContent(
+      "Can't approve: the venue is already booked or unavailable on Fri, Nov 20, 8:00 AM – 9:50 AM, counting setup and turnaround. Reject the request instead.",
+    );
+    expect(within(row).getByRole("button", { name: "Reject" })).toBeInTheDocument();
+    expect(within(row).getByRole("button", { name: "Approve" })).toBeEnabled();
+  });
+
+  it("rejects with an optional reason and alternative, sending only what was written (TC-US4-04, 05)", async () => {
+    vi.spyOn(bookingApi, "pending").mockResolvedValue([booking()]);
+    const reject = vi.spyOn(bookingApi, "reject").mockResolvedValue(booking({ status: "rejected" }));
+    const user = userEvent.setup();
+    render(<PendingBookings />);
+
+    const row = await screen.findByRole("listitem", { name: "Venue Booking Demo at Hall A" });
+    await user.click(within(row).getByRole("button", { name: "Reject" }));
+    const dialog = screen.getByRole("dialog", { name: "Reject this venue request?" });
+    expect(reject).not.toHaveBeenCalled();
+    await user.type(within(dialog).getByLabelText("Reason (optional)"), "  Being repainted  ");
+    await user.click(within(dialog).getByRole("button", { name: "Reject request" }));
+
+    expect(reject).toHaveBeenCalledWith("booking-1", { reason: "Being repainted" });
+    expect(await screen.findByRole("status")).toHaveTextContent("Rejected the request for Hall A for Venue Booking Demo.");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("rejects with no notes at all (TC-US4-04)", async () => {
+    vi.spyOn(bookingApi, "pending").mockResolvedValue([booking()]);
+    const reject = vi.spyOn(bookingApi, "reject").mockResolvedValue(booking({ status: "rejected" }));
+    const user = userEvent.setup();
+    render(<PendingBookings />);
+
+    await user.click(await screen.findByRole("button", { name: "Reject" }));
+    await user.click(screen.getByRole("button", { name: "Reject request" }));
+
+    expect(reject).toHaveBeenCalledWith("booking-1", {});
+  });
+
+  it("explains in the dialog when the request was decided meanwhile, and reloads the list", async () => {
+    const pending = vi.spyOn(bookingApi, "pending").mockResolvedValueOnce([booking()]).mockResolvedValueOnce([]);
+    vi.spyOn(bookingApi, "reject").mockRejectedValue(new ApiError(409, "BOOKING_NOT_PENDING", [], { status: "withdrawn" }));
+    const user = userEvent.setup();
+    render(<PendingBookings />);
+
+    await user.click(await screen.findByRole("button", { name: "Reject" }));
+    await user.click(screen.getByRole("button", { name: "Reject request" }));
+
+    expect(await within(screen.getByRole("dialog")).findByRole("alert")).toHaveTextContent(
+      "This request was already decided or withdrawn (it's withdrawn now). Reload the list.",
+    );
+    expect(pending).toHaveBeenCalledTimes(2);
   });
 });

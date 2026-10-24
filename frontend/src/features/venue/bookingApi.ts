@@ -2,6 +2,7 @@ import { ApiError, apiClient } from "../../api/client";
 import { formatEventDate, formatEventTimeRange } from "../registration/datetime";
 import type {
   BookingFormValues,
+  BookingRejectWrite,
   VenueBooking,
   VenueBookingCreated,
   VenueBookingStatus,
@@ -12,7 +13,8 @@ import { tagLabel } from "./tags";
 import type { Venue } from "./types";
 
 // US22 booking routes identify the caller by X-User-Id: a coordinator requests and withdraws,
-// Venue Staff (operations_manager until US16b, D19) read the pending list.
+// Venue Staff (operations_manager until US16b, D19) read the pending list and, since US4 (SCRUM-8),
+// approve or reject a request as a whole.
 export const bookingApi = {
   create: (body: VenueBookingWrite) => apiClient.post<VenueBookingCreated>("/api/v1/venue-bookings", body),
 
@@ -21,6 +23,12 @@ export const bookingApi = {
   async forEvent(eventId: string): Promise<VenueBooking[]> {
     return (await apiClient.get<VenueBookingsResponse>(`/api/v1/events/${eventId}/venue-bookings`)).bookings;
   },
+
+  // Nothing to send: a request is approved as it stands (US4 AC 7).
+  approve: (id: string) => apiClient.post<VenueBooking>(`/api/v1/venue-bookings/${id}/approve`, {}),
+
+  reject: (id: string, body: BookingRejectWrite) =>
+    apiClient.post<VenueBooking>(`/api/v1/venue-bookings/${id}/reject`, body),
 
   async pending(): Promise<VenueBooking[]> {
     return (await apiClient.get<VenueBookingsResponse>("/api/v1/venue-bookings/pending")).bookings;
@@ -116,6 +124,30 @@ export function bookingErrorMessage(error: unknown): string {
       return "Set the dev user id for the role you're acting as in frontend/.env, then restart the frontend.";
     default:
       return FALLBACK_MESSAGE;
+  }
+}
+
+/** US4: why Venue staff can't approve or reject a request, in their words. */
+export function decisionErrorMessage(error: unknown): string {
+  if (!(error instanceof ApiError)) return FALLBACK_MESSAGE;
+  switch (error.code) {
+    case "VENUE_UNAVAILABLE": {
+      const window = conflictWindow(error);
+      // AC 3: no override. The request stays pending until it's rejected or withdrawn.
+      return window
+        ? `Can't approve: the venue is already booked or unavailable on ${window}, counting setup and turnaround. Reject the request instead.`
+        : `Can't approve: ${typeof error.body.message === "string" ? error.body.message : "the venue isn't available then."} Reject the request instead.`;
+    }
+    case "EVENT_NOT_BOOKABLE":
+      return `Can't approve: the event is ${typeof error.body.status === "string" ? error.body.status.replaceAll("_", " ") : "no longer bookable"} now. Reject the request instead.`;
+    case "BOOKING_NOT_PENDING":
+      return `This request was already decided or withdrawn${typeof error.body.status === "string" ? ` (it's ${error.body.status} now)` : ""}. Reload the list.`;
+    case "FORBIDDEN":
+      return "Only Venue staff can approve or reject venue requests. Switch Acting as to Venue staff.";
+    case "NOT_FOUND":
+      return "This request no longer exists. Reload the list.";
+    default:
+      return bookingErrorMessage(error);
   }
 }
 

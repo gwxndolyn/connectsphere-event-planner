@@ -31,6 +31,17 @@ export interface VenueBooking {
   created_at: string;
   updated_at: string;
   withdrawn_at: string | null;
+  // US4 (SCRUM-8): Venue Staff's decision, null while pending or once withdrawn.
+  decided_at: string | null;
+  decided_by_user_id: string | null;
+  rejection_reason: string | null;
+  alternative_suggestion: string | null;
+}
+
+/** US4 AC 5: both optional; left out when blank. */
+export interface BookingRejectWrite {
+  reason?: string;
+  alternative_suggestion?: string;
 }
 
 /** Something the request needs that the venue lacks (AC 3); the booking is still made. */
