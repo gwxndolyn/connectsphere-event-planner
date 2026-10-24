@@ -5,9 +5,11 @@ import "../features/eventRequest/eventRequests.css";
 
 interface LoginPageProps {
   onLoggedIn: () => void;
+  // SCRUM-106: Organisers and Attendees can create their own account.
+  onShowSignUp: () => void;
 }
 
-export function LoginPage({ onLoggedIn }: LoginPageProps) {
+export function LoginPage({ onLoggedIn, onShowSignUp }: LoginPageProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -70,6 +72,14 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
             </button>
           </div>
         </form>
+      )}
+      {supabase && (
+        <p>
+          New to ConnectSphere?{" "}
+          <button type="button" className="request-button request-button--secondary" onClick={onShowSignUp}>
+            Create an account
+          </button>
+        </p>
       )}
     </main>
   );

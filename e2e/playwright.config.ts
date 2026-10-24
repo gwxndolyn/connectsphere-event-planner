@@ -3,7 +3,7 @@ import { defineConfig, devices } from "@playwright/test";
 const frontendPort = process.env.E2E_FRONTEND_PORT || "5173";
 const frontendHost = process.env.E2E_FRONTEND_HOST || "localhost";
 const frontendUrl = `http://${frontendHost}:${frontendPort}`;
-// A second frontend with VITE_DEV_AUTH unset, so login is required (SCRUM-105, tests/login.spec.ts).
+// A second frontend with VITE_DEV_AUTH unset, so login is required (SCRUM-105 login.spec.ts, SCRUM-106 sign-up.spec.ts).
 const loginPort = process.env.E2E_LOGIN_FRONTEND_PORT || "5174";
 const loginUrl = `http://${frontendHost}:${loginPort}`;
 
@@ -18,12 +18,12 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
-      testIgnore: /login\.spec\.ts/,
+      testIgnore: /(login|sign-up)\.spec\.ts/,
       use: { ...devices["Desktop Chrome"], baseURL: process.env.E2E_BASE_URL || frontendUrl },
     },
     {
       name: "login",
-      testMatch: /login\.spec\.ts/,
+      testMatch: /(login|sign-up)\.spec\.ts/,
       use: { ...devices["Desktop Chrome"], baseURL: loginUrl },
     },
   ],
