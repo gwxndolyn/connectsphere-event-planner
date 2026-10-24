@@ -882,3 +882,61 @@ async def test_tc_us26_19_keeping_a_lines_own_type_is_not_a_duplicate(
     assert response.status_code == 200
     db.refresh(line)
     assert line.quantity == 3
+
+
+# --- TC-US26-20 a coordinator's events that take equipment (SCRUM-110) ---
+
+MY_EVENTS_URL = "/api/v1/me/equipment-events"
+
+
+async def test_tc_us26_20_a_coordinator_lists_their_planning_and_confirmed_events_soonest_first(
+    client: AsyncClient, db: Session, coordinator: User
+) -> None:
+    later = make_event(
+        db, name="Career Fair", status=EventStatus.CONFIRMED, start_at=NOW + timedelta(days=20), coordinator_id=coordinator.id
+    )
+    sooner = make_event(
+        db, name="Data Science Summit", status=EventStatus.PLANNING, start_at=NOW + timedelta(days=5), coordinator_id=coordinator.id
+    )
+    # Not listed: their events in any other status, someone else's, and unassigned ones.
+    for status in [*NOT_ELIGIBLE, EventStatus.DRAFT]:
+        make_event(db, status=status, coordinator_id=coordinator.id)
+    make_event(db, status=EventStatus.CONFIRMED, coordinator_id=make_user(db, UserRole.COORDINATOR).id)
+    make_event(db, status=EventStatus.CONFIRMED)
+
+    response = await client.get(MY_EVENTS_URL, headers=auth(coordinator))
+
+    assert response.status_code == 200
+    events = response.json()["events"]
+    assert [item["id"] for item in events] == [str(sooner.id), str(later.id)]
+    assert (events[0]["name"], events[0]["status"]) == ("Data Science Summit", "planning")
+    assert when(events[0]["start_at"]) == sooner.start_at
+    assert (events[1]["name"], events[1]["status"]) == ("Career Fair", "confirmed")
+
+
+async def test_tc_us26_20_a_coordinator_with_no_such_events_gets_an_empty_list(
+    client: AsyncClient, db: Session, coordinator: User
+) -> None:
+    make_event(db, status=EventStatus.APPROVED, coordinator_id=coordinator.id)
+
+    response = await client.get(MY_EVENTS_URL, headers=auth(coordinator))
+
+    assert response.status_code == 200
+    assert response.json() == {"events": []}
+
+
+@pytest.mark.parametrize("role", [role for role in UserRole if role != UserRole.COORDINATOR])
+async def test_tc_us26_20_only_coordinators_list_their_equipment_events(
+    client: AsyncClient, db: Session, role: UserRole
+) -> None:
+    response = await client.get(MY_EVENTS_URL, headers=auth(make_user(db, role)))
+
+    assert response.status_code == 403
+    assert response.json() == {"code": "FORBIDDEN"}
+
+
+async def test_tc_us26_20_the_list_needs_an_identity(client: AsyncClient) -> None:
+    response = await client.get(MY_EVENTS_URL)
+
+    assert response.status_code == 401
+    assert response.json()["code"] == "UNAUTHENTICATED"

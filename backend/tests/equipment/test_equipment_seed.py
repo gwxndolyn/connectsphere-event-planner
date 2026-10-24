@@ -1,14 +1,15 @@
 """US26 equipment requests, PR 2 (SCRUM-109, story SCRUM-94): the seeded event the equipment screens
-(SCRUM-110, TC-US26-16) add lines to. See docs/testing/US26-equipment-requests.md."""
+(SCRUM-110, TC-US26-16) add lines to, and (PR 3, SCRUM-110) its reset on reseed. See
+docs/testing/US26-equipment-requests.md."""
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.equipment.models import EquipmentRequestLine
+from app.equipment.models import EquipmentLineStatus, EquipmentRequestLine, EquipmentType
 from app.event.models import Event, EventStatus
 from app.seed import EQUIPMENT_EVENT, seed, seed_id
 from app.user.models import User
-from tests.factories import NOW
+from tests.factories import NOW, make_event
 
 
 def test_tc_us26_16_seed_has_a_confirmed_event_for_the_coordinator(db: Session) -> None:
@@ -34,3 +35,41 @@ def test_tc_us26_16_reseeding_adds_no_second_event(db: Session) -> None:
     seed(db, now=NOW)
 
     assert db.scalar(select(func.count()).select_from(Event).where(Event.name == "Equipment Request Demo")) == 1
+
+
+def test_tc_us26_20_reseeding_clears_the_demo_events_equipment(db: Session) -> None:
+    """An approved line can't be removed, and D41 allows one live line per type, so each E2E run of
+    TC-US26-17 would use up a type on the demo event for good. A reseed (the rule before rerunning
+    E2E, docs/testing/README.md) starts it empty again. Other events' lines are left alone."""
+    seed(db, now=NOW)
+    demo = db.get(Event, seed_id("event", EQUIPMENT_EVENT.slug))
+    coordinator = db.get(User, seed_id("user", "event-coordinator"))
+    tech = db.get(User, seed_id("user", "tech-support"))
+    projector = db.get(EquipmentType, seed_id("equipment-type", "Projector"))
+    laptop = db.get(EquipmentType, seed_id("equipment-type", "Laptop"))
+    other_event = make_event(db, coordinator_id=coordinator.id)
+    db.add_all(
+        [
+            EquipmentRequestLine(
+                event_id=demo.id, equipment_type_id=projector.id, quantity=2, requested_by_user_id=coordinator.id
+            ),
+            EquipmentRequestLine(
+                event_id=demo.id,
+                equipment_type_id=laptop.id,
+                quantity=1,
+                requested_by_user_id=coordinator.id,
+                status=EquipmentLineStatus.APPROVED,
+                reviewed_by_user_id=tech.id,
+                reviewed_at=NOW,
+            ),
+            EquipmentRequestLine(
+                event_id=other_event.id, equipment_type_id=projector.id, quantity=1, requested_by_user_id=coordinator.id
+            ),
+        ]
+    )
+    db.flush()
+
+    seed(db, now=NOW)
+
+    assert db.scalar(select(func.count()).where(EquipmentRequestLine.event_id == demo.id)) == 0
+    assert db.scalar(select(func.count()).where(EquipmentRequestLine.event_id == other_event.id)) == 1
