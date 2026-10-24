@@ -1,7 +1,7 @@
 import type { DevRole } from "../api/client";
 import "./SiteHeader.css";
 
-export type View = "discovery" | "my-events" | "event-requests" | "venues";
+export type View = "discovery" | "my-events" | "event-requests" | "venues" | "equipment";
 
 interface SiteHeaderProps {
   search: string;
@@ -97,6 +97,16 @@ export function SiteHeader({
             Venues
           </button>
         )}
+        {views.includes("equipment") && (
+          <button
+            type="button"
+            className="site-header__nav-link"
+            aria-current={view === "equipment" ? "page" : undefined}
+            onClick={() => onNavigate("equipment")}
+          >
+            Equipment
+          </button>
+        )}
         {/* Dev-only stand-in for login (D12): picks which seeded user's X-User-Id is sent. */}
         {devRole && (
           <label className="site-header__role">
@@ -106,6 +116,7 @@ export function SiteHeader({
               <option value="coordinator">Coordinator</option>
               <option value="coordinator_lead">Coordinator Lead</option>
               <option value="venue_staff">Venue staff</option>
+              <option value="tech_support">Tech support</option>
             </select>
           </label>
         )}

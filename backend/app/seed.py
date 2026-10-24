@@ -16,13 +16,13 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import SessionLocal
-from app.equipment.models import EquipmentType
+from app.equipment.models import EquipmentRequestLine, EquipmentType
 from app.event.models import DeliveryMode, Event, EventStatus
 from app.registration.models import ACTIVE_STATUSES, Registration, RegistrationStatus
 from app.user.models import Attendee, User, UserRole
@@ -609,10 +609,12 @@ def upsert_equipment_event(
     db: Session, spec: EventSpec, organiser: User, coordinator: User, now: datetime
 ) -> Event:
     """The confirmed event the equipment screens add lines to, assigned to `coordinator`. Its lines are
-    made through the app, so a reseed leaves them alone: the seed owns only the event row."""
+    made through the app, and a reseed removes them all (SCRUM-110): an approved line can't be removed
+    and D41 allows one live line per type, so E2E reruns (TC-US26-17) would otherwise use up the types."""
     event = upsert_event(db, spec, now)
     event.created_by_user_id = organiser.id
     event.coordinator_id = coordinator.id
+    db.execute(delete(EquipmentRequestLine).where(EquipmentRequestLine.event_id == event.id))
     return event
 
 

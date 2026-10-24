@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.clock import get_now
 from app.core.database import get_db
 from app.equipment.schemas import (
+    EquipmentEventsOut,
     EquipmentLineOut,
     EquipmentLinesOut,
     EquipmentLineWrite,
@@ -23,6 +24,8 @@ types_router = APIRouter(prefix="/api/v1/equipment-types", tags=["equipment"])
 router = APIRouter(prefix="/api/v1/equipment-lines", tags=["equipment"])
 # An event's lines hang off the event, like its venue bookings do.
 events_router = APIRouter(prefix="/api/v1/events", tags=["equipment"])
+# The caller's own events, like /me/registrations and /me/event-requests (SCRUM-110).
+me_router = APIRouter(prefix="/api/v1/me", tags=["equipment"])
 
 SignedIn = Annotated[User, Depends(get_current_user)]
 Coordinator = Annotated[User, Depends(require_user_roles(UserRole.COORDINATOR))]
@@ -32,6 +35,11 @@ TechSupport = Annotated[User, Depends(require_user_roles(UserRole.TECH_SUPPORT))
 @types_router.get("", response_model=EquipmentTypesOut)
 def equipment_types(_: SignedIn, db: Session = Depends(get_db)) -> EquipmentTypesOut:
     return EquipmentTypesOut(equipment_types=equipment_service.types(db))
+
+
+@me_router.get("/equipment-events", response_model=EquipmentEventsOut)
+def my_equipment_events(coordinator: Coordinator, db: Session = Depends(get_db)) -> EquipmentEventsOut:
+    return EquipmentEventsOut(events=equipment_service.my_events(db, coordinator))
 
 
 @events_router.get("/{event_id}/equipment-lines", response_model=EquipmentLinesOut)
