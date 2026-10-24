@@ -8,6 +8,9 @@ rather than inserting duplicates.
 
     python -m app.seed          # against a local database
     python -m app.seed --yes    # required when DATABASE_URL is not localhost
+
+Reseeding also deletes every equipment line on Equipment Request Demo, approved ones included, so E2E
+reruns start clean (SCRUM-110); other events' lines are untouched.
 """
 
 import sys
@@ -16,13 +19,13 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import SessionLocal
-from app.equipment.models import EquipmentType
+from app.equipment.models import EquipmentRequestLine, EquipmentType
 from app.event.models import DeliveryMode, Event, EventStatus
 from app.registration.models import ACTIVE_STATUSES, Registration, RegistrationStatus
 from app.user.models import Attendee, User, UserRole
@@ -609,10 +612,12 @@ def upsert_equipment_event(
     db: Session, spec: EventSpec, organiser: User, coordinator: User, now: datetime
 ) -> Event:
     """The confirmed event the equipment screens add lines to, assigned to `coordinator`. Its lines are
-    made through the app, so a reseed leaves them alone: the seed owns only the event row."""
+    made through the app, and a reseed removes them all (SCRUM-110): an approved line can't be removed
+    and D41 allows one live line per type, so E2E reruns (TC-US26-17) would otherwise use up the types."""
     event = upsert_event(db, spec, now)
     event.created_by_user_id = organiser.id
     event.coordinator_id = coordinator.id
+    db.execute(delete(EquipmentRequestLine).where(EquipmentRequestLine.event_id == event.id))
     return event
 
 
@@ -819,12 +824,23 @@ def admin_from_settings() -> SupabaseAdmin | None:
     return SupabaseAdmin(settings.supabase_url, settings.supabase_secret_key.get_secret_value())
 
 
+# PR #78 review: on a shared database these could be someone's real requests.
+REMOTE_RESEED_WARNING = (
+    "Reseeding also deletes every equipment line on Equipment Request Demo, approved ones included. "
+    "Other events' lines are untouched."
+)
+
+
 def main() -> int:
     host = make_url(settings.database_url).host or "localhost"
     is_local = host in {"localhost", "127.0.0.1", "::1"}
-    if not is_local and "--yes" not in sys.argv:
-        print(f"Refusing to seed a non-local database ({host}) without --yes.")
-        return 1
+    if not is_local:
+        if "--yes" not in sys.argv:
+            print(f"Refusing to seed a non-local database ({host}) without --yes.")
+            print(REMOTE_RESEED_WARNING)
+            return 1
+        # Said before anything is deleted, with --yes too (PR #78 review).
+        print(REMOTE_RESEED_WARNING)
 
     print(f"Seeding {host} ...")
     with SessionLocal() as db:

@@ -5,6 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict
 
 from app.equipment.models import EquipmentLineStatus
+from app.event.models import EventStatus
 
 
 class EquipmentLineWrite(BaseModel):
@@ -49,6 +50,21 @@ class LineEventOut(BaseModel):
     id: uuid.UUID
     name: str | None
     start_at: datetime | None
+
+
+class EquipmentEventOut(BaseModel):
+    """An event the coordinator can add lines to, for the screen's picker (SCRUM-110)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str | None
+    start_at: datetime | None
+    status: EventStatus
+
+
+class EquipmentEventsOut(BaseModel):
+    events: list[EquipmentEventOut]
 
 
 class EquipmentLineOut(BaseModel):

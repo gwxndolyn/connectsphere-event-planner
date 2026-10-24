@@ -11,8 +11,15 @@ describe("screensFor", () => {
     expect(screensFor("attendee")).toEqual(["discovery", "my-events"]);
   });
 
+  it("TC-US26-16, 17: gives the coordinator Equipment, and Tech support Equipment as home (SCRUM-110)", () => {
+    expect(screensFor("coordinator")).toEqual(["event-requests", "venues", "equipment"]);
+    expect(screensFor("tech_support")).toEqual(["equipment"]);
+    expect(screensFor("organiser")).not.toContain("equipment");
+    expect(screensFor("operations_manager")).not.toContain("equipment");
+  });
+
   it("gives a role the frontend doesn't know yet no screens", () => {
-    expect(screensFor("tech_support")).toBeUndefined();
+    expect(screensFor("safety_officer")).toBeUndefined();
     expect(screensFor("toString")).toBeUndefined();
   });
 });
