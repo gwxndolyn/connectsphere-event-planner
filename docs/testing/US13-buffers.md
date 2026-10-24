@@ -20,7 +20,7 @@
 | --- | --- | --- | --- |
 | 1 | SCRUM-114 | Each booking stores its occupied window; `venue_bookings_no_overlap` covers it; bookings get a reference; the seed, factories and US2 search's booking check read the stored window | `backend/tests/venue/test_buffer_schema.py`, plus the whole E2E suite on a reseeded database |
 | 2 | SCRUM-115 | The reusable rule for US4 (`evaluate_window`, `evaluate_booking`); opening hours (`VENUE_OUTSIDE_HOURS`); the overlap and reference in `VENUE_UNAVAILABLE`; the staff evaluation endpoint; buffer-edit recompute (`VENUE_BUFFERS_CONFLICT`); US2 search with the searched venue's own buffers and hours | `backend/tests/venue/test_buffer_api.py` |
-| 3 | | The occupied window in the booking form, panel and pending list; conflicts on Venue staff's pending list | lint, build, unit and integration tests, `e2e/tests/venue-buffers.spec.ts` |
+| 3 | SCRUM-116 | The occupied window in the booking form, panel and pending list; conflicts on Venue staff's pending list | lint, build, unit and integration tests, `e2e/tests/venue-buffers.spec.ts` |
 
 ## Test cases
 
@@ -41,9 +41,9 @@
 | TC-US13-13 | 1, 3, 5 | US2 search hides a venue whose occupied window clashes or runs outside its hours; a touching window is shown | Auto pytest | 2 |
 | TC-US13-14 | 3 | Race: two requests whose plain windows don't overlap but whose occupied windows do; one is `201`, the other `409` | Auto pytest | 2 |
 | TC-US13-15 | 7 | Buffers apply to venue bookings only: only `venues` has buffer columns, and US26's equipment tables (`equipment_types`, `equipment_request_lines`) have no buffer, occupied-window or own-time columns, so equipment uses the event's own times | Auto pytest | 2 |
-| TC-US13-16 | 2 | In the browser, the form previews the occupied window for the chosen venue | Auto Vitest | 3 |
-| TC-US13-17 | 3, 5 | In the browser, an overlap shows its period; outside hours shows on the time fields | Auto Vitest | 3 |
-| TC-US13-18 | 4 | In the browser, Venue staff's pending list shows each request's occupied window and any conflict with its overlap and reference | Auto Vitest | 3 |
+| TC-US13-16 | 2 | In the browser, the form previews the occupied window for the chosen venue, with its buffers and hours, and updates as the times or venue change; the panel shows the booking's reference and occupied window after sending | Auto Vitest; Playwright | 3 |
+| TC-US13-17 | 3, 5 | In the browser, an overlap shows its period (a closure says closed; no other booking's reference, D35); outside hours shows on the time field that breaches, with the hours, until it's changed | Auto Vitest; Playwright | 3 |
+| TC-US13-18 | 4 | In the browser, Venue staff's pending list shows each request's reference and occupied window and its evaluation: each conflict with its overlap and the clashing reference (or a closure's note), an hours breach, or no conflicts; a failed check says so and the row can still be decided; a refused approval checks again | Auto Vitest; Playwright (no conflicts) | 3 |
 | TC-US13-19 | 2, 3 | In the browser, a request whose setup would overlap a seeded booking's turnaround is refused with the overlap; the touching time is accepted | Auto Playwright | 3 |
 
 ## Decisions (story owner's choices, 24 Oct; `DECISION-PENDING` for the team)
@@ -70,3 +70,10 @@
 - **Existing tests changed for buffers:** US2's TC-US2-06 hours case uses a 0/0 venue (the plain rule; TC-US13-13 has the buffered one). US22's TC-US22-15 race test wraps `evaluate_window`, the new pre-check, instead of the removed `_find_conflict`.
 - **E2E times changed:** TC-US22-21 books the Library 15:00–17:00, not 16:00–18:00 (its 20-minute turnaround must end by its 18:00 closing). TC-US2-14 searches 17:00–17:50, not 17:30–18:30: Lawn C (90/60) still fits by its 19:00 closing and the Library's turnaround still runs past 18:00.
 - **Search plan (TC-US2-08):** each venue now has its own window, so each `EXISTS` carries `OFFSET 0` to stay a per-venue subplan on the GiST indexes rather than an anti-join that scans every block.
+
+## PR 3 notes
+
+- **The preview is a preview:** the form adds the chosen venue's setup and turnaround to the typed times and shows its hours, but sends nothing different. Whether the window fits the hours and clears other bookings stays the API's call.
+- **Approve stays offered on a row with conflicts.** The evaluation explains what's in the way; the API refuses the approval with its reason (US4 AC 3: no override), and the row is checked again.
+- **E2E and conflicts:** two live bookings can't overlap (the exclusion constraint), and no screen adds a block, so `venue-buffers.spec.ts` sees the pending list's "no conflicts" state against real data. Conflicts on the pending list are covered by Vitest (`PendingBookings.test.tsx`, `venueBooking.integration.test.tsx`) and the API by TC-US13-11.
+- **The overlap test uses US2's seeded slot** (five days ahead): SCIS Seminar Room 2-1's requested 10:00–12:00 occupies 09:45–12:15, so 12:15–13:00 is refused and 12:30–13:30 touches it. The spec withdraws what it booked, so it reruns on the same database.
