@@ -24,6 +24,11 @@ class ProfileOut(BaseModel):
 
     id: uuid.UUID
     email: str
-    # Null for seeded users, who never signed up (GET /api/v1/me, SCRUM-105).
-    full_name: str | None
+    full_name: str
     role: UserRole
+
+
+class MeOut(ProfileOut):
+    """GET /api/v1/me (SCRUM-105): as ProfileOut, but a user who never signed up may have no name."""
+
+    full_name: str | None

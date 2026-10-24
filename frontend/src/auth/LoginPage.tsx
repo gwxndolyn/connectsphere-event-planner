@@ -1,9 +1,7 @@
 import { useState, type FormEvent } from "react";
+import { loginErrorMessage } from "./messages";
 import { supabase } from "./supabase";
 import "../features/eventRequest/eventRequests.css";
-
-// AC 3: one message for a wrong password and for an unknown email, so it never hints which.
-const WRONG_DETAILS = "Email or password is incorrect";
 
 interface LoginPageProps {
   onLoggedIn: () => void;
@@ -23,7 +21,7 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
     const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
     setBusy(false);
     if (signInError) {
-      setError(signInError.status ? WRONG_DETAILS : "Can't reach the login service. Try again.");
+      setError(loginErrorMessage(signInError));
       return;
     }
     // The session listener in App takes over; this asks it to open the role's home screen.

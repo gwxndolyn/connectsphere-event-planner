@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
-import { ApiError, apiClient, getDevRole, setDevRole, type DevRole } from "./api/client";
+import { apiClient, getDevRole, setDevRole, type DevRole } from "./api/client";
 import { LoginPage } from "./auth/LoginPage";
+import { accountErrorMessage } from "./auth/messages";
 import { DEV_AUTH, supabase } from "./auth/supabase";
 import { SiteHeader, type View } from "./components/SiteHeader";
 import { EventHealthCheck } from "./features/event/EventHealthCheck";
@@ -85,31 +86,37 @@ function App() {
   const userId = session?.user.id;
   useEffect(() => {
     if (!userId) return;
+    // A late answer for a previous login must not move the next user's screen.
+    let current = true;
     apiClient
       .get<Me>("/api/v1/me")
       .then((me) => {
+        if (!current) return;
         setAccount({ userId, me });
         if (goHome.current) {
           goHome.current = false;
           setView(homeFor(me.role));
         }
       })
-      .catch((reason: unknown) =>
-        setAccount({
-          userId,
-          error:
-            reason instanceof ApiError && reason.code === "PROFILE_REQUIRED"
-              ? "Your account doesn't have a profile yet."
-              : "Couldn't load your account. Check the backend is running, then refresh.",
-        }),
-      );
+      .catch((reason: unknown) => {
+        if (current) setAccount({ userId, error: accountErrorMessage(reason) });
+      });
+    return () => {
+      current = false;
+    };
   }, [userId]);
   const current = account && account.userId === userId ? account : null;
   const me = current?.me ?? null;
   const meError = current?.error ?? null;
 
+  const [logOutError, setLogOutError] = useState<string | null>(null);
+
+  // Logs out of this browser only; other devices stay logged in (PR #62 review).
   async function logOut() {
-    await supabase?.auth.signOut();
+    if (!supabase) return;
+    setLogOutError(null);
+    const { error } = await supabase.auth.signOut({ scope: "local" });
+    if (error) setLogOutError("Couldn't log out. Try again.");
   }
 
   if (session === undefined) {
@@ -132,7 +139,16 @@ function App() {
       </main>
     );
   }
-  return <Workspace me={me} view={view} onNavigate={setView} onLogOut={session ? logOut : undefined} />;
+  return (
+    <>
+      {logOutError && (
+        <div className="request-alert" role="alert">
+          {logOutError}
+        </div>
+      )}
+      <Workspace me={me} view={view} onNavigate={setView} onLogOut={session ? logOut : undefined} />
+    </>
+  );
 }
 
 interface WorkspaceProps {
