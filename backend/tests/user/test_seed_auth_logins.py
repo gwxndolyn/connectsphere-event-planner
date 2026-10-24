@@ -47,7 +47,7 @@ def test_tc_us16a_27_every_seeded_user_gets_a_confirmed_linked_login(db: Session
 
     seed_auth_logins(db, admin, PASSWORD)
 
-    assert len(SEEDED_LOGIN_EMAILS) == 6
+    assert len(SEEDED_LOGIN_EMAILS) == 9
     assert {account["email"] for account in admin.created} == set(SEEDED_LOGIN_EMAILS)
     assert all(account["password"] == PASSWORD and account["email_confirm"] for account in admin.created)
     users = seeded_users(db)
@@ -63,7 +63,7 @@ def test_tc_us16a_28_reseeding_reuses_existing_logins(db: Session) -> None:
     seed(db, now=NOW)
     seed_auth_logins(db, admin, PASSWORD)
 
-    assert len(admin.created) == 6
+    assert len(admin.created) == len(SEEDED_LOGIN_EMAILS)
     assert {email: user.auth_user_id for email, user in seeded_users(db).items()} == links_before
 
 
@@ -82,7 +82,7 @@ def test_tc_us16a_29_without_credentials_logins_are_skipped(
     output = capsys.readouterr().out
     assert "skipped" in output and missing in output
     users = seeded_users(db)
-    assert len(users) == 6
+    assert len(users) == len(SEEDED_LOGIN_EMAILS)
     assert all(user.auth_user_id is None for user in users.values())
 
 
