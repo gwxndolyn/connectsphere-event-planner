@@ -19,7 +19,7 @@
 | PR | Subtask | Scope | Tests |
 | --- | --- | --- | --- |
 | 1 | SCRUM-114 | Each booking stores its occupied window; `venue_bookings_no_overlap` covers it; bookings get a reference; the seed, factories and US2 search's booking check read the stored window | `backend/tests/venue/test_buffer_schema.py`, plus the whole E2E suite on a reseeded database |
-| 2 | | The reusable rule for US4 (`evaluate_window`, `evaluate_booking`); opening hours (`VENUE_OUTSIDE_HOURS`); the overlap and reference in `VENUE_UNAVAILABLE`; the staff evaluation endpoint; buffer-edit recompute (`VENUE_BUFFERS_CONFLICT`); US2 search with the searched venue's own buffers and hours | `backend/tests/venue/test_buffer_api.py` |
+| 2 | SCRUM-115 | The reusable rule for US4 (`evaluate_window`, `evaluate_booking`); opening hours (`VENUE_OUTSIDE_HOURS`); the overlap and reference in `VENUE_UNAVAILABLE`; the staff evaluation endpoint; buffer-edit recompute (`VENUE_BUFFERS_CONFLICT`); US2 search with the searched venue's own buffers and hours | `backend/tests/venue/test_buffer_api.py` |
 | 3 | | The occupied window in the booking form, panel and pending list; conflicts on Venue staff's pending list | lint, build, unit and integration tests, `e2e/tests/venue-buffers.spec.ts` |
 
 ## Test cases
@@ -62,3 +62,11 @@
 - **Buffers are on for every booking from PR 1:** the guard covers the stored occupied window. Tests that prove US22's and US2's plain `[)` rule (back-to-back, one-second overlap, withdrawn and rejected, blocks, search next to a booking) use venues with 0/0 buffers, so they keep proving that rule; TC-US13-03 covers the buffered one.
 - **US2 search's booking check reads the stored occupied window,** which is the range the exclusion constraint's GiST index holds (TC-US2-08 needs the index). So an existing booking's buffers already keep a venue out of search; the searched venue's own buffers and hours come in PR 2.
 - **Not until PR 2:** opening hours, the overlap period and reference in errors, the block check on the occupied window, and recomputing windows when buffers change. Until PR 2, a buffer edit leaves Requested bookings' stored windows as they were made.
+
+## PR 2 notes
+
+- **One rule:** `evaluate_window` / `evaluate_booking` (`app/venue/availability.py`) serve the request, the buffer-edit recompute's hours check, Venue Staff's evaluation and US4's approval. A request is refused for hours before overlaps.
+- **What a coordinator sees (D35):** a 409's `conflict` carries `kind`, `occupied` and the exact `overlap`, never the other booking's reference. Venue Staff get the reference from `GET /api/v1/venue-bookings/{id}/evaluation`.
+- **Existing tests changed for buffers:** US2's TC-US2-06 hours case uses a 0/0 venue (the plain rule; TC-US13-13 has the buffered one). US22's TC-US22-15 race test wraps `evaluate_window`, the new pre-check, instead of the removed `_find_conflict`.
+- **E2E times changed:** TC-US22-21 books the Library 15:00–17:00, not 16:00–18:00 (its 20-minute turnaround must end by its 18:00 closing). TC-US2-14 searches 17:00–17:50, not 17:30–18:30: Lawn C (90/60) still fits by its 19:00 closing and the Library's turnaround still runs past 18:00.
+- **Search plan (TC-US2-08):** each venue now has its own window, so each `EXISTS` carries `OFFSET 0` to stay a per-venue subplan on the GiST indexes rather than an anti-join that scans every block.
