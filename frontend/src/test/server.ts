@@ -959,6 +959,8 @@ const handlers = [
     if ("equipment_type_id" in values) line.equipment_type = db.equipmentTypes.find((t) => t.id === values.equipment_type_id)!;
     if ("quantity" in values) line.quantity = values.quantity as number;
     if ("notes" in values) line.notes = cleanNotes(values.notes);
+    // The real column is onupdate=now(); a fixed later stamp is enough to tell an edited line apart.
+    line.updated_at = "2026-10-03T02:00:00Z";
     return HttpResponse.json(line);
   }),
 

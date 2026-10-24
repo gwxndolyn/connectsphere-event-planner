@@ -1,5 +1,6 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 import App from "../../App";
 import { setDevRole, type DevRole } from "../../api/client";
@@ -9,6 +10,7 @@ import {
   seedEquipmentEvent,
   seedEquipmentLine,
   seedEquipmentType,
+  server,
   startMockBackend,
 } from "../../test/server";
 
@@ -207,14 +209,62 @@ describe("Tech Support's queue (US26 AC 3)", () => {
     expect(callsTo("POST", `/api/v1/equipment-lines/${laptop.id}/review`)[0].body).toEqual({ decision: "rejected" });
   });
 
-  it("explains a refused review", async () => {
+  it("doesn't approve a line the coordinator changed since the queue loaded, and shows the change (PR #78 review)", async () => {
+    const event = seedEquipmentEvent();
+    const line = seedEquipmentLine(event, seedEquipmentType("Projector"), { quantity: 2 });
+    const user = userEvent.setup();
+    await openEquipment(user, "tech_support");
+    const row = await screen.findByRole("listitem", { name: "Projector for Equipment Request Demo" });
+    expect(row).toHaveTextContent("Quantity 2");
+    // The coordinator edits it while Tech support has the queue open: approval is always the full
+    // quantity (AC 6), so approving now would approve 10, not the 2 on screen.
+    Object.assign(line, { quantity: 10, updated_at: "2026-10-03T02:00:00Z" });
+
+    await user.click(within(row).getByRole("button", { name: "Approve" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Projector for Equipment Request Demo changed since you loaded it: it's now Quantity 10. Check it, then choose again.",
+    );
+    expect(callsTo("POST", `/api/v1/equipment-lines/${line.id}/review`)).toHaveLength(0);
+    const changed = screen.getByRole("listitem", { name: "Projector for Equipment Request Demo" });
+    expect(changed).toHaveTextContent("Quantity 10");
+
+    // Seen now, so a second click approves it.
+    await user.click(within(changed).getByRole("button", { name: "Approve" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Approved: Projector for Equipment Request Demo.");
+    expect(callsTo("POST", `/api/v1/equipment-lines/${line.id}/review`)).toHaveLength(1);
+  });
+
+  it("doesn't review a line that left the queue since it loaded", async () => {
     const event = seedEquipmentEvent();
     const line = seedEquipmentLine(event, seedEquipmentType("Projector"));
     const user = userEvent.setup();
     await openEquipment(user, "tech_support");
     const row = await screen.findByRole("listitem", { name: "Projector for Equipment Request Demo" });
-    // Reviewed elsewhere since the queue loaded.
+    // Reviewed elsewhere, or removed by the coordinator, since the queue loaded.
     line.status = "approved";
+
+    await user.click(within(row).getByRole("button", { name: "Reject" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Projector for Equipment Request Demo is no longer waiting for review: it was reviewed, or the coordinator removed it.",
+    );
+    expect(callsTo("POST", `/api/v1/equipment-lines/${line.id}/review`)).toHaveLength(0);
+    expect(screen.queryByRole("listitem", { name: "Projector for Equipment Request Demo" })).not.toBeInTheDocument();
+  });
+
+  it("explains a review the API refuses", async () => {
+    const event = seedEquipmentEvent();
+    seedEquipmentLine(event, seedEquipmentType("Projector"));
+    // Reviewed by someone else between the check and the review.
+    server.use(
+      http.post("http://api.test/api/v1/equipment-lines/:id/review", () =>
+        HttpResponse.json({ code: "LINE_NOT_PENDING", status: "approved" }, { status: 409 }),
+      ),
+    );
+    const user = userEvent.setup();
+    await openEquipment(user, "tech_support");
+    const row = await screen.findByRole("listitem", { name: "Projector for Equipment Request Demo" });
 
     await user.click(within(row).getByRole("button", { name: "Reject" }));
 

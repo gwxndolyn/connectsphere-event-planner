@@ -2,8 +2,14 @@
 (SCRUM-110, TC-US26-16) add lines to, and (PR 3, SCRUM-110) its reset on reseed. See
 docs/testing/US26-equipment-requests.md."""
 
+import sys
+
+import pytest
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+
+import app.seed as seed_module
+from app.core.config import settings
 
 from app.equipment.models import EquipmentLineStatus, EquipmentRequestLine, EquipmentType
 from app.event.models import Event, EventStatus
@@ -73,3 +79,17 @@ def test_tc_us26_20_reseeding_clears_the_demo_events_equipment(db: Session) -> N
 
     assert db.scalar(select(func.count()).where(EquipmentRequestLine.event_id == demo.id)) == 0
     assert db.scalar(select(func.count()).where(EquipmentRequestLine.event_id == other_event.id)) == 1
+
+
+def test_tc_us26_20_a_remote_reseed_says_it_empties_the_demo_events_equipment(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Whoever reseeds Supabase (`--yes`) is told first that the demo event's lines go, approved ones
+    included (PR #78 review). The refusal comes before any database work."""
+    monkeypatch.setattr(settings, "database_url", "postgresql+psycopg://u:p@db.example.supabase.co:5432/postgres")
+    monkeypatch.setattr(sys, "argv", ["app.seed"])
+
+    assert seed_module.main() == 1
+    out = capsys.readouterr().out
+    assert "Refusing to seed a non-local database" in out
+    assert "deletes every equipment line on Equipment Request Demo, approved ones included" in out
