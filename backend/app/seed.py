@@ -8,6 +8,9 @@ rather than inserting duplicates.
 
     python -m app.seed          # against a local database
     python -m app.seed --yes    # required when DATABASE_URL is not localhost
+
+Reseeding also deletes every equipment line on Equipment Request Demo, approved ones included, so E2E
+reruns start clean (SCRUM-110); other events' lines are untouched.
 """
 
 import sys
@@ -826,6 +829,11 @@ def main() -> int:
     is_local = host in {"localhost", "127.0.0.1", "::1"}
     if not is_local and "--yes" not in sys.argv:
         print(f"Refusing to seed a non-local database ({host}) without --yes.")
+        # PR #78 review: on a shared database these could be someone's real requests.
+        print(
+            "Reseeding also deletes every equipment line on Equipment Request Demo, approved ones included. "
+            "Other events' lines are untouched."
+        )
         return 1
 
     print(f"Seeding {host} ...")

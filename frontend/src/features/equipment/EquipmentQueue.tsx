@@ -62,6 +62,20 @@ export function EquipmentQueue() {
     setSending(line.id);
     const note = (notes[line.id] ?? "").trim();
     try {
+      // Approval is always the line's full current quantity (AC 6), and the coordinator can edit a
+      // pending line after this queue loaded. So check the line is unchanged before reviewing it, and
+      // otherwise show what it is now (PR #78 review).
+      const fresh = await equipmentApi.queue();
+      const current = fresh.find((l) => l.id === line.id);
+      if (!current || current.updated_at !== line.updated_at) {
+        setLines(fresh);
+        setError(
+          current
+            ? `${lineName(current)} changed since you loaded it: it's now Quantity ${current.quantity}. Check it, then choose again.`
+            : `${lineName(line)} is no longer waiting for review: it was reviewed, or the coordinator removed it.`,
+        );
+        return;
+      }
       await equipmentApi.review(line.id, note ? { decision, note } : { decision });
       setLines((current) => current.filter((l) => l.id !== line.id));
       setNotice(`${decision === "approved" ? "Approved" : "Rejected"}: ${lineName(line)}.`);
