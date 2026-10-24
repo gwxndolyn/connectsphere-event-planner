@@ -119,7 +119,7 @@ with `E2E_SEED_PASSWORD`.
   staff each land on their home screen, but every one gets `401` from `GET /api/v1/me/registrations` and
   `GET /api/v1/events/available` straight after logging in, and My events shows "Set VITE_DEV_ATTENDEE_ID in
   frontend/.env…". The attendee has no failed calls.
-- **Fixed the same day:** each logged-in role now gets only its own screens (`SCREENS` in `App.tsx`), and the
+- **Fixed the same day:** each logged-in role now gets only its own screens (`frontend/src/auth/screens.ts`), and the
   attendee lists load only for attendees. TC-US16A-32 and 33 now also check there are no attendee links or failed
   calls for staff and no staff links for the attendee. Rerun: login project 8 of 8, full E2E suite 30 of 30.
 
@@ -129,4 +129,6 @@ with `E2E_SEED_PASSWORD`.
 - TC-US16A-51 has a deactivated-user case (`403 FORBIDDEN`), which the frontend now names in its own message.
 - Login errors other than wrong details (unconfirmed email, 429, no connection) get their own message; unit tests in
   `frontend/src/auth/messages.test.ts`. Log out is `scope: "local"`.
-- Rerun: backend 526, frontend 206, login project 9 of 9, full E2E suite 31 of 31.
+- A role the frontend doesn't know yet (e.g. `tech_support` from US16b) gets "Your account's role doesn't have any
+  screens yet" and Log out instead of a broken page; unit tests in `frontend/src/auth/screens.test.ts`.
+- Rerun: backend 526, frontend 208, login project 9 of 9, full E2E suite 31 of 31.
