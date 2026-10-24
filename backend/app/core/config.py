@@ -9,7 +9,8 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://connectsphere:connectsphere@localhost:5432/connectsphere"
     # Frontend origins allowed to call the API. Override in .env as JSON:
     # CORS_ORIGINS=["http://localhost:5173","https://your-frontend.example.com"]
-    cors_origins: list[str] = ["http://localhost:5173"]
+    # 5174 is the login-required frontend the E2E "login" project starts (SCRUM-105).
+    cors_origins: list[str] = ["http://localhost:5173", "http://localhost:5174"]
     # Supabase Auth (US16a): the project URL, e.g. https://<project-ref>.supabase.co. Access tokens are
     # checked against its public keys.
     supabase_url: str = ""

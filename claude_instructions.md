@@ -139,12 +139,15 @@ python -m app.seed                     # seven events, attendees, the organiser,
 uvicorn app.main:app --reload          # http://localhost:8000/docs
  
 cd ../frontend
-cp .env.example .env                   # REQUIRED: VITE_DEV_USER_ID (organiser), VITE_DEV_COORDINATOR_ID, VITE_DEV_LEAD_ID, VITE_DEV_ATTENDEE_ID (Calvin)
+cp .env.example .env                   # REQUIRED: VITE_DEV_USER_ID (organiser), VITE_DEV_COORDINATOR_ID, VITE_DEV_LEAD_ID, VITE_DEV_ATTENDEE_ID (Calvin), VITE_DEV_AUTH=true;
+                                       # plus VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY for the login page
 npm install && npm run dev             # http://localhost:5173 — restart after editing .env
 npm test                               # Vitest unit + integration tests; no backend needed
  
 cd ../e2e && npm ci && npx playwright install chromium
 npm test                               # backend must be running; don't also run npm run dev. Reseed first (python -m app.seed) on a reused database
+                                       # login.spec.ts runs on a second frontend (port 5174, VITE_DEV_AUTH unset); its logged-in
+                                       # cases need E2E_SEED_PASSWORD (the seeded logins' password) and SUPABASE_URL in backend/.env
 ```
 
 **Windows (PowerShell):** activate with `.venv\Scripts\activate`; copy with `Copy-Item .env.example .env`. Create `.env` files by copying or in VS Code, not with `echo >` — PowerShell writes UTF-16, which Vite can't read.
@@ -158,6 +161,8 @@ npm test                               # backend must be running; don't also run
 - **Passes locally, fails in CI** → check Python is 3.12, and see the lockfile note under Environment.
 - **The page says "backend unreachable"** → the API isn't running, or your origin isn't in `CORS_ORIGINS`.
 - **Event requests says "Set VITE_DEV_USER_ID…"** → `frontend/.env` doesn't exist (only `.env.example` does). Copy it and restart `npm run dev`.
+- **The app shows a Log in page locally** → `frontend/.env` predates SCRUM-105, so `VITE_DEV_AUTH` is missing and login is required. Add `VITE_DEV_AUTH=true` for dev mode (Acting as), or log in with a seeded account. Restart `npm run dev`.
+- **The login page says "Login isn't set up"** → add `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` (Project Settings → API Keys, `sb_publishable_…`) to `frontend/.env` and restart `npm run dev`.
 - **The review queue says "Set VITE_DEV_COORDINATOR_ID…"** → your `frontend/.env` predates SCRUM-57. Copy that line from `.env.example` and restart `npm run dev`.
 - **The events board or My events says "Set VITE_DEV_ATTENDEE_ID…"** → your `frontend/.env` predates SCRUM-79. Copy that line from `.env.example` (seeded attendee Calvin, `83565d3f-e757-5c0e-8c6e-8dadb298ce18`) and restart `npm run dev`.
 - **The attendee E2E fails at its first step (Tech Talk not "You're registered")** → it ran before against this database and left Calvin withdrawn. Run `python -m app.seed`, then rerun.
@@ -878,6 +883,11 @@ Create checks, in order; each refusal saves nothing and notifies nobody:
 - The event and venue rows are read `FOR SHARE`, so a concurrent status change or venue edit waits for the request, and two requests don't block each other.
 - The notice (`Notifier.venue_booking_requested`) goes out after the commit; a failure is logged and the booking stands. An unnamed approved event is named by its request reference.
 - **Not built:** checking the window against the venue's opening hours or the event's own dates (no AC asks; US13's territory); holds (US25, D22); a database guard between blocks and bookings (D22); approve and reject (US4); requesting a venue from search results (only from the event for now).
+
+### `GET /api/v1/me` — SCRUM-105 (US16a)
+
+Who is logged in, so the login page can show the role's home screen (AC 2). Same identity as any role route (`get_current_user`: a token, or `X-User-Id` with dev headers on). `200 {"id", "email", "full_name", "role"}` (`MeOut`); `full_name` is null until a name is set, unlike `POST /auth/profile`'s `ProfileOut`, where it is always present. No profile yet: `403 PROFILE_REQUIRED`; deactivated: `403 FORBIDDEN`; no identity: `401 UNAUTHENTICATED`.
+
 ### `POST /api/v1/auth/profile` — SCRUM-103 (US16a)
 
 Called on a confirmed user's **first login**, after the token check answered `403 PROFILE_REQUIRED`. **Token only**: the dev header stubs never apply (`get_token_claims`). Body: `{"full_name": "...", "role": "organiser" | "attendee"}` (lowercase; `"Organiser"` is `INVALID_ROLE`), unknown fields rejected. The token's email must be verified (`user_metadata.email_verified`), as for #55's linking. `auth_user_id` and `email` come from the token, never the body. An `attendee` also gets its `attendees` row with the same id.
@@ -1361,6 +1371,8 @@ Keys come from **Project Settings → API**. Current naming: **publishable** (`s
 ### Frontend
  
 `@supabase/supabase-js`, created with `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`. Every request in `api/client.ts` carries `Authorization: Bearer <session.access_token>` in place of **both `X-User-Id` and `X-Attendee-Id`**. The **Acting as** toggle and `apiClient`'s `identity` option become dev-only. Read the session per request — tokens last an hour and supabase-js refreshes them, which a value cached at startup would miss. `VITE_*` values are compiled into the bundle and readable by anyone: the publishable key only.
+
+**Done in SCRUM-105:** `frontend/src/auth/supabase.ts` holds the client; `LoginPage.tsx` shows one message for any wrong email or password (AC 3), and its own message for an unconfirmed email, too many attempts (429) or no connection (`auth/messages.ts`). A failed `GET /api/v1/me` says which: no profile, deactivated, login unavailable (500/503) or backend unreachable. Log out ends the session in this browser only (`scope: "local"`). Not logged in and `VITE_DEV_AUTH` unset, every screen is the login page; with `VITE_DEV_AUTH=true` the app runs as before (Acting as, dev stubs) unless someone logs in. After a login the app reads `GET /api/v1/me` and opens the role's home: organiser → Event requests, coordinator → review queue, Coordinator Lead → unassigned queue, operations manager (Venue staff stand-in, D19) → Venues, attendee → events board. Each role gets only its own screens (`frontend/src/auth/screens.ts`); a role the frontend doesn't know yet gets a message and Log out, not a broken page. The last screen is kept in `localStorage` (`connectsphere.view`), so a refresh returns to it.
  
 ### Backend
  
