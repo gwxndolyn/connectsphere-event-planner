@@ -3,6 +3,7 @@ import type { Session } from "@supabase/supabase-js";
 import { apiClient, getDevRole, setDevRole, type DevRole } from "./api/client";
 import { LoginPage } from "./auth/LoginPage";
 import { accountErrorMessage } from "./auth/messages";
+import { screensFor } from "./auth/screens";
 import { DEV_AUTH, supabase } from "./auth/supabase";
 import { SiteHeader, type View } from "./components/SiteHeader";
 import { EventHealthCheck } from "./features/event/EventHealthCheck";
@@ -14,22 +15,18 @@ import { MyEventsView } from "./features/registration/MyEventsView";
 import { useEventRegistry } from "./features/registration/useEventRegistry";
 import { VenuesPage } from "./features/venue/VenuesPage";
 
-// GET /api/v1/me (SCRUM-105): who is logged in.
+// GET /api/v1/me (SCRUM-105): who is logged in. `role` can be one this frontend doesn't know yet.
 interface Me {
   id: string;
   email: string;
   full_name: string | null;
-  role: "organiser" | "coordinator" | "coordinator_lead" | "operations_manager" | "attendee";
+  role: string;
 }
 
-// Which screens a logged-in user gets; `operations_manager` stands in for Venue staff (D19).
-const SCREEN_ROLE: Record<Me["role"], DevRole | "attendee"> = {
-  organiser: "organiser",
-  coordinator: "coordinator",
-  coordinator_lead: "coordinator_lead",
-  operations_manager: "venue_staff",
-  attendee: "attendee",
-};
+// Which role's screens to render; `operations_manager` stands in for Venue staff (D19).
+function screenRole(role: string): DevRole | "attendee" {
+  return role === "operations_manager" ? "venue_staff" : (role as DevRole | "attendee");
+}
 
 // The last screen, so a refresh comes back to it (TC-US16A-35).
 const VIEW_KEY = "connectsphere.view";
@@ -42,20 +39,6 @@ function storedView(): View {
   } catch {
     return "discovery";
   }
-}
-
-// The screens each logged-in role may open, its home screen first (AC 2). Staff get no attendee
-// screens, so the attendee routes are never called with a staff token (PR #62 review).
-const SCREENS: Record<Me["role"], View[]> = {
-  organiser: ["event-requests", "venues"],
-  coordinator: ["event-requests", "venues"],
-  coordinator_lead: ["event-requests", "venues"],
-  operations_manager: ["venues"],
-  attendee: ["discovery", "my-events"],
-};
-
-function homeFor(role: Me["role"]): View {
-  return SCREENS[role][0];
 }
 
 function App() {
@@ -93,9 +76,10 @@ function App() {
       .then((me) => {
         if (!current) return;
         setAccount({ userId, me });
-        if (goHome.current) {
+        const screens = screensFor(me.role);
+        if (goHome.current && screens) {
           goHome.current = false;
-          setView(homeFor(me.role));
+          setView(screens[0]);
         }
       })
       .catch((reason: unknown) => {
@@ -125,11 +109,18 @@ function App() {
   if (!session && !DEV_AUTH) {
     return <LoginPage onLoggedIn={() => (goHome.current = true)} />;
   }
-  if (session && !me) {
+  // A role with no screens yet (one US16b adds before the frontend knows it) can only log out.
+  const blocked = me && !screensFor(me.role) ? "Your account's role doesn't have any screens yet." : meError;
+  if (session && (!me || blocked)) {
     return (
       <main className="request-page">
-        {meError ?? "Loading your account…"}
-        {meError && (
+        {blocked ?? "Loading your account…"}
+        {logOutError && (
+          <div className="request-alert" role="alert">
+            {logOutError}
+          </div>
+        )}
+        {blocked && (
           <p>
             <button type="button" className="request-button request-button--secondary" onClick={logOut}>
               Log out
@@ -161,14 +152,14 @@ interface WorkspaceProps {
 
 // Mounted only once someone is identified, so its data loads with their identity.
 function Workspace({ me, view, onNavigate, onLogOut }: WorkspaceProps) {
-  // Dev mode without a login keeps every screen, as before.
-  const views = me ? SCREENS[me.role] : VIEWS;
+  // Dev mode without a login keeps every screen, as before. App never mounts this for an unknown role.
+  const views = (me && screensFor(me.role)) || VIEWS;
   // A screen saved by someone else on this browser falls back to this user's home screen.
   const shown = views.includes(view) ? view : views[0];
   const registry = useEventRegistry(views.includes("discovery"));
   const [search, setSearch] = useState("");
   const [devRole, setDevRoleState] = useState<DevRole>(getDevRole);
-  const role = me ? SCREEN_ROLE[me.role] : devRole;
+  const role = me ? screenRole(me.role) : devRole;
 
   return (
     <div>
