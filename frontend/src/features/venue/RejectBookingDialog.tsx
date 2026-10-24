@@ -5,6 +5,9 @@ import "../registration/registration.css";
 import "../eventRequest/eventRequests.css";
 import "./venues.css";
 
+// The API refuses longer notes (BookingRejectWrite in backend/app/venue/schemas.py).
+const NOTE_MAX_LENGTH = 1000;
+
 interface RejectBookingDialogProps {
   booking: VenueBooking;
   // Rejects; throws the API's refusal (e.g. BOOKING_NOT_PENDING) for the dialog to explain.
@@ -59,13 +62,14 @@ export function RejectBookingDialog({ booking, onConfirm, onClose }: RejectBooki
 
         <label className="reg-form__field">
           Reason (optional)
-          <textarea className="venue-dialog__note" rows={3} value={reason} onChange={(e) => setReason(e.target.value)} />
+          <textarea className="venue-dialog__note" rows={3} maxLength={NOTE_MAX_LENGTH} value={reason} onChange={(e) => setReason(e.target.value)} />
         </label>
         <label className="reg-form__field">
           Suggested alternative (optional)
           <textarea
             className="venue-dialog__note"
             rows={2}
+            maxLength={NOTE_MAX_LENGTH}
             placeholder="Another venue, time or arrangement"
             value={alternative}
             onChange={(e) => setAlternative(e.target.value)}

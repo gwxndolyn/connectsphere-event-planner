@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import inspect
+from sqlalchemy import inspect, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -172,8 +172,7 @@ async def test_tc_us4_02_approving_leaves_the_event_status(
     ],
     ids=["before", "after"],
 )
-@pytest.mark.parametrize("other_status", [VenueBookingStatus.APPROVED, VenueBookingStatus.REQUESTED])
-async def test_tc_us4_03_a_clash_with_another_booking_is_refused(
+async def test_tc_us4_03_a_clash_with_an_approved_booking_is_refused(
     client: AsyncClient,
     db: Session,
     staff: User,
@@ -183,10 +182,10 @@ async def test_tc_us4_03_a_clash_with_another_booking_is_refused(
     notifier: FakeNotifier,
     other_starts: datetime,
     other_ends: datetime,
-    other_status: VenueBookingStatus,
 ) -> None:
-    """The plain windows don't overlap (that is refused already at request time, US22), but the
-    venue's setup and turnaround do: approving would leave no time to turn the venue round."""
+    """A buffer-only conflict: the plain windows don't overlap (that is refused already at request
+    time, US22), but the venue's setup and turnaround do, so approving would leave no time to turn the
+    venue round. The message says too close, not already booked (PR #73 review)."""
     other = make_venue_booking(
         db,
         event=make_event(db, status=EventStatus.APPROVED),
@@ -194,7 +193,7 @@ async def test_tc_us4_03_a_clash_with_another_booking_is_refused(
         user=coordinator,
         starts_at=other_starts,
         ends_at=other_ends,
-        status=other_status,
+        status=VenueBookingStatus.APPROVED,
     )
 
     response = await client.post(approve_url(booking.id), headers=auth(staff))
@@ -203,11 +202,66 @@ async def test_tc_us4_03_a_clash_with_another_booking_is_refused(
     body = response.json()
     assert body["code"] == "VENUE_UNAVAILABLE"
     assert datetime.fromisoformat(body["conflict"]["starts_at"]) == other.starts_at
-    assert "already booked" in body["message"]
+    assert body["buffers"] is True
+    assert body["message"].startswith("Too close to a booking from ")
+    assert body["message"].endswith("to fit the venue's setup and turnaround.")
     # The request stays pending, to be rejected or withdrawn; nobody is told anything.
     saved = stored(db, booking)
     assert (saved.status, saved.decided_at) == (VenueBookingStatus.REQUESTED, None)
     assert notifier.booking_decisions == []
+
+
+async def test_tc_us4_03_a_pending_neighbour_inside_the_buffers_does_not_block(
+    client: AsyncClient, db: Session, staff: User, coordinator: User, venue: Venue, booking: VenueBooking
+) -> None:
+    """Two pending requests 10 minutes apart: either can be approved first. Only then does the other
+    clash (PR #73 review: counting pending ones would leave both stuck until one was rejected)."""
+    neighbour = make_venue_booking(
+        db,
+        event=make_event(db, status=EventStatus.APPROVED),
+        venue=venue,
+        user=coordinator,
+        starts_at=END + timedelta(minutes=10),
+    )
+
+    assert (await client.post(approve_url(booking.id), headers=auth(staff))).status_code == 200
+    refused = await client.post(approve_url(neighbour.id), headers=auth(staff))
+    assert refused.status_code == 409
+    assert refused.json()["buffers"] is True
+
+
+async def test_tc_us4_03_a_window_overlap_says_already_booked(
+    client: AsyncClient, db: Session, staff: User, coordinator: User, venue: Venue, booking: VenueBooking
+) -> None:
+    """An approved booking overlapping the window itself. US22's constraint stops that being made
+    through the API, so this one predates it: raw SQL, as the seed or a fix-up script might."""
+    with db.begin_nested():
+        db.execute(
+            VenueBooking.__table__.update()
+            .where(VenueBooking.id == booking.id)
+            .values(status=VenueBookingStatus.WITHDRAWN, withdrawn_at=NOW)
+        )
+    make_venue_booking(
+        db,
+        event=make_event(db, status=EventStatus.APPROVED),
+        venue=venue,
+        user=coordinator,
+        starts_at=START + timedelta(hours=1),
+        status=VenueBookingStatus.APPROVED,
+    )
+    db.execute(text("ALTER TABLE venue_bookings DROP CONSTRAINT venue_bookings_no_overlap"))
+    db.execute(
+        VenueBooking.__table__.update()
+        .where(VenueBooking.id == booking.id)
+        .values(status=VenueBookingStatus.REQUESTED, withdrawn_at=None)
+    )
+    db.expire_all()
+
+    response = await client.post(approve_url(booking.id), headers=auth(staff))
+
+    assert response.status_code == 409
+    assert "buffers" not in response.json()
+    assert response.json()["message"].startswith("This venue is already booked from ")
 
 
 async def test_tc_us4_03_back_to_back_with_buffers_clear_is_approved(
@@ -280,8 +334,13 @@ async def test_tc_us4_03_a_venue_block_is_refused(
     response = await client.post(approve_url(booking.id), headers=auth(staff))
 
     assert response.status_code == 409
-    assert response.json()["code"] == "VENUE_UNAVAILABLE"
-    assert "unavailable" in response.json()["message"]
+    body = response.json()
+    assert body["code"] == "VENUE_UNAVAILABLE"
+    if block_starts < END and block_ends > START:
+        assert body["message"].startswith("This venue is unavailable from ")
+    else:
+        # A block-only conflict in the buffers.
+        assert body["message"].startswith("Too close to a venue closure from ")
     assert stored(db, booking).status == VenueBookingStatus.REQUESTED
 
 
@@ -308,6 +367,46 @@ async def test_tc_us4_03_an_inactive_venue_cannot_be_reserved(
     assert response.status_code == 409
     assert response.json()["code"] == "VENUE_UNAVAILABLE"
     assert stored(db, booking).status == VenueBookingStatus.REQUESTED
+
+
+@pytest.mark.parametrize("starts_in", [timedelta(), -timedelta(hours=1), -timedelta(days=3)], ids=["now", "under-way", "past"])
+async def test_tc_us4_03_a_request_whose_start_has_passed_cannot_be_approved(
+    client: AsyncClient, db: Session, notifier: FakeNotifier, staff: User, coordinator: User, event: Event, venue: Venue, starts_in: timedelta
+) -> None:
+    """Pending requests don't expire yet (US25), so one can outlive its start (PR #73 review)."""
+    booking = make_venue_booking(db, event=event, venue=venue, user=coordinator, starts_at=NOW + starts_in)
+
+    response = await client.post(approve_url(booking.id), headers=auth(staff))
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "code": "BOOKING_EXPIRED",
+        "message": "This request's start time has passed. It can only be rejected.",
+    }
+    assert stored(db, booking).status == VenueBookingStatus.REQUESTED
+    assert notifier.booking_decisions == []
+    assert (await client.post(reject_url(booking.id), headers=auth(staff))).status_code == 200
+
+
+async def test_tc_us4_03_capacity_is_checked_again_on_approval(
+    client: AsyncClient, db: Session, staff: User, venue: Venue, booking: VenueBooking
+) -> None:
+    """Capacity can be edited after the request (US20); equal to it is still fine (PR #73 review)."""
+    venue.capacity = 29
+    db.flush()
+
+    response = await client.post(approve_url(booking.id), headers=auth(staff))
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "code": "VENUE_CAPACITY_EXCEEDED",
+        "capacity": 29,
+        "message": "Expected attendance is now more than this venue's capacity of 29.",
+    }
+    assert stored(db, booking).status == VenueBookingStatus.REQUESTED
+    venue.capacity = 30
+    db.flush()
+    assert (await client.post(approve_url(booking.id), headers=auth(staff))).status_code == 200
 
 
 @pytest.mark.parametrize("field", ["override", "room_layout", "starts_at"])
@@ -402,6 +501,17 @@ async def test_tc_us4_05_either_note_is_optional(
     assert saved["alternative_suggestion"] == ((body.get("alternative_suggestion") or "").strip() or None)
 
 
+@pytest.mark.parametrize("field", ["reason", "alternative_suggestion"])
+async def test_tc_us4_05_notes_are_at_most_1000_characters(
+    client: AsyncClient, db: Session, staff: User, booking: VenueBooking, field: str
+) -> None:
+    too_long = await client.post(reject_url(booking.id), headers=auth(staff), json={field: "x" * 1001})
+
+    assert too_long.status_code == 422
+    assert stored(db, booking).status == VenueBookingStatus.REQUESTED
+    assert (await client.post(reject_url(booking.id), headers=auth(staff), json={field: "x" * 1000})).status_code == 200
+
+
 async def test_tc_us4_05_reject_takes_no_other_fields(
     client: AsyncClient, db: Session, staff: User, booking: VenueBooking
 ) -> None:
@@ -480,15 +590,19 @@ async def test_tc_us4_06_a_reassigned_event_tells_both_coordinators_once(
     assert sorted(call["email"] for call in notifier.booking_decisions) == sorted([coordinator.email, now_assigned.email])
 
 
+@pytest.mark.parametrize("action", ["approve", "reject"])
 async def test_tc_us4_06_a_notice_failure_keeps_the_decision(
-    client: AsyncClient, db: Session, notifier: FakeNotifier, staff: User, booking: VenueBooking
+    client: AsyncClient, db: Session, notifier: FakeNotifier, staff: User, booking: VenueBooking, action: str
 ) -> None:
     notifier.fail = True
+    url = approve_url(booking.id) if action == "approve" else reject_url(booking.id)
 
-    response = await client.post(approve_url(booking.id), headers=auth(staff))
+    response = await client.post(url, headers=auth(staff))
 
     assert response.status_code == 200
-    assert stored(db, booking).status == VenueBookingStatus.APPROVED
+    saved = stored(db, booking)
+    assert saved.status == (VenueBookingStatus.APPROVED if action == "approve" else VenueBookingStatus.REJECTED)
+    assert saved.decided_at == NOW
 
 
 # --- TC-US4-07 a request is decided once, as a whole ---

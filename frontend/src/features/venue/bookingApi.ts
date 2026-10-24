@@ -134,10 +134,17 @@ export function decisionErrorMessage(error: unknown): string {
     case "VENUE_UNAVAILABLE": {
       const window = conflictWindow(error);
       // AC 3: no override. The request stays pending until it's rejected or withdrawn.
+      if (window && error.body.buffers === true) {
+        return `Can't approve: too close to a booking or closure on ${window} to fit the venue's setup and turnaround. Reject the request instead.`;
+      }
       return window
-        ? `Can't approve: the venue is already booked or unavailable on ${window}, counting setup and turnaround. Reject the request instead.`
+        ? `Can't approve: the venue is already booked or unavailable on ${window}. Reject the request instead.`
         : `Can't approve: ${typeof error.body.message === "string" ? error.body.message : "the venue isn't available then."} Reject the request instead.`;
     }
+    case "BOOKING_EXPIRED":
+      return "Can't approve: this request's start time has passed. Reject it instead.";
+    case "VENUE_CAPACITY_EXCEEDED":
+      return `Can't approve: expected attendance is more than the venue's capacity${typeof error.body.capacity === "number" ? ` of ${error.body.capacity}` : ""} now. Reject the request instead.`;
     case "EVENT_NOT_BOOKABLE":
       return `Can't approve: the event is ${typeof error.body.status === "string" ? error.body.status.replaceAll("_", " ") : "no longer bookable"} now. Reject the request instead.`;
     case "BOOKING_NOT_PENDING":

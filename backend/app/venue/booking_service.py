@@ -86,11 +86,17 @@ def _find_block(db: Session, venue_id: uuid.UUID, starts_at: datetime, ends_at: 
 
 def _find_buffered_conflict(db: Session, booking: VenueBooking, venue: Venue) -> VenueBooking | VenueBlock | None:
     """US4 AC 3: what stops this request being approved. Its window, widened by the venue's setup
-    before and turnaround after, may not overlap another live booking's widened window or a block
-    at the venue. Both bookings are at one venue, so they share its buffers: two windows clash when
-    one starts less than setup + turnaround after the other ends. A booking is reported before a block."""
-    # DECISION-PENDING: D38 — buffers from the venue as it is now. US13 (SCRUM-16) stores each
-    # booking's occupied window; once it lands, compare those instead.
+    before and turnaround after, may not overlap an approved booking's widened window or a block at
+    the venue. Both bookings are at one venue, so they share its buffers: two windows clash when one
+    starts less than setup + turnaround after the other ends. A booking is reported before a block.
+
+    Only approved bookings count for the buffers: a pending one can't overlap this window at all
+    (venue_bookings_no_overlap), and if a pending neighbour inside the buffers counted too, two
+    requests close together would each block the other until one was rejected (PR #73 review)."""
+    # DECISION-PENDING: D38 — buffers from the venue as it is now, checked only on approval: create
+    # still checks the plain window (D22), so a request can be made and then fail approval on buffers.
+    # US13 (SCRUM-16) moves the buffers into create and stores each booking's occupied window; once it
+    # lands, compare those here and drop this function.
     setup = timedelta(minutes=venue.setup_minutes)
     turnaround = timedelta(minutes=venue.turnaround_minutes)
     gap = setup + turnaround
@@ -99,7 +105,7 @@ def _find_buffered_conflict(db: Session, booking: VenueBooking, venue: Venue) ->
         .where(
             VenueBooking.venue_id == venue.id,
             VenueBooking.id != booking.id,
-            VenueBooking.status.in_(LIVE_BOOKING_STATUSES),
+            VenueBooking.status == VenueBookingStatus.APPROVED,
             VenueBooking.starts_at < booking.ends_at + gap,
             VenueBooking.ends_at > booking.starts_at - gap,
         )
@@ -111,10 +117,28 @@ def _find_buffered_conflict(db: Session, booking: VenueBooking, venue: Venue) ->
     return _find_block(db, venue.id, booking.starts_at - setup, booking.ends_at + turnaround)
 
 
-def _unavailable(conflict: VenueBooking | VenueBlock | None) -> DomainError:
+def _overlaps(conflict: VenueBooking | VenueBlock, booking: VenueBooking) -> bool:
+    return conflict.starts_at < booking.ends_at and conflict.ends_at > booking.starts_at
+
+
+def _unavailable(conflict: VenueBooking | VenueBlock | None, *, buffers: bool = False) -> DomainError:
+    """`buffers`: the clash is only with the venue's setup and turnaround, not the window itself
+    (US4 approval), so the message says too close rather than already booked (PR #73 review)."""
     if conflict is None:
         return DomainError(409, "VENUE_UNAVAILABLE", message="This venue is already booked for that time.")
     window = {"starts_at": conflict.starts_at.isoformat(), "ends_at": conflict.ends_at.isoformat()}
+    what = "a venue closure" if isinstance(conflict, VenueBlock) else "a booking"
+    if buffers:
+        return DomainError(
+            409,
+            "VENUE_UNAVAILABLE",
+            conflict=window,
+            buffers=True,
+            message=(
+                f"Too close to {what} from {window['starts_at']} to {window['ends_at']} "
+                "to fit the venue's setup and turnaround."
+            ),
+        )
     reason = "unavailable" if isinstance(conflict, VenueBlock) else "already booked"
     return DomainError(
         409,
@@ -295,9 +319,16 @@ class VenueBookingService:
         self, db: Session, staff: User, booking_id: uuid.UUID, now: datetime, notifier: Notifier
     ) -> VenueBookingOut:
         """US4 AC 2, 3, 7: approves the request as a whole, which reserves the venue for the event.
-        Refused, with no override, while the venue is booked, held or blocked for any part of the
-        window with its buffers; the request then stays pending, to be rejected or withdrawn."""
+        Refused, with no override, while the venue is booked or blocked for any part of the window
+        with its buffers, once the start has passed, or above the venue's capacity; the request then
+        stays pending, to be rejected or withdrawn."""
         booking = self._lock_pending(db, booking_id)
+        # Pending requests don't expire yet (US25), so one can still be waiting after its start;
+        # approving it would reserve a window that's gone. Create refuses a past start too.
+        if booking.starts_at <= now:
+            raise DomainError(
+                409, "BOOKING_EXPIRED", message="This request's start time has passed. It can only be rejected."
+            )
         # The event FOR SHARE, as create reads it. The venue FOR UPDATE: the exclusion constraint
         # doesn't cover buffers, so two approvals at one venue take turns, and a new request there
         # (which reads the venue FOR SHARE) waits for the decision.
@@ -308,10 +339,18 @@ class VenueBookingService:
         # DECISION-PENDING: D39 — a deactivated venue can't be reserved; it reads as unavailable.
         if not venue.is_active:
             raise DomainError(409, "VENUE_UNAVAILABLE", message="This venue is inactive, so it can't be reserved.")
+        # Capacity can be edited after the request (US20), so it's checked again, as create does.
+        if booking.expected_attendees > venue.capacity:
+            raise DomainError(
+                409,
+                "VENUE_CAPACITY_EXCEEDED",
+                capacity=venue.capacity,
+                message=f"Expected attendance is now more than this venue's capacity of {venue.capacity}.",
+            )
         # DECISION-PENDING: D22 — blocks are checked here only, not by a constraint (see _insert).
         conflict = _find_buffered_conflict(db, booking, venue)
         if conflict is not None:
-            raise _unavailable(conflict)
+            raise _unavailable(conflict, buffers=not _overlaps(conflict, booking))
         return self._decide(db, notifier, staff, booking, event, venue, VenueBookingStatus.APPROVED, now)
 
     def reject(
@@ -329,10 +368,12 @@ class VenueBookingService:
         reason = body.reason.strip() or None if body.reason is not None else None
         alternative = body.alternative_suggestion.strip() or None if body.alternative_suggestion is not None else None
         booking = self._lock_pending(db, booking_id)
-        booking.rejection_reason = reason
-        booking.alternative_suggestion = alternative
         event = db.get(Event, booking.event_id)
         venue = db.get(Venue, booking.venue_id)
+        # Set with the status in one flush: the notes alone on a pending booking break
+        # venue_bookings_rejection_notes_only_when_rejected, and loading anything could autoflush them.
+        booking.rejection_reason = reason
+        booking.alternative_suggestion = alternative
         return self._decide(db, notifier, staff, booking, event, venue, VenueBookingStatus.REJECTED, now)
 
     def _lock_pending(self, db: Session, booking_id: uuid.UUID) -> VenueBooking:

@@ -87,7 +87,8 @@ describe("PendingBookings decisions (US4, SCRUM-8)", () => {
     vi.spyOn(bookingApi, "approve").mockRejectedValue(
       new ApiError(409, "VENUE_UNAVAILABLE", [], {
         conflict: { starts_at: "2026-11-20T00:00:00Z", ends_at: "2026-11-20T01:50:00Z" },
-        message: "This venue is already booked.",
+        buffers: true,
+        message: "Too close to a booking.",
       }),
     );
     const user = userEvent.setup();
@@ -97,10 +98,28 @@ describe("PendingBookings decisions (US4, SCRUM-8)", () => {
     await user.click(within(row).getByRole("button", { name: "Approve" }));
 
     expect(await within(row).findByRole("alert")).toHaveTextContent(
-      "Can't approve: the venue is already booked or unavailable on Fri, Nov 20, 8:00 AM – 9:50 AM, counting setup and turnaround. Reject the request instead.",
+      "Can't approve: too close to a booking or closure on Fri, Nov 20, 8:00 AM – 9:50 AM to fit the venue's setup and turnaround. Reject the request instead.",
     );
     expect(within(row).getByRole("button", { name: "Reject" })).toBeInTheDocument();
     expect(within(row).getByRole("button", { name: "Approve" })).toBeEnabled();
+  });
+
+  it.each([
+    [new ApiError(409, "BOOKING_EXPIRED"), "Can't approve: this request's start time has passed. Reject it instead."],
+    [
+      new ApiError(409, "VENUE_CAPACITY_EXCEEDED", [], { capacity: 25 }),
+      "Can't approve: expected attendance is more than the venue's capacity of 25 now. Reject the request instead.",
+    ],
+  ])("explains a %s refusal on the row (PR #73 review)", async (refusal, message) => {
+    vi.spyOn(bookingApi, "pending").mockResolvedValue([booking()]);
+    vi.spyOn(bookingApi, "approve").mockRejectedValue(refusal);
+    const user = userEvent.setup();
+    render(<PendingBookings />);
+
+    const row = await screen.findByRole("listitem", { name: "Venue Booking Demo at Hall A" });
+    await user.click(within(row).getByRole("button", { name: "Approve" }));
+
+    expect(await within(row).findByRole("alert")).toHaveTextContent(message);
   });
 
   it("rejects with an optional reason and alternative, sending only what was written (TC-US4-04, 05)", async () => {
