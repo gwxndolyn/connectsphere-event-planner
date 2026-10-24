@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 ELIGIBLE_STATUSES = (EventStatus.PLANNING, EventStatus.CONFIRMED)
 # The body's checked fields, in order, so a form marks them top to bottom.
 LINE_FIELDS = ("equipment_type_id", "quantity")
-# D41: one pending or approved line per type per event (SCRUM-108's partial unique index).
+# DECISION-PENDING: D41 — one pending or approved line per type per event (SCRUM-108's partial unique index).
 ONE_LIVE_PER_TYPE = "equipment_request_lines_one_live_per_type"
 
 
@@ -34,7 +34,7 @@ def may_manage(event: Event, coordinator: User) -> bool:
     """Whether this coordinator may add, list, edit and remove the event's lines: only the coordinator
     assigned to it (AC 1: "an event they manage"), whoever added the line. An unassigned event has
     nobody who may."""
-    # D20, as for venue bookings: events.coordinator_id, since US10a (SCRUM-13).
+    # DECISION-PENDING: D20 — as for venue bookings: events.coordinator_id, since US10a (SCRUM-13).
     return coordinator.role == UserRole.COORDINATOR and event.coordinator_id == coordinator.id
 
 
