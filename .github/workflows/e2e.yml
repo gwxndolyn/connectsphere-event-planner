@@ -40,7 +40,7 @@ jobs:
       VITE_DEV_VENUE_STAFF_ID: 4e8d2398-4b1e-5e59-900e-4ddb311a243f
       VITE_DEV_ATTENDEE_ID: 83565d3f-e757-5c0e-8c6e-8dadb298ce18
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
