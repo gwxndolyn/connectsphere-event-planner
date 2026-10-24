@@ -24,7 +24,7 @@ from tests.conftest import BACKEND_DIR
 from tests.factories import NOW, make_event, make_user, make_venue, make_venue_booking
 
 REVISION = "20261024_1200_us13_buffers"
-PREVIOUS_REVISION = "20261022_1300_us10a_coordinator"
+PREVIOUS_REVISION = "20261025_1200_us26_equipment"  # US13 follows US26 since #63 merged
 NO_OVERLAP = "venue_bookings_no_overlap"
 SINGAPORE = ZoneInfo("Asia/Singapore")
 DAY = (NOW + timedelta(days=7)).date()
