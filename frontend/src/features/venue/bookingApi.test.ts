@@ -5,8 +5,12 @@ import {
   bookingErrorMessage,
   bookingFieldErrors,
   bookingStatusLabel,
+  decisionErrorMessage,
   formatBookingWindow,
+  formatOccupied,
+  formatVenueTime,
   missingForVenue,
+  occupiedPreview,
   toBookingBody,
 } from "./bookingApi";
 import type { BookingFormValues } from "./bookingTypes";
@@ -109,6 +113,12 @@ describe("bookingApi", () => {
     await bookingApi.pending();
     expect(sent().url.pathname).toBe("/api/v1/venue-bookings/pending");
   });
+
+  it("reads a booking's evaluation (US13 AC 4, D36)", async () => {
+    await bookingApi.evaluation("booking-1");
+    expect(sent().url.pathname).toBe("/api/v1/venue-bookings/booking-1/evaluation");
+    expect(sent().init.method ?? "GET").toBe("GET");
+  });
 });
 
 describe("missingForVenue (AC 3: warned, but can still submit)", () => {
@@ -180,5 +190,85 @@ describe("formatting", () => {
     );
     expect(bookingStatusLabel("requested")).toBe("Requested");
     expect(bookingStatusLabel("withdrawn")).toBe("Withdrawn");
+  });
+});
+
+describe("occupied window (US13, SCRUM-116)", () => {
+  it("adds the venue's setup before and turnaround after: 10:00–12:00 with 30/45 is 09:30–12:45 (TC-US13-16, AC 2)", () => {
+    const occupied = occupiedPreview(FORM, { ...VENUE, setup_minutes: 30, turnaround_minutes: 45 });
+
+    expect(occupied).toEqual({ starts_at: "2026-11-20T01:30:00.000Z", ends_at: "2026-11-20T04:45:00.000Z" });
+    expect(formatOccupied({ occupied_starts_at: occupied!.starts_at, occupied_ends_at: occupied!.ends_at })).toBe(
+      "9:30 AM – 12:45 PM",
+    );
+  });
+
+  it("is the plain window with no buffers, and nothing until the times make a window", () => {
+    expect(occupiedPreview(FORM, VENUE)).toEqual({ starts_at: "2026-11-20T02:00:00.000Z", ends_at: "2026-11-20T04:00:00.000Z" });
+    expect(occupiedPreview({ ...FORM, endTime: "" }, VENUE)).toBeNull();
+    expect(occupiedPreview({ ...FORM, date: "" }, VENUE)).toBeNull();
+    expect(occupiedPreview({ ...FORM, endTime: "10:00" }, VENUE)).toBeNull();
+  });
+
+  it("shows a venue's hours as the screens show times", () => {
+    expect(formatVenueTime("08:00:00")).toBe("8:00 AM");
+    expect(formatVenueTime("18:30:00")).toBe("6:30 PM");
+  });
+});
+
+describe("US13 booking errors (SCRUM-116)", () => {
+  const unavailable = (kind: "booking" | "block") =>
+    new ApiError(409, "VENUE_UNAVAILABLE", [], {
+      conflict: {
+        kind,
+        starts_at: "2026-11-20T02:00:00+00:00",
+        ends_at: "2026-11-20T04:00:00+00:00",
+        occupied: { starts_at: "2026-11-20T01:45:00+00:00", ends_at: "2026-11-20T04:15:00+00:00" },
+        overlap: { starts_at: "2026-11-20T04:00:00+00:00", ends_at: "2026-11-20T04:15:00+00:00" },
+      },
+      occupied: { starts_at: "2026-11-20T04:00:00+00:00", ends_at: "2026-11-20T05:15:00+00:00" },
+    });
+
+  it("names VENUE_UNAVAILABLE's overlap period, but no other booking's reference (TC-US13-17, AC 4, D35)", () => {
+    expect(bookingErrorMessage(unavailable("booking"))).toBe(
+      "This venue is already booked on Fri, Nov 20, 10:00 AM – 12:00 PM. With setup and turnaround, that overlaps your request 12:00 PM – 12:15 PM. Choose another time or venue.",
+    );
+    expect(bookingFieldErrors(unavailable("booking"))).toEqual({
+      starts_at: "With setup and turnaround, overlaps another booking 12:00 PM – 12:15 PM.",
+    });
+    expect(bookingErrorMessage(unavailable("block"))).toMatch(/^This venue is closed on Fri, Nov 20, 10:00 AM – 12:00 PM\./);
+    expect(bookingFieldErrors(unavailable("block")).starts_at).toBe(
+      "With setup and turnaround, overlaps a venue closure 12:00 PM – 12:15 PM.",
+    );
+  });
+
+  it("puts VENUE_OUTSIDE_HOURS on the time field that breaches, with the hours (TC-US13-17, AC 5)", () => {
+    const error = (fields: string[]) =>
+      new ApiError(422, "VENUE_OUTSIDE_HOURS", fields, {
+        opens_at: "09:00:00",
+        closes_at: "18:00:00",
+        occupied: { starts_at: "2026-11-20T07:40:00+00:00", ends_at: "2026-11-20T10:10:00+00:00" },
+      });
+
+    expect(bookingFieldErrors(error(["ends_at"]))).toEqual({ ends_at: "With turnaround, ends after the venue closes at 6:00 PM." });
+    expect(bookingFieldErrors(error(["starts_at", "ends_at"]))).toEqual({
+      starts_at: "With setup, starts before the venue opens at 9:00 AM.",
+      ends_at: "With turnaround, ends after the venue closes at 6:00 PM.",
+    });
+    expect(bookingErrorMessage(error(["ends_at"]))).toBe(
+      "With setup and turnaround the venue would be occupied 3:40 PM – 6:10 PM, outside its opening hours of 9:00 AM – 6:00 PM. Choose times that fit.",
+    );
+  });
+
+  it("explains an approval refused for opening hours (TC-US4-03, D32)", () => {
+    const error = new ApiError(409, "VENUE_OUTSIDE_HOURS", ["ends_at"], {
+      opens_at: "09:00:00",
+      closes_at: "11:00:00",
+      occupied: { starts_at: "2026-11-20T00:30:00+00:00", ends_at: "2026-11-20T03:15:00+00:00" },
+    });
+
+    expect(decisionErrorMessage(error)).toBe(
+      "Can't approve: with setup and turnaround the venue would be occupied 8:30 AM – 11:15 AM, outside its opening hours of 9:00 AM – 11:00 AM now. Reject the request instead.",
+    );
   });
 });

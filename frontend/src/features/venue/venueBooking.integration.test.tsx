@@ -11,6 +11,7 @@ import {
   seedRequest,
   seedVenue,
   server,
+  setEvaluation,
   startMockBackend,
 } from "../../test/server";
 
@@ -186,5 +187,66 @@ describe("venue booking (US22)", () => {
     expect(hallB).toHaveTextContent("Reason: Closed for maintenance");
     expect(hallB).toHaveTextContent("Suggested instead: Hall A on Saturday");
     expect(bookings().getByRole("button", { name: "Request venue" })).toBeInTheDocument();
+  });
+});
+
+describe("venue buffers (US13, SCRUM-116)", () => {
+  it("Venue staff see each pending request's occupied window, reference and conflicts from the evaluation (TC-US13-18)", async () => {
+    const request = seedRequest({ status: "approved", name: "Venue Booking Demo", ...MINE });
+    const hall = seedVenue({ name: "Hall A", setup_minutes: 30, turnaround_minutes: 15 });
+    const clashing = seedBooking(request, hall);
+    setEvaluation(clashing, {
+      conflicts: [
+        {
+          kind: "block",
+          reference: null,
+          note: "Repainting",
+          starts_at: "2026-11-20T03:00:00Z",
+          ends_at: "2026-11-20T06:00:00Z",
+          occupied: { starts_at: "2026-11-20T03:00:00Z", ends_at: "2026-11-20T06:00:00Z" },
+          overlap: { starts_at: "2026-11-20T03:00:00Z", ends_at: "2026-11-20T04:15:00Z" },
+        },
+      ],
+    });
+    seedBooking(request, seedVenue({ name: "Hall B" }), { starts_at: "2026-11-21T02:00:00Z", ends_at: "2026-11-21T04:00:00Z" });
+    setDevRole("venue_staff");
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("banner")).getByRole("button", { name: "Venues" }));
+
+    const pending = await screen.findByRole("list", { name: "Pending venue requests" });
+    const hallA = within(pending).getByRole("listitem", { name: "Venue Booking Demo at Hall A" });
+    expect(hallA).toHaveTextContent("VB-2026-000001 · Occupied 9:30 AM – 12:15 PM with setup and turnaround");
+    expect(await within(hallA).findByRole("list", { name: "Conflicts" })).toHaveTextContent(
+      "Venue closure (Repainting), Fri, Nov 20, 11:00 AM – 2:00 PM: overlap 11:00 AM – 12:15 PM",
+    );
+    const hallB = within(pending).getByRole("listitem", { name: "Venue Booking Demo at Hall B" });
+    expect(await within(hallB).findByText("No conflicts with setup and turnaround.")).toBeInTheDocument();
+
+    const checks = callsTo("GET", /\/evaluation$/);
+    expect(checks).toHaveLength(2);
+    expect(checks.every((call) => call.headers.get("X-User-Id") === "venue-staff-id")).toBe(true);
+  });
+
+  it("the coordinator sees the occupied window before sending and the reference after (TC-US13-16)", async () => {
+    seedRequest({ status: "approved", name: "Venue Booking Demo", expected_attendees: 40, ...MINE });
+    const venue = seedVenue({ name: "Hall A", room_layouts: ["theatre"], setup_minutes: 30, turnaround_minutes: 45 });
+    const user = userEvent.setup();
+    await openRequest(user, "Venue Booking Demo");
+
+    await user.click(await bookings().findByRole("button", { name: "Request venue" }));
+    await user.selectOptions(await screen.findByLabelText("Venue"), venue.id);
+    await user.selectOptions(screen.getByLabelText("Layout"), "theatre");
+    await user.clear(screen.getByLabelText("Start time"));
+    await user.type(screen.getByLabelText("Start time"), "10:00");
+    await user.clear(screen.getByLabelText("End time"));
+    await user.type(screen.getByLabelText("End time"), "12:00");
+    expect(screen.getByText(/^The venue is occupied 9:30 AM – 12:45 PM \(30 min setup, 45 min turnaround\)/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Send request" }));
+
+    expect(await screen.findByText(/Venue requested: Hall A, Fri, Nov 20, 10:00 AM – 12:00 PM \(VB-2026-000001\)/)).toBeInTheDocument();
+    expect(await bookings().findByRole("listitem", { name: /^Hall A/ })).toHaveTextContent(
+      "VB-2026-000001 · Occupied 9:30 AM – 12:45 PM with setup and turnaround",
+    );
   });
 });

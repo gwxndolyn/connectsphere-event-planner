@@ -2,7 +2,7 @@ import { http, HttpResponse, type JsonBodyType } from "msw";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll } from "vitest";
 import type { AssignmentRecord, Clarification, EventRequest, EventRequestWrite } from "../features/eventRequest/types";
-import type { VenueBooking } from "../features/venue/bookingTypes";
+import type { BookingEvaluation, VenueBooking } from "../features/venue/bookingTypes";
 import type { Venue } from "../features/venue/types";
 
 /**
@@ -100,6 +100,8 @@ interface Db {
   clarifications: Clarification[];
   // US22 venue bookings (SCRUM-113).
   bookings: VenueBooking[];
+  // US13 (SCRUM-116): what GET /venue-bookings/{id}/evaluation finds, by booking id (see setEvaluation).
+  evaluations: Record<string, Pick<BookingEvaluation, "conflicts" | "outside_hours">>;
   // US26 equipment (SCRUM-110).
   equipmentTypes: FakeEquipmentType[];
   equipmentEvents: FakeEquipmentEvent[];
@@ -107,6 +109,7 @@ interface Db {
   calls: RecordedCall[];
   nextId: number;
   nextReference: number;
+  nextBookingReference: number;
 }
 
 function emptyDb(): Db {
@@ -119,12 +122,14 @@ function emptyDb(): Db {
     assignments: {},
     clarifications: [],
     bookings: [],
+    evaluations: {},
     equipmentTypes: [],
     equipmentEvents: [],
     equipmentLines: [],
     calls: [],
     nextId: 1,
     nextReference: 1,
+    nextBookingReference: 1,
   };
 }
 
@@ -248,16 +253,30 @@ export function seedVenue(overrides: Partial<Venue> = {}): Venue {
   return venue;
 }
 
-/** A US22 booking of `venue` for an event request (an approved one, in the screens' flows). */
+const MINUTE = 60_000;
+
+function shifted(iso: string, minutes: number): string {
+  return new Date(new Date(iso).getTime() + minutes * MINUTE).toISOString().replace(".000Z", "Z");
+}
+
+/**
+ * A US22 booking of `venue` for an event request (an approved one, in the screens' flows). US13: it
+ * gets a VB- reference and the occupied window the venue's buffers make, unless overridden.
+ */
 export function seedBooking(request: EventRequest, venue: Venue, overrides: Partial<VenueBooking> = {}): VenueBooking {
+  const starts_at = overrides.starts_at ?? "2026-11-20T02:00:00Z";
+  const ends_at = overrides.ends_at ?? "2026-11-20T04:00:00Z";
   const booking: VenueBooking = {
     id: newId("booking"),
+    reference: `VB-2026-${String(db.nextBookingReference++).padStart(6, "0")}`,
     event: { id: request.id, name: request.name, request_reference: request.request_reference, status: request.status },
     venue: { id: venue.id, name: venue.name, location: venue.location, capacity: venue.capacity },
     requested_by_user_id: COORDINATOR_ID,
-    // Singapore 10:00–12:00 on 20 Nov 2026.
-    starts_at: "2026-11-20T02:00:00Z",
-    ends_at: "2026-11-20T04:00:00Z",
+    // Singapore 10:00–12:00 on 20 Nov 2026 by default.
+    starts_at,
+    ends_at,
+    occupied_starts_at: shifted(starts_at, -venue.setup_minutes),
+    occupied_ends_at: shifted(ends_at, venue.turnaround_minutes),
     expected_attendees: 30,
     room_layout: "classroom",
     required_facilities: [],
@@ -275,6 +294,11 @@ export function seedBooking(request: EventRequest, venue: Venue, overrides: Part
   };
   db.bookings.push(booking);
   return booking;
+}
+
+/** US13 AC 4: what the evaluation of `booking` finds; by default nothing stands in its way. */
+export function setEvaluation(booking: VenueBooking, found: Partial<Pick<BookingEvaluation, "conflicts" | "outside_hours">>) {
+  db.evaluations[booking.id] = { conflicts: found.conflicts ?? [], outside_hours: found.outside_hours ?? null };
 }
 
 export function seedEquipmentType(name: string): FakeEquipmentType {
@@ -742,6 +766,25 @@ const handlers = [
     if (role !== "operations_manager") return error(403, "FORBIDDEN");
     const pending = db.bookings.filter((b) => b.status === "requested").sort((a, b) => a.created_at.localeCompare(b.created_at));
     return HttpResponse.json({ bookings: pending });
+  }),
+
+  // US13 AC 4 (D36): Venue Staff only. Conflicts are the API's rule (backend/tests/venue/
+  // test_buffer_api.py), so a test sets what this finds with setEvaluation; by default it's clear.
+  route("get", "/api/v1/venue-bookings/:id/evaluation", ({ request, params }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "operations_manager") return error(403, "FORBIDDEN");
+    const booking = db.bookings.find((b) => b.id === params.id);
+    if (!booking) return error(404, "NOT_FOUND");
+    const found = db.evaluations[booking.id] ?? { conflicts: [], outside_hours: null };
+    const evaluation: BookingEvaluation = {
+      booking_id: booking.id,
+      reference: booking.reference,
+      occupied: { starts_at: booking.occupied_starts_at, ends_at: booking.occupied_ends_at },
+      ...found,
+      clear: found.conflicts.length === 0 && found.outside_hours === null,
+    };
+    return HttpResponse.json(evaluation);
   }),
 
   route("get", "/api/v1/events/:id/venue-bookings", ({ request, params }) => {

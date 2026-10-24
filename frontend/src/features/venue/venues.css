@@ -308,6 +308,23 @@
   font-style: italic;
 }
 
+/* US13 (SCRUM-116): the window setup and turnaround occupy, and what the evaluation found. */
+.venue-booking__occupied {
+  margin: 0.75rem 0 0;
+  color: #4a5568;
+}
+
+.venue-booking-row__occupied,
+.venue-booking-row__check {
+  color: #4a5568;
+}
+
+.venue-booking-row__conflicts {
+  margin: 0.25rem 0 0;
+  padding-left: 1.1rem;
+  color: #c53030;
+}
+
 .venue-dialog__note {
   font: inherit;
   font-size: 15px;
