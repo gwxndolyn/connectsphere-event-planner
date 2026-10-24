@@ -1,7 +1,7 @@
 """store each venue booking's occupied window and give bookings a reference
 
 Revision ID: 20261024_1200_us13_buffers
-Revises: 20261022_1300_us10a_coordinator
+Revises: 20261025_1200_us26_equipment
 Create Date: 2026-10-24
 
 """
@@ -12,7 +12,8 @@ import sqlalchemy as sa
 
 
 revision: str = "20261024_1200_us13_buffers"
-down_revision: Union[str, None] = "20261022_1300_us10a_coordinator"
+# After US26 (#63), which merged first: one Alembic head. US13 PR 1 was written on US10a.
+down_revision: Union[str, None] = "20261025_1200_us26_equipment"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
