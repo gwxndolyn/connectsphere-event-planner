@@ -18,6 +18,7 @@ export const ORGANISER_ID = "organiser-id";
 export const COORDINATOR_ID = "coordinator-id";
 export const LEAD_ID = "lead-id";
 export const VENUE_STAFF_ID = "venue-staff-id";
+export const TECH_SUPPORT_ID = "tech-support-id";
 export const ATTENDEE_ID = "attendee-id";
 export const ATTENDEE_EMAIL = "calvin.ng.2024@smu.edu.sg";
 
@@ -48,6 +49,37 @@ export interface FakeRegistration {
   answers?: Record<string, string>;
 }
 
+// US26 equipment (SCRUM-109's API, SCRUM-110's screens). Kept here rather than imported from the
+// feature, so the fake backend's contract is written down once, from §3.
+export interface FakeEquipmentType {
+  id: string;
+  name: string;
+}
+
+export interface FakeEquipmentEvent {
+  id: string;
+  name: string;
+  start_at: string;
+  status: string;
+  // The assigned coordinator (D20): only they list, add, edit and remove its lines.
+  coordinator_id: string | null;
+}
+
+export interface FakeEquipmentLine {
+  id: string;
+  event: { id: string; name: string | null; start_at: string | null };
+  equipment_type: FakeEquipmentType;
+  quantity: number;
+  notes: string | null;
+  status: "pending" | "approved" | "rejected";
+  review_note: string | null;
+  requested_by_user_id: string;
+  reviewed_by_user_id: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface RecordedCall {
   method: string;
   path: string;
@@ -70,6 +102,10 @@ interface Db {
   bookings: VenueBooking[];
   // US13 (SCRUM-116): what GET /venue-bookings/{id}/evaluation finds, by booking id (see setEvaluation).
   evaluations: Record<string, Pick<BookingEvaluation, "conflicts" | "outside_hours">>;
+  // US26 equipment (SCRUM-110).
+  equipmentTypes: FakeEquipmentType[];
+  equipmentEvents: FakeEquipmentEvent[];
+  equipmentLines: FakeEquipmentLine[];
   calls: RecordedCall[];
   nextId: number;
   nextReference: number;
@@ -87,6 +123,9 @@ function emptyDb(): Db {
     clarifications: [],
     bookings: [],
     evaluations: {},
+    equipmentTypes: [],
+    equipmentEvents: [],
+    equipmentLines: [],
     calls: [],
     nextId: 1,
     nextReference: 1,
@@ -262,6 +301,51 @@ export function setEvaluation(booking: VenueBooking, found: Partial<Pick<Booking
   db.evaluations[booking.id] = { conflicts: found.conflicts ?? [], outside_hours: found.outside_hours ?? null };
 }
 
+export function seedEquipmentType(name: string): FakeEquipmentType {
+  const equipmentType = { id: newId("equipment-type"), name };
+  db.equipmentTypes.push(equipmentType);
+  return equipmentType;
+}
+
+/** An event that can take equipment lines: confirmed and assigned to the coordinator the tests act as. */
+export function seedEquipmentEvent(overrides: Partial<FakeEquipmentEvent> = {}): FakeEquipmentEvent {
+  const event: FakeEquipmentEvent = {
+    id: newId("equipment-event"),
+    name: "Equipment Request Demo",
+    // Singapore 10:00 on 7 Nov 2026.
+    start_at: "2026-11-07T02:00:00Z",
+    status: "confirmed",
+    coordinator_id: COORDINATOR_ID,
+    ...overrides,
+  };
+  db.equipmentEvents.push(event);
+  return event;
+}
+
+export function seedEquipmentLine(
+  event: FakeEquipmentEvent,
+  equipmentType: FakeEquipmentType,
+  overrides: Partial<FakeEquipmentLine> = {},
+): FakeEquipmentLine {
+  const line: FakeEquipmentLine = {
+    id: newId("equipment-line"),
+    event: { id: event.id, name: event.name, start_at: event.start_at },
+    equipment_type: equipmentType,
+    quantity: 2,
+    notes: null,
+    status: "pending",
+    review_note: null,
+    requested_by_user_id: COORDINATOR_ID,
+    reviewed_by_user_id: null,
+    reviewed_at: null,
+    created_at: `2026-10-01T02:00:${String(db.nextId).padStart(2, "0")}Z`,
+    updated_at: "2026-10-01T02:00:00Z",
+    ...overrides,
+  };
+  db.equipmentLines.push(line);
+  return line;
+}
+
 /** The venues the next search returns, in that order: the API decides which venues fit, not the fake. */
 export function nextSearchResult(venues: Venue[]) {
   db.searchResult = venues;
@@ -335,12 +419,13 @@ function byStart(a: FakeRegistration, b: FakeRegistration) {
   return ea.start_at.localeCompare(eb.start_at) || ea.name.localeCompare(eb.name);
 }
 
-const ROLES: Record<string, "organiser" | "coordinator" | "coordinator_lead" | "operations_manager"> = {
+const ROLES: Record<string, "organiser" | "coordinator" | "coordinator_lead" | "operations_manager" | "tech_support"> = {
   [ORGANISER_ID]: "organiser",
   [COORDINATOR_ID]: "coordinator",
   [LEAD_ID]: "coordinator_lead",
   // Venue staff is operations_manager until US16b (D19).
   [VENUE_STAFF_ID]: "operations_manager",
+  [TECH_SUPPORT_ID]: "tech_support",
 };
 
 /** `get_current_user`: the role behind X-User-Id, or null for 401. */
@@ -388,6 +473,44 @@ const CLARIFIABLE = new Set(["submitted", "under_review"]);
 function assignedTo(request: EventRequest, userId: string): boolean {
   return request.coordinator?.id === userId;
 }
+// US26 (SCRUM-109): which events take lines, and the line checks, as app/equipment/service.py has them.
+const EQUIPMENT_ELIGIBLE = new Set(["planning", "confirmed"]);
+const LINE_FIELDS = ["equipment_type_id", "quantity"] as const;
+
+function managedEquipmentEvent(request: Request, eventId: string): FakeEquipmentEvent | null {
+  const event = db.equipmentEvents.find((e) => e.id === eventId);
+  return event && event.status !== "draft" && event.coordinator_id === request.headers.get("X-User-Id") ? event : null;
+}
+
+/** INVALID_EQUIPMENT_LINE for the fields present in `values`, or null when they're all fine. */
+function invalidLine(values: Record<string, unknown>): Response | null {
+  const errors: Record<string, string> = {};
+  if ("equipment_type_id" in values && !db.equipmentTypes.some((t) => t.id === values.equipment_type_id)) {
+    errors.equipment_type_id = "Choose an equipment type from the catalogue.";
+  }
+  if ("quantity" in values && !(Number.isInteger(values.quantity) && (values.quantity as number) >= 1)) {
+    errors.quantity = "Quantity must be a whole number of at least 1.";
+  }
+  const fields = LINE_FIELDS.filter((field) => field in errors);
+  return fields.length ? error(422, "INVALID_EQUIPMENT_LINE", { fields, errors }) : null;
+}
+
+function duplicateLine(eventId: string, typeId: unknown, lineId?: string): Response | null {
+  const live = db.equipmentLines.some(
+    (l) => l.event.id === eventId && l.equipment_type.id === typeId && l.status !== "rejected" && l.id !== lineId,
+  );
+  return live
+    ? error(409, "DUPLICATE_EQUIPMENT_TYPE", {
+        fields: ["equipment_type_id"],
+        message: "This event already has a pending or approved line for that equipment type. Change its quantity instead.",
+      })
+    : null;
+}
+
+function cleanNotes(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
 const BOOKING_REQUIRED = ["event_id", "venue_id", "starts_at", "ends_at", "expected_attendees", "room_layout"];
 const SECTION_ORDER = ["details", "schedule", "attendance", "layout", "accessibility", "equipment", "registration"];
 
@@ -397,9 +520,9 @@ type Resolver = (args: { request: Request; params: Record<string, string>; body:
   | Response
   | Promise<Response>;
 
-function route(method: "get" | "post" | "patch", path: string, resolver: Resolver) {
+function route(method: "get" | "post" | "patch" | "delete", path: string, resolver: Resolver) {
   return http[method](`${API}${path}`, async ({ request, params }) => {
-    const body: unknown = method === "get" ? null : await request.clone().json().catch(() => null);
+    const body: unknown = method === "get" || method === "delete" ? null : await request.clone().json().catch(() => null);
     const url = new URL(request.url);
     db.calls.push({ method: method.toUpperCase(), path: url.pathname, url, headers: request.headers, body });
     return resolver({ request, params: params as Record<string, string>, body });
@@ -861,6 +984,116 @@ const handlers = [
     const clarification = seedClarification(found, { round, kind: "response", comment: comment.trim() });
     found.status = "under_review";
     return HttpResponse.json({ clarification, status: found.status }, { status: 201 });
+  }),
+
+  // US26 equipment (SCRUM-109, SCRUM-110). Identified by X-User-Id, like every role route.
+  route("get", "/api/v1/equipment-types", ({ request }) => {
+    if (!userRole(request)) return error(401, "UNAUTHENTICATED");
+    const types = [...db.equipmentTypes].sort((a, b) => a.name.localeCompare(b.name));
+    return HttpResponse.json({ equipment_types: types });
+  }),
+
+  route("get", "/api/v1/me/equipment-events", ({ request }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "coordinator") return error(403, "FORBIDDEN");
+    const mine = db.equipmentEvents
+      .filter((e) => e.coordinator_id === request.headers.get("X-User-Id") && EQUIPMENT_ELIGIBLE.has(e.status))
+      .sort((a, b) => a.start_at.localeCompare(b.start_at))
+      .map(({ id, name, start_at, status }) => ({ id, name, start_at, status }));
+    return HttpResponse.json({ events: mine });
+  }),
+
+  route("get", "/api/v1/events/:id/equipment-lines", ({ request, params }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "coordinator") return error(403, "FORBIDDEN");
+    const event = managedEquipmentEvent(request, params.id);
+    if (!event) return error(404, "NOT_FOUND");
+    const lines = db.equipmentLines
+      .filter((l) => l.event.id === event.id)
+      .sort((a, b) => a.created_at.localeCompare(b.created_at));
+    return HttpResponse.json({ lines });
+  }),
+
+  route("post", "/api/v1/events/:id/equipment-lines", ({ request, params, body }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "coordinator") return error(403, "FORBIDDEN");
+    const event = managedEquipmentEvent(request, params.id);
+    if (!event) return error(404, "NOT_FOUND");
+    if (!EQUIPMENT_ELIGIBLE.has(event.status)) return error(409, "EVENT_NOT_ELIGIBLE", { status: event.status });
+    // Both checked fields count as sent, so a missing one is named like an invalid one.
+    const values: Record<string, unknown> = { equipment_type_id: undefined, quantity: undefined, ...(body as Record<string, unknown>) };
+    const refused = invalidLine(values) ?? duplicateLine(event.id, values.equipment_type_id);
+    if (refused) return refused;
+    const line = seedEquipmentLine(event, db.equipmentTypes.find((t) => t.id === values.equipment_type_id)!, {
+      quantity: values.quantity as number,
+      notes: cleanNotes(values.notes),
+      requested_by_user_id: request.headers.get("X-User-Id")!,
+    });
+    return HttpResponse.json(line, { status: 201 });
+  }),
+
+  route("patch", "/api/v1/equipment-lines/:id", ({ request, params, body }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "coordinator") return error(403, "FORBIDDEN");
+    const line = db.equipmentLines.find((l) => l.id === params.id);
+    if (!line || !managedEquipmentEvent(request, line.event.id)) return error(404, "NOT_FOUND");
+    if (line.status !== "pending") return error(409, "LINE_NOT_PENDING", { status: line.status });
+    const values = (body ?? {}) as Record<string, unknown>;
+    const refused =
+      invalidLine(values) ?? ("equipment_type_id" in values ? duplicateLine(line.event.id, values.equipment_type_id, line.id) : null);
+    if (refused) return refused;
+    if ("equipment_type_id" in values) line.equipment_type = db.equipmentTypes.find((t) => t.id === values.equipment_type_id)!;
+    if ("quantity" in values) line.quantity = values.quantity as number;
+    if ("notes" in values) line.notes = cleanNotes(values.notes);
+    // The real column is onupdate=now(); a fixed later stamp is enough to tell an edited line apart.
+    line.updated_at = "2026-10-03T02:00:00Z";
+    return HttpResponse.json(line);
+  }),
+
+  route("delete", "/api/v1/equipment-lines/:id", ({ request, params }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "coordinator") return error(403, "FORBIDDEN");
+    const line = db.equipmentLines.find((l) => l.id === params.id);
+    if (!line || !managedEquipmentEvent(request, line.event.id)) return error(404, "NOT_FOUND");
+    if (line.status !== "pending") return error(409, "LINE_NOT_PENDING", { status: line.status });
+    db.equipmentLines = db.equipmentLines.filter((l) => l.id !== line.id);
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  route("get", "/api/v1/equipment-lines", ({ request }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "tech_support") return error(403, "FORBIDDEN");
+    const pending = db.equipmentLines
+      .filter((l) => l.status === "pending")
+      .sort((a, b) => a.created_at.localeCompare(b.created_at));
+    return HttpResponse.json({ lines: pending });
+  }),
+
+  route("post", "/api/v1/equipment-lines/:id/review", ({ request, params, body }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "tech_support") return error(403, "FORBIDDEN");
+    const line = db.equipmentLines.find((l) => l.id === params.id);
+    if (!line) return error(404, "NOT_FOUND");
+    const { decision, note, ...rest } = (body ?? {}) as Record<string, unknown>;
+    // Unknown fields (a quantity, AC 6) and other decisions are FastAPI's generic 422.
+    if ((decision !== "approved" && decision !== "rejected") || Object.keys(rest).length > 0) {
+      return HttpResponse.json({ detail: "validation error" }, { status: 422 });
+    }
+    if (line.status !== "pending") return error(409, "LINE_NOT_PENDING", { status: line.status });
+    Object.assign(line, {
+      status: decision,
+      review_note: cleanNotes(note),
+      reviewed_by_user_id: TECH_SUPPORT_ID,
+      reviewed_at: "2026-10-02T02:00:00Z",
+    });
+    return HttpResponse.json(line);
   }),
 
   // SCRUM-103/106: the first login after confirming creates the profile; Organiser or Attendee only.

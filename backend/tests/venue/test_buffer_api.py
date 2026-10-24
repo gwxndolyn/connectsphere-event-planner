@@ -419,6 +419,39 @@ async def test_tc_us13_12_a_buffer_edit_recomputes_requested_bookings_windows(
     assert db.get(VenueBooking, second.id).occupied_starts_at == at(13)
 
 
+@pytest.mark.parametrize(("earlier_id", "later_id"), [(1, 2), (2, 1)], ids=["earlier-first", "later-first"])
+async def test_tc_us13_12_buffers_swapping_sides_between_touching_bookings_is_allowed(
+    client: AsyncClient,
+    db: Session,
+    coordinator: User,
+    staff: User,
+    event: Event,
+    earlier_id: int,
+    later_id: int,
+) -> None:
+    """PR #79 review: 0/30 to 30/0 moves the gap from A's turnaround to B's setup. The new windows
+    only touch, but each overlaps the other's old one, so writing them in one pass trips
+    venue_bookings_no_overlap for whichever booking is updated first. The flush order follows the
+    ids, so both orders are run."""
+    venue = make_venue(db, name="Swap Hall", setup_minutes=0, turnaround_minutes=30, opens_at=time(8, 0), closes_at=time(20, 0))
+    # A occupies 10:00-12:30 and B 12:30-14:30, touching.
+    a = make_venue_booking(
+        db, event=event, venue=venue, user=coordinator, starts_at=at(10), ends_at=at(12), id=uuid.UUID(int=earlier_id)
+    )
+    b = make_venue_booking(
+        db, event=event, venue=venue, user=coordinator, starts_at=at(12, 30), ends_at=at(14), id=uuid.UUID(int=later_id)
+    )
+
+    response = await client.patch(venue_url(venue), headers=auth(staff), json={"setup_minutes": 30, "turnaround_minutes": 0})
+
+    assert response.status_code == 200, response.json()
+    db.expire_all()
+    # A now occupies 09:30-12:00 and B 12:00-14:00: touching again.
+    stored_a, stored_b = db.get(VenueBooking, a.id), db.get(VenueBooking, b.id)
+    assert (stored_a.occupied_starts_at, stored_a.occupied_ends_at) == (at(9, 30), at(12))
+    assert (stored_b.occupied_starts_at, stored_b.occupied_ends_at) == (at(12), at(14))
+
+
 @pytest.mark.parametrize(
     ("change", "reason"),
     [

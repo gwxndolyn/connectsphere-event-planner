@@ -5,7 +5,7 @@ import { SiteHeader, type View } from "./SiteHeader";
 
 function renderHeader(props: Partial<Parameters<typeof SiteHeader>[0]> = {}) {
   const handlers = { onSearchChange: vi.fn(), onNavigate: vi.fn(), onDevRoleChange: vi.fn() };
-  const views: View[] = ["discovery", "my-events", "event-requests", "venues"];
+  const views: View[] = ["discovery", "my-events", "event-requests", "venues", "equipment"];
   render(<SiteHeader search="" view="discovery" devRole="organiser" views={views} {...handlers} {...props} />);
   return handlers;
 }
@@ -55,6 +55,21 @@ describe("SiteHeader", () => {
     const { onNavigate } = renderHeader({ view: "my-events" });
     await userEvent.click(screen.getByRole("button", { name: "ConnectSphere" }));
     expect(onNavigate).toHaveBeenCalledWith("discovery");
+  });
+
+  it("opens Equipment for a role that has it (SCRUM-110)", async () => {
+    const { onNavigate } = renderHeader({ view: "equipment", views: ["equipment"] });
+    const equipment = screen.getByRole("button", { name: "Equipment" });
+    expect(equipment).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByRole("button", { name: "Venues" })).not.toBeInTheDocument();
+    await userEvent.click(equipment);
+    expect(onNavigate).toHaveBeenCalledWith("equipment");
+  });
+
+  it("offers Tech support in Acting as (SCRUM-110)", async () => {
+    const { onDevRoleChange } = renderHeader();
+    await userEvent.selectOptions(screen.getByLabelText("Acting as"), "Tech support");
+    expect(onDevRoleChange).toHaveBeenCalledWith("tech_support");
   });
 
   it("switches Acting as (D12)", async () => {
