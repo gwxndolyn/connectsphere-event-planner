@@ -1,6 +1,6 @@
 # Testing and CI
 
-How ConnectSphere is tested, what runs in CI, and how to add a test. Per-story test cases live beside this file (`US2-venue-search.md`, `US16a-sign-up-log-in.md`, `US20-venue-catalogue.md`, `US22-venue-booking.md`); the Sprint 1 and 2 cases are in `claude_instructions.md` §4.
+How ConnectSphere is tested, what runs in CI, and how to add a test. Per-story test cases live beside this file (`US2-venue-search.md`, `US4-booking-decision.md`, `US16a-sign-up-log-in.md`, `US20-venue-catalogue.md`, `US22-venue-booking.md`); the Sprint 1 and 2 cases are in `claude_instructions.md` §4.
 
 ## The four suites
 
@@ -80,7 +80,7 @@ Config: `e2e/playwright.config.ts`. It starts the frontend with `npm run dev --p
 
 A spec that changes seeded data used by another spec will flake. If a journey needs new data, add it to `app/seed.py`.
 
-The seed data E2E relies on: Calvin (`VITE_DEV_ATTENDEE_ID`) confirmed for Tech Talk and the online Supabase talk, and second in the full Design Sprint Bootcamp's queue; the organiser, coordinator and venue staff users; six venues, one inactive; and, five days ahead at 10:00–12:00, a requested and an approved US22 booking and a venue block; and **Venue Booking Demo**, an approved event assigned to the dev coordinator with no seeded booking, which only `venue-booking.spec.ts` books (on its own far-future windows, withdrawn again before each test ends).
+The seed data E2E relies on: Calvin (`VITE_DEV_ATTENDEE_ID`) confirmed for Tech Talk and the online Supabase talk, and second in the full Design Sprint Bootcamp's queue; the organiser, coordinator and venue staff users; six venues, one inactive; and, five days ahead at 10:00–12:00, a requested and an approved US22 booking and a venue block; and **Venue Booking Demo**, an approved event assigned to the dev coordinator with no seeded booking, which only `venue-booking.spec.ts` and `venue-booking-decision.spec.ts` book. The first withdraws what it books, on windows 60 to 360 days ahead; the second approves or rejects what it books, which can't be undone, so it uses a day 400 to 20,400 days ahead that changes every second.
 
 ## When a test fails
 
