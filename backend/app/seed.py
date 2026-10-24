@@ -27,7 +27,7 @@ from app.event.models import DeliveryMode, Event, EventStatus
 from app.registration.models import ACTIVE_STATUSES, Registration, RegistrationStatus
 from app.user.models import Attendee, User, UserRole
 from app.user.supabase_admin import SupabaseAdmin, SupabaseAdminError
-from app.venue.models import Venue, VenueBlock, VenueBooking, VenueBookingStatus
+from app.venue.models import Venue, VenueBlock, VenueBooking, VenueBookingStatus, occupied_window
 
 # Fixed namespace so slugs map to the same UUIDs on every machine and every run.
 SEED_NAMESPACE = uuid.UUID("3f2b0c54-9b1a-4f3e-9a7e-2c0d1b8e5a41")
@@ -621,12 +621,18 @@ def upsert_venue_booking(
 ) -> VenueBooking:
     booking_id = seed_id("venue-booking", spec.slug)
     day = _slot_day(now)
+    starts_at = datetime.combine(day, spec.starts, SEED_TIMEZONE)
+    ends_at = datetime.combine(day, spec.ends, SEED_TIMEZONE)
+    # US13: the window the venue's buffers make it occupy. The reference comes from the database.
+    occupied_starts_at, occupied_ends_at = occupied_window(db.get(Venue, seed_id("venue", spec.venue_slug)), starts_at, ends_at)
     values = {
         "event_id": event.id,
         "venue_id": seed_id("venue", spec.venue_slug),
         "requested_by_user_id": coordinator.id,
-        "starts_at": datetime.combine(day, spec.starts, SEED_TIMEZONE),
-        "ends_at": datetime.combine(day, spec.ends, SEED_TIMEZONE),
+        "starts_at": starts_at,
+        "ends_at": ends_at,
+        "occupied_starts_at": occupied_starts_at,
+        "occupied_ends_at": occupied_ends_at,
         "expected_attendees": spec.expected_attendees,
         "room_layout": spec.room_layout,
         "status": spec.status,
