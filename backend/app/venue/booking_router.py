@@ -11,7 +11,13 @@ from app.notification.service import Notifier, get_notifier
 from app.user.dependencies import require_user_roles
 from app.user.models import User, UserRole
 from app.venue.booking_service import booking_service
-from app.venue.schemas import VenueBookingCreatedOut, VenueBookingOut, VenueBookingsOut, VenueBookingWrite
+from app.venue.schemas import (
+    BookingEvaluationOut,
+    VenueBookingCreatedOut,
+    VenueBookingOut,
+    VenueBookingsOut,
+    VenueBookingWrite,
+)
 from app.venue.service import VENUE_STAFF_ROLES
 
 router = APIRouter(prefix="/api/v1/venue-bookings", tags=["venue-bookings"])
@@ -37,6 +43,12 @@ def request_venue(
 @router.get("/pending", response_model=VenueBookingsOut)
 def pending_bookings(_: VenueStaff, db: Session = Depends(get_db)) -> VenueBookingsOut:
     return VenueBookingsOut(bookings=booking_service.pending(db))
+
+
+@router.get("/{booking_id}/evaluation", response_model=BookingEvaluationOut)
+def booking_evaluation(booking_id: uuid.UUID, _: VenueStaff, db: Session = Depends(get_db)) -> BookingEvaluationOut:
+    # US13 AC 4 (D36): conflicts with their overlap and reference, and any hours breach.
+    return booking_service.evaluation(db, booking_id)
 
 
 @router.post("/{booking_id}/withdraw", response_model=VenueBookingOut)
