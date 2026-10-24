@@ -15,7 +15,9 @@ from app.event.clarification_schemas import (
 )
 from app.event.clarification_service import clarification_service
 from app.event.assignment_service import assignment_service
+from app.event.models import EventStatus
 from app.event.request_schemas import (
+    AssignedRequestsOut,
     AssignmentHistoryOut,
     AssignmentWrite,
     CoordinatorOptionsOut,
@@ -76,6 +78,16 @@ def list_unassigned(
     db: Session = Depends(get_db),
 ) -> UnassignedRequestsOut:
     return UnassignedRequestsOut(event_requests=assignment_service.list_unassigned(db))
+
+
+@router.get("/assigned", response_model=AssignedRequestsOut)
+def list_assigned(
+    lead: Lead,
+    coordinator_id: uuid.UUID | None = None,
+    status: EventStatus | None = None,
+    db: Session = Depends(get_db),
+) -> AssignedRequestsOut:
+    return AssignedRequestsOut(event_requests=assignment_service.list_assigned(db, lead, coordinator_id, status))
 
 
 @coordinators_router.get("", response_model=CoordinatorOptionsOut)

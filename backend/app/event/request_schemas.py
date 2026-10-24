@@ -82,6 +82,18 @@ class UnassignedRequestOut(EventRequestOut):
     organiser: OrganiserOut | None = Field(validation_alias="created_by")
 
 
+class AssignedRequestOut(EventRequestOut):
+    """A row of the Lead's Assigned tab (SCRUM-86 AC 2): the request with its coordinator and status
+    (already on `EventRequestOut`) and the event date: the start date once the event has one, else
+    the first preferred date, null when neither is set."""
+
+    event_date: date | None = None
+
+
+class AssignedRequestsOut(BaseModel):
+    event_requests: list[AssignedRequestOut]
+
+
 class UnassignedRequestsOut(BaseModel):
     event_requests: list[UnassignedRequestOut]
 
