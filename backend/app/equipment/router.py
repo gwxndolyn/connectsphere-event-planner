@@ -38,8 +38,10 @@ def equipment_types(_: SignedIn, db: Session = Depends(get_db)) -> EquipmentType
 
 
 @me_router.get("/equipment-events", response_model=EquipmentEventsOut)
-def my_equipment_events(coordinator: Coordinator, db: Session = Depends(get_db)) -> EquipmentEventsOut:
-    return EquipmentEventsOut(events=equipment_service.my_events(db, coordinator))
+def my_equipment_events(
+    coordinator: Coordinator, db: Session = Depends(get_db), now: datetime = Depends(get_now)
+) -> EquipmentEventsOut:
+    return EquipmentEventsOut(events=equipment_service.my_events(db, coordinator, now))
 
 
 @events_router.get("/{event_id}/equipment-lines", response_model=EquipmentLinesOut)

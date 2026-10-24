@@ -23,6 +23,8 @@ function formValues(line: EquipmentLine): LineFormValues {
 export function EventEquipment() {
   // null while loading.
   const [events, setEvents] = useState<EquipmentEvent[] | null>(null);
+  // The events or catalogue couldn't load: the alert says why, and there's no "none of your events".
+  const [loadFailed, setLoadFailed] = useState(false);
   const [types, setTypes] = useState<EquipmentType[]>([]);
   const [eventId, setEventId] = useState("");
   const [lines, setLines] = useState<EquipmentLine[]>([]);
@@ -43,7 +45,7 @@ export function EventEquipment() {
       })
       .catch((reason: unknown) => {
         if (!current) return;
-        setEvents([]);
+        setLoadFailed(true);
         setError(equipmentErrorMessage(reason));
       });
     return () => {
@@ -89,12 +91,14 @@ export function EventEquipment() {
   }
 
   async function add(values: LineFormValues) {
+    setError(null);
     setNotice(null);
     const line = await equipmentApi.add(eventId, toLineBody(values));
     setLines((current) => [...current, line]);
   }
 
   async function save(line: EquipmentLine, values: LineFormValues) {
+    setError(null);
     setNotice(null);
     try {
       const saved = await equipmentApi.edit(line.id, toLineBody(values));
@@ -141,7 +145,7 @@ export function EventEquipment() {
         </div>
       )}
 
-      {events === null ? (
+      {loadFailed ? null : events === null ? (
         <p className="request-empty">Loading your events…</p>
       ) : events.length === 0 ? (
         <p className="request-empty">

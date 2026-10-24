@@ -824,17 +824,23 @@ def admin_from_settings() -> SupabaseAdmin | None:
     return SupabaseAdmin(settings.supabase_url, settings.supabase_secret_key.get_secret_value())
 
 
+# PR #78 review: on a shared database these could be someone's real requests.
+REMOTE_RESEED_WARNING = (
+    "Reseeding also deletes every equipment line on Equipment Request Demo, approved ones included. "
+    "Other events' lines are untouched."
+)
+
+
 def main() -> int:
     host = make_url(settings.database_url).host or "localhost"
     is_local = host in {"localhost", "127.0.0.1", "::1"}
-    if not is_local and "--yes" not in sys.argv:
-        print(f"Refusing to seed a non-local database ({host}) without --yes.")
-        # PR #78 review: on a shared database these could be someone's real requests.
-        print(
-            "Reseeding also deletes every equipment line on Equipment Request Demo, approved ones included. "
-            "Other events' lines are untouched."
-        )
-        return 1
+    if not is_local:
+        if "--yes" not in sys.argv:
+            print(f"Refusing to seed a non-local database ({host}) without --yes.")
+            print(REMOTE_RESEED_WARNING)
+            return 1
+        # Said before anything is deleted, with --yes too (PR #78 review).
+        print(REMOTE_RESEED_WARNING)
 
     print(f"Seeding {host} ...")
     with SessionLocal() as db:

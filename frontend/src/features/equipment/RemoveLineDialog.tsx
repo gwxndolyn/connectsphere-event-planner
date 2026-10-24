@@ -30,9 +30,10 @@ export function RemoveLineDialog({ line, onConfirm, onClose }: RemoveLineDialogP
   }
 
   return (
-    <div className="dialog-overlay" onClick={onClose}>
+    // Not closable while the removal is in flight, so its outcome is always shown (PR #78 review).
+    <div className="dialog-overlay" onClick={() => !submitting && onClose()}>
       <div className="dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} onClick={(e) => e.stopPropagation()}>
-        <button type="button" className="dialog__close" onClick={onClose} aria-label="Close">
+        <button type="button" className="dialog__close" onClick={onClose} aria-label="Close" disabled={submitting}>
           ×
         </button>
         <h3 id={titleId} className="reg-form__title">
@@ -41,7 +42,7 @@ export function RemoveLineDialog({ line, onConfirm, onClose }: RemoveLineDialogP
         <p className="reg-form__meta">
           {line.equipment_type.name} · Quantity {line.quantity}
         </p>
-        <p className="reg-form__notice">The line is deleted and Tech support stop seeing it. To ask again, add it again.</p>
+        <p className="reg-form__notice">The line is deleted and Tech support stops seeing it. To ask again, add it again.</p>
 
         {error && (
           <p className="reg-form__error" role="alert">
@@ -56,7 +57,7 @@ export function RemoveLineDialog({ line, onConfirm, onClose }: RemoveLineDialogP
             </button>
           ) : (
             <>
-              <button type="button" className="request-button request-button--quiet" onClick={onClose}>
+              <button type="button" className="request-button request-button--quiet" onClick={onClose} disabled={submitting}>
                 Keep line
               </button>
               <button

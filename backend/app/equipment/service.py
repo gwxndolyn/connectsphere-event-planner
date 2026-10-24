@@ -142,15 +142,18 @@ class EquipmentService:
             for equipment_type in db.scalars(select(EquipmentType).order_by(EquipmentType.name))
         ]
 
-    def my_events(self, db: Session, coordinator: User) -> list[EquipmentEventOut]:
-        """The events this coordinator can add lines to, soonest first (SCRUM-110, TC-US26-20): the
-        ones assigned to them (D20) in an eligible status. The event-request routes hide these (D11)."""
+    def my_events(self, db: Session, coordinator: User, now: datetime) -> list[EquipmentEventOut]:
+        """The events this coordinator can add lines to (SCRUM-110, TC-US26-20): the ones assigned to
+        them (D20) in an eligible status. The event-request routes hide these (D11). Events not over
+        yet come first, soonest first, then ended ones, most recent first (PR #78 review): ended ones
+        stay listed because the API still takes lines for them (the rule is status only)."""
         events = db.scalars(
-            select(Event)
-            .where(Event.coordinator_id == coordinator.id, Event.status.in_(ELIGIBLE_STATUSES))
-            .order_by(Event.start_at, Event.name, Event.id)
-        )
-        return [EquipmentEventOut.model_validate(event) for event in events]
+            select(Event).where(Event.coordinator_id == coordinator.id, Event.status.in_(ELIGIBLE_STATUSES))
+        ).all()
+        # Planning and confirmed events always have both times (events_final_fields_required).
+        upcoming = sorted((e for e in events if e.end_at >= now), key=lambda e: (e.start_at, e.name, str(e.id)))
+        ended = sorted((e for e in events if e.end_at < now), key=lambda e: (e.start_at, e.name, str(e.id)), reverse=True)
+        return [EquipmentEventOut.model_validate(event) for event in upcoming + ended]
 
     def for_event(self, db: Session, coordinator: User, event_id: uuid.UUID) -> list[EquipmentLineOut]:
         """An event's lines in every status, oldest first, for its assigned coordinator."""
