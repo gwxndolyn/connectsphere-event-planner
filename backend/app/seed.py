@@ -25,6 +25,7 @@ from app.core.database import SessionLocal
 from app.event.models import DeliveryMode, Event, EventStatus
 from app.registration.models import ACTIVE_STATUSES, Registration, RegistrationStatus
 from app.user.models import Attendee, User, UserRole
+from app.user.supabase_admin import SupabaseAdmin, SupabaseAdminError
 from app.venue.models import Venue, VenueBlock, VenueBooking, VenueBookingStatus
 
 # Fixed namespace so slugs map to the same UUIDs on every machine and every run.
@@ -76,6 +77,15 @@ VENUE_STAFF_EMAIL = "venue.staff@smu.edu.sg"
 # SCRUM-82 AC 7: more than one Lead, never a single hard-coded one.
 EVENT_COORDINATOR_LEAD_EMAILS = ("lead.one@smu.edu.sg", "lead.two@smu.edu.sg")
 EVENT_COORDINATOR_LEAD_NAMES = {"lead.one@smu.edu.sg": "Lena Lim", "lead.two@smu.edu.sg": "Leo Lee"}
+# Everyone the seed creates a Supabase login for (SCRUM-104). Staff can't sign up (US16a AC 7), so this
+# is how the coordinator, venue staff and Leads get one.
+SEEDED_LOGIN_EMAILS = [
+    EVENT_ORGANISER_EMAIL,
+    EVENT_COORDINATOR_EMAIL,
+    VENUE_STAFF_EMAIL,
+    *EVENT_COORDINATOR_LEAD_EMAILS,
+    *ATTENDEES,
+]
 
 EVENTS = [
     EventSpec(
@@ -669,6 +679,64 @@ def seed(db: Session, now: datetime | None = None) -> None:
     db.commit()
 
 
+class SeedAuthError(Exception):
+    """A seeded user's Supabase login couldn't be created, found or linked. Nothing was linked."""
+
+
+# The seeded logins share one password and include staff, so a short one is refused (PR #56 review).
+MIN_SEED_PASSWORD_LENGTH = 12
+
+
+def missing_admin_settings() -> list[str]:
+    """Which of the two settings the Admin API needs are unset, by name, for the skip message."""
+    values = (
+        ("SUPABASE_URL", settings.supabase_url),
+        ("SUPABASE_SECRET_KEY", settings.supabase_secret_key.get_secret_value()),
+    )
+    return [name for name, value in values if not value]
+
+
+def seed_auth_logins(db: Session, admin: SupabaseAdmin | None, password: str | None) -> None:
+    """Create (or reuse) a confirmed Supabase login for every seeded user and link it by
+    `auth_user_id` (SCRUM-104). Every login is fetched and checked before any row changes, so a failure
+    for one email leaves no row half-linked. Prints emails only, never the key or password."""
+    missing = (missing_admin_settings() or ["SUPABASE_SECRET_KEY"]) if admin is None else []
+    if not password:
+        missing.append("SEED_AUTH_PASSWORD")
+    if missing:
+        print(f"\nSupabase Auth logins skipped: {', '.join(missing)} not set.")
+        return
+    if len(password) < MIN_SEED_PASSWORD_LENGTH:
+        raise SeedAuthError(f"SEED_AUTH_PASSWORD must be at least {MIN_SEED_PASSWORD_LENGTH} characters.")
+
+    auth_ids = {}
+    for email in SEEDED_LOGIN_EMAILS:
+        try:
+            auth_ids[email] = admin.ensure_user(email, password)
+        except SupabaseAdminError as error:
+            raise SeedAuthError(f"Couldn't create the Supabase login for {email}: {error}") from None
+
+    users = list(db.scalars(select(User).where(User.email.in_(SEEDED_LOGIN_EMAILS))))
+    # A row already linked to a different account (e.g. a real person signed up with a demo address and
+    # #55 linked it) is never re-pointed (PR #56 review).
+    for user in users:
+        if user.auth_user_id not in (None, auth_ids[user.email]):
+            raise SeedAuthError(f"{user.email} is already linked to a different Supabase account; nothing was linked.")
+    for user in users:
+        user.auth_user_id = auth_ids[user.email]
+    db.commit()
+
+    print("\nSupabase Auth logins (password: SEED_AUTH_PASSWORD in backend/.env):")
+    for email in SEEDED_LOGIN_EMAILS:
+        print(f"  {email}")
+
+
+def admin_from_settings() -> SupabaseAdmin | None:
+    if missing_admin_settings():
+        return None
+    return SupabaseAdmin(settings.supabase_url, settings.supabase_secret_key.get_secret_value())
+
+
 def main() -> int:
     host = make_url(settings.database_url).host or "localhost"
     is_local = host in {"localhost", "127.0.0.1", "::1"}
@@ -701,6 +769,12 @@ def main() -> int:
         for registration in mine:
             event = db.get(Event, registration.event_id)
             print(f"  {registration.status.value:<11} {event.name:<34} {registration.id}")
+
+        try:
+            seed_auth_logins(db, admin_from_settings(), settings.seed_auth_password.get_secret_value())
+        except SeedAuthError as error:
+            print(f"\n{error}")
+            return 1
     return 0
 
 
