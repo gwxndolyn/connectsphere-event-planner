@@ -150,3 +150,11 @@ Setup: local Postgres seeded from `main`; backend checking real tokens; Playwrig
 - The test accounts are deleted from Supabase after each run; their profile rows stay in the local database (harmless: unique emails, and CI starts fresh).
 - Full E2E suite: 34 of 34. Frontend: 225 tests, lint and build clean.
 - An Admin-API-confirmed account's token carries `user_metadata.email_verified: true`, which the profile endpoint requires; checked before writing the E2E.
+
+### 24 Oct 2026: PR #75 review changes
+
+- **Profile created twice** (two tabs, a retry, StrictMode): `completeProfile` reads `/me` back after `409 EMAIL_ALREADY_REGISTERED` and carries on if the profile is there; otherwise the 409 stands. Two integration tests in `signUp.integration.test.ts`.
+- **Logging in before confirming** now has an E2E check inside the TC-US16A-40 and 41 journeys: "Confirm your email first: open the link we sent you, then log in."
+- **E2E hygiene:** each test account is recorded for deletion as soon as it exists, and `E2E_SIGNUP_INBOX` is required (the spec skips without it).
+- The "Check your email" check waits up to 30 seconds, because Supabase answers only after the SMTP server accepts the email. One full run failed at the default 5 seconds.
+- Rerun: frontend 227 tests; full E2E suite 34 of 34; then the login and sign-up specs twice more after the timeout change, 12 of 12 each time. Without `E2E_SIGNUP_INBOX` the sign-up spec skips (3 skipped).
