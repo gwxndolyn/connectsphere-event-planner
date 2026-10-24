@@ -3,7 +3,7 @@ from datetime import date, datetime, time
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.event.models import EventStatus
+from app.event.models import AssignmentKind, EventStatus
 
 
 class EventRequestWrite(BaseModel):
@@ -94,6 +94,23 @@ class AssignmentWrite(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     coordinator_id: uuid.UUID
+
+
+class AssignmentRecordOut(BaseModel):
+    """One Assignment History entry (SCRUM-69 AC 3): whether it was an assignment or a reassignment,
+    the Lead who did it, the coordinator and when."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    kind: AssignmentKind
+    assigned_by: PersonOut
+    coordinator: PersonOut
+    created_at: datetime
+
+
+class AssignmentHistoryOut(BaseModel):
+    assignments: list[AssignmentRecordOut]
 
 
 class EventRequestsOut(BaseModel):

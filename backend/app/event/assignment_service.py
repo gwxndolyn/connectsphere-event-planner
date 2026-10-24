@@ -3,11 +3,12 @@ import uuid
 from datetime import date
 
 from sqlalchemy import and_, func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.core.exceptions import DomainError
-from app.event.models import Event, EventStatus
+from app.event.models import AssignmentKind, CoordinatorAssignment, Event, EventStatus
 from app.event.request_schemas import (
+    AssignmentRecordOut,
     CoordinatorOptionOut,
     EventRequestOut,
     UnassignedRequestOut,
@@ -64,6 +65,20 @@ class AssignmentService:
             for user, count in rows
         ]
 
+    def history(self, db: Session, request_id: uuid.UUID) -> list[AssignmentRecordOut]:
+        """An event's Assignment History, newest first (SCRUM-69 AC 2). A draft has no owner to
+        account for and is invisible to staff (D11), so it 404s like an unknown id."""
+        event = db.get(Event, request_id)
+        if event is None or event.status == EventStatus.DRAFT:
+            raise DomainError(404, "NOT_FOUND")
+        records = db.scalars(
+            select(CoordinatorAssignment)
+            .where(CoordinatorAssignment.event_id == request_id)
+            .options(selectinload(CoordinatorAssignment.assigned_by), selectinload(CoordinatorAssignment.coordinator))
+            .order_by(CoordinatorAssignment.created_at.desc(), CoordinatorAssignment.id.desc())
+        ).all()
+        return [AssignmentRecordOut.model_validate(record) for record in records]
+
     def assign(
         self,
         db: Session,
@@ -81,6 +96,15 @@ class AssignmentService:
 
         coordinator = self._eligible_coordinator(db, lead, coordinator_id)
         event.coordinator = coordinator
+        # SCRUM-69 AC 1: the record commits or rolls back with the assignment itself.
+        db.add(
+            CoordinatorAssignment(
+                event_id=event.id,
+                assigned_by_user_id=lead.id,
+                coordinator_id=coordinator.id,
+                kind=AssignmentKind.ASSIGNMENT,
+            )
+        )
         # DECISION-PENDING: D27 — assignment starts the review (Under Review), not Planning as
         # SCRUM-61's wording says: Planning comes after approval (SCRUM-84) and hides the request
         # from coordinators under D11.

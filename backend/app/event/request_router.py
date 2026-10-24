@@ -16,6 +16,7 @@ from app.event.clarification_schemas import (
 from app.event.clarification_service import clarification_service
 from app.event.assignment_service import assignment_service
 from app.event.request_schemas import (
+    AssignmentHistoryOut,
     AssignmentWrite,
     CoordinatorOptionsOut,
     EventRequestOut,
@@ -113,6 +114,15 @@ def submit_request(
     notifier: Notifier = Depends(get_notifier),
 ) -> EventRequestOut:
     return event_request_service.submit(db, request_id, organiser, now, notifier)
+
+@router.get("/{request_id}/assignment-history", response_model=AssignmentHistoryOut)
+def assignment_history(
+    request_id: uuid.UUID,
+    _: Lead,
+    db: Session = Depends(get_db),
+) -> AssignmentHistoryOut:
+    return AssignmentHistoryOut(assignments=assignment_service.history(db, request_id))
+
 
 @router.post("/{request_id}/assignment", response_model=EventRequestOut)
 def assign_coordinator(
