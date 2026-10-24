@@ -19,7 +19,7 @@
 | --- | --- | --- | --- |
 | 1 | SCRUM-108 | `equipment_types` (seeded) + `equipment_request_lines`; `tech_support` role and a seeded Tech Support user (schema only) | `backend/tests/equipment/test_equipment_schema.py` |
 | 2 | SCRUM-109 | Coordinator and Tech Support endpoints; review; coordinator notified; seeded Equipment Request Demo | `backend/tests/equipment/test_equipment_api.py`, `test_equipment_seed.py` |
-| 3 | SCRUM-110 | Equipment screen and Tech Support queue | to be added (lint, build, Playwright) |
+| 3 | SCRUM-110 | Equipment screen and Tech Support queue; `GET /api/v1/me/equipment-events` for the event picker; reseed empties the demo event's equipment | `e2e/tests/equipment.spec.ts`; `frontend/src/features/equipment/` (unit and integration); `backend/tests/equipment/test_equipment_api.py`, `test_equipment_seed.py` (TC-US26-20) |
 
 ## Decisions for this story
 
@@ -28,7 +28,8 @@
 - **Only events in `planning` or `confirmed`** accept equipment lines (SCRUM-109). Only adding a line checks this; editing or removing a pending line doesn't.
 - **The review note is optional** for both approval and rejection (D43, `DECISION-PENDING`): AC 3 says "with a note" but doesn't make it mandatory. Changed 24 Oct, SCRUM-109.
 - **The coordinator who asked is notified** (AC 5), even if the event has since been reassigned.
-- **A seeded event to try it on:** **Equipment Request Demo**, confirmed and assigned to the seeded coordinator, with registration off. No other seeded event is both eligible and assigned.
+- **A seeded event to try it on:** **Equipment Request Demo**, confirmed and assigned to the seeded coordinator, with registration off. No other seeded event is both eligible and assigned. **A reseed empties its equipment** (SCRUM-110), approved lines included, so E2E reruns start clean: an approved line can't be removed and one live line per type is allowed (D41).
+- **The screen's event picker** lists the coordinator's own planning or confirmed events from `GET /api/v1/me/equipment-events` (SCRUM-110, deviation 41): the event-request routes hide those events (D11). Agreed 24 Oct before building.
 - **One live line per type per event** (D41, `DECISION-PENDING`): a second pending or approved line for the same equipment type on an event is refused; the coordinator changes the quantity instead (AC 2). A rejected line doesn't count, so that type can be requested again. Equipment is tracked by type (12 Oct customer clarification), and one line per type stops a request being split to get part of it (AC 6).
 - **No availability check yet:** whether the full quantity is available (AC 6) is Tech Support's judgement until US5 (SCRUM-9) adds stock and condition. Approval is always for the full requested quantity.
 
@@ -55,9 +56,11 @@
 | TC-US26-17 | 3, 5 | A pending line | Acting as Tech support, approves it with a note; then acting as the coordinator, opens the event | Tech Support's queue no longer lists it; the coordinator sees it as Approved with the note | SCRUM-110 |
 | TC-US26-18 | 1, 6 | A pending or approved line for an event and type | Another line is saved for the same event and type; then the first is rejected and the line is saved again | Refused on `equipment_request_lines_one_live_per_type`; after the rejection it saves. Another event or type is never a duplicate (D41) | SCRUM-108 |
 | TC-US26-19 | 1, 6 | A pending or approved line for an event and type | The coordinator adds another line of that type, or changes another line to that type | `409 DUPLICATE_EQUIPMENT_TYPE`; nothing saved. After the first is rejected, the type can be added again (D41) _(added 24 Oct)_ | SCRUM-109 |
+| TC-US26-20 | 1 | A coordinator assigned to planning, confirmed and other events, plus events assigned to someone else | They open the list of their equipment events | Only their own planning and confirmed events, soonest first; `403` for other roles; `401` without an identity. The seed's demo event has no lines after a reseed _(added 24 Oct)_ | SCRUM-110 |
 
 ## Run log
 
 | Date | Subtask | What ran | Result |
 | --- | --- | --- | --- |
 | 24 Oct | SCRUM-109 | `pytest` (local Postgres): `tests/equipment/` (99), then the full backend suite | Failing tests committed first (e93f658): 76 failed on missing routes and the seed test on a missing import. After the feature: 99 equipment tests and 646 in all pass |
+| 24 Oct | SCRUM-110 | `pytest`; Vitest, lint and build; Playwright against the local API on a reseeded database | Failing tests committed first: 9 backend (TC-US26-20 and the reseed) and 14 frontend failed, and the existing ones passed. After the feature, rebased on `main` with US4 (#73): backend 737, frontend 259 (193 unit, 66 integration), lint and build clean; E2E 35 passed and 3 skipped (the sign-up cases, which need `E2E_SIGNUP_INBOX`), including TC-US26-16 and 17 |

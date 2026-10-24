@@ -29,7 +29,7 @@ cd backend && alembic upgrade head && python -m app.seed && uvicorn app.main:app
 cd e2e && npm test
 ```
 
-Reseed (`python -m app.seed`) before rerunning E2E on the same database: `attendee-registration.spec.ts` leaves Calvin's registrations changed.
+Reseed (`python -m app.seed`) before rerunning E2E on the same database: `attendee-registration.spec.ts` leaves Calvin's registrations changed, and `equipment.spec.ts` leaves an approved equipment line on Equipment Request Demo, which can't be removed (a reseed empties that event's equipment).
 
 ## What CI runs
 
