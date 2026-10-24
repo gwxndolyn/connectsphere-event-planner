@@ -138,6 +138,11 @@ def _slot(model: type[VenueBooking] | type[VenueBlock]):
     return func.tstzrange(model.starts_at, model.ends_at, literal("[)"))
 
 
+def _occupied_slot():
+    """A booking's stored occupied window, as venue_bookings_no_overlap's GiST index stores it (US13)."""
+    return func.tstzrange(VenueBooking.occupied_starts_at, VenueBooking.occupied_ends_at, literal("[)"))
+
+
 def _escape_like(value: str) -> str:
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
@@ -191,8 +196,10 @@ class VenueService:
         starts_at = datetime.combine(on, start_time, VENUE_TIMEZONE)
         ends_at = datetime.combine(on, end_time, VENUE_TIMEZONE)
 
-        # Half-open, like venue_bookings_no_overlap: a booking ending at 10:00 doesn't clash with a
-        # search from 10:00. Requested blocks the window as well as approved (US22's D21).
+        # Half-open, like venue_bookings_no_overlap: a booking whose turnaround ends at 10:00 doesn't
+        # clash with a search from 10:00. Requested blocks the window as well as approved (US22's D21).
+        # Since US13 PR 1 a booking takes up its stored occupied window (its venue's buffers), which is
+        # also the range the exclusion constraint's GiST index holds, so the && below can use it.
         # DECISION-PENDING: D26 — setup and turnaround buffers aren't added around either side here.
         # US13 (SCRUM-16) owns buffer scheduling, and CR-01 says its conflicts are flagged, not hidden.
         # Written as a range overlap (&&) on tstzrange(starts_at, ends_at, '[)'), the exact expression
@@ -203,7 +210,7 @@ class VenueService:
             and_(
                 VenueBooking.venue_id == Venue.id,
                 VenueBooking.status.in_(LIVE_BOOKING_STATUSES),
-                _slot(VenueBooking).op("&&")(window),
+                _occupied_slot().op("&&")(window),
             )
         )
         blocked = exists().where(

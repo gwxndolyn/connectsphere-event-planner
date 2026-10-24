@@ -1,6 +1,6 @@
 import enum
 import uuid
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 
 from sqlalchemy import ARRAY, CheckConstraint, DateTime, ForeignKey, Integer, Text, Time, func, text
 from sqlalchemy.orm import Mapped, mapped_column
@@ -87,21 +87,37 @@ class VenueBookingStatus(enum.StrEnum):
 LIVE_BOOKING_STATUSES = (VenueBookingStatus.REQUESTED, VenueBookingStatus.APPROVED)
 
 
+def occupied_window(venue: "Venue", starts_at: datetime, ends_at: datetime) -> tuple[datetime, datetime]:
+    """US13 AC 2: the venue is occupied from the start of setup to the end of turnaround, with the
+    venue's own buffers (AC 1). 10:00-12:00 with 30/45 occupies 09:30-12:45; 0/0 is the plain window.
+    The one place this is worked out: create, the seed, tests and (PR 2) buffer edits all call it."""
+    return (
+        starts_at - timedelta(minutes=venue.setup_minutes),
+        ends_at + timedelta(minutes=venue.turnaround_minutes),
+    )
+
+
 class VenueBooking(Base):
     """A coordinator's request to hold a venue for an event (US22, SCRUM-89).
 
     The exclusion constraint `venue_bookings_no_overlap` refuses a Requested or Approved booking
-    whose [starts_at, ends_at) overlaps another at the same venue, even by one second; back-to-back
-    is allowed. It also settles AC 7's race, since a concurrent second insert waits for the first
-    to commit and then fails. The migration holds it and the CHECKs; the class mirrors the CHECKs.
-    No buffer columns: setup and turnaround belong to the venue (US20 AC 7)."""
+    whose occupied window [occupied_starts_at, occupied_ends_at) overlaps another's at the same
+    venue, even by one second; windows that only touch are allowed (US13 AC 3). It also settles
+    AC 7's race, since a concurrent second insert waits for the first to commit and then fails. The
+    migrations hold it and the CHECKs; the class mirrors the CHECKs. No buffer columns: setup and
+    turnaround belong to the venue (US20 AC 7); a booking stores only the window they produce."""
 
-    # DECISION-PENDING: D22 — the window is plain start to end. US13 (SCRUM-16) adds the venue's
-    # setup and turnaround to it; holds (US25) and unavailability (US23a) don't exist yet.
+    # DECISION-PENDING: D22 — since US13 PR 1 (SCRUM-114) the guard covers the occupied window, from
+    # the venue's buffers when the booking is made. PR 2 recomputes it when buffers change (D31).
+    # Holds (US25) don't exist yet.
 
     __tablename__ = "venue_bookings"
     __table_args__ = (
         CheckConstraint("ends_at > starts_at", name="venue_bookings_window_valid"),
+        CheckConstraint(
+            "occupied_starts_at <= starts_at AND occupied_ends_at >= ends_at",
+            name="venue_bookings_occupied_covers_window",
+        ),
         CheckConstraint("expected_attendees >= 1", name="venue_bookings_expected_attendees_positive"),
         CheckConstraint(
             "(status = 'withdrawn') = (withdrawn_at IS NOT NULL)", name="venue_bookings_withdrawn_consistent"
@@ -122,6 +138,14 @@ class VenueBooking(Base):
     requested_by_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # US13: [starts_at - setup, ends_at + turnaround), from occupied_window(). The overlap guard's range.
+    occupied_starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    occupied_ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # DECISION-PENDING: D33 — VB-<year>-<6+ digits>, from next_venue_booking_reference() (the
+    # migration), so every insert gets one. US13 AC 4 names a conflicting booking by it.
+    reference: Mapped[str] = mapped_column(
+        Text, unique=True, server_default=text("next_venue_booking_reference()")
+    )
     expected_attendees: Mapped[int] = mapped_column(Integer)
     room_layout: Mapped[str] = mapped_column(Text)  # one of ROOM_LAYOUTS
     # DECISION-PENDING: D23 — the event's equipment_needs and accessibility_needs are free text and

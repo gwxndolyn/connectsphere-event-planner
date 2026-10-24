@@ -99,6 +99,13 @@ def venue(db: Session) -> Venue:
     return make_venue(db, name="Hall A")
 
 
+@pytest.fixture
+def plain_venue(db: Session) -> Venue:
+    # Hall A with no setup or turnaround (US13), so the TC-US22-09 tests keep proving the plain
+    # [) rule; the buffered rule is US13's (test_buffer_schema.py, PR 2's API tests).
+    return make_venue(db, name="Hall A", setup_minutes=0, turnaround_minutes=0)
+
+
 # --- TC-US22-04 create ---
 
 
@@ -389,11 +396,11 @@ async def test_tc_us22_08_attendance_equal_to_capacity_is_accepted(
 
 @pytest.mark.parametrize("existing", [VenueBookingStatus.REQUESTED, VenueBookingStatus.APPROVED])
 async def test_tc_us22_09_overlapping_window_is_refused_with_the_conflict(
-    client: AsyncClient, db: Session, coordinator: User, event: Event, venue: Venue, existing: VenueBookingStatus
+    client: AsyncClient, db: Session, coordinator: User, event: Event, plain_venue: Venue, existing: VenueBookingStatus
 ) -> None:
     # D21 (decided): Requested blocks as well as Approved.
     make_venue_booking(
-        db, event=event, venue=venue, user=make_user(db, UserRole.COORDINATOR), status=existing
+        db, event=event, venue=plain_venue, user=make_user(db, UserRole.COORDINATOR), status=existing
     )
 
     response = await client.post(
@@ -401,7 +408,7 @@ async def test_tc_us22_09_overlapping_window_is_refused_with_the_conflict(
         headers=auth(coordinator),
         json=booking_body(
             event,
-            venue,
+            plain_venue,
             starts_at=(START + timedelta(hours=1)).isoformat(),
             ends_at=(END + timedelta(hours=1)).isoformat(),
         ),
@@ -416,16 +423,16 @@ async def test_tc_us22_09_overlapping_window_is_refused_with_the_conflict(
 
 
 async def test_tc_us22_09_one_second_overlap_is_refused(
-    client: AsyncClient, db: Session, coordinator: User, event: Event, venue: Venue
+    client: AsyncClient, db: Session, coordinator: User, event: Event, plain_venue: Venue
 ) -> None:
-    make_venue_booking(db, event=event, venue=venue, user=coordinator)
+    make_venue_booking(db, event=event, venue=plain_venue, user=coordinator)
 
     response = await client.post(
         CREATE_URL,
         headers=auth(coordinator),
         json=booking_body(
             event,
-            venue,
+            plain_venue,
             starts_at=(END - timedelta(seconds=1)).isoformat(),
             ends_at=(END + timedelta(hours=1)).isoformat(),
         ),
@@ -436,14 +443,14 @@ async def test_tc_us22_09_one_second_overlap_is_refused(
 
 
 async def test_tc_us22_09_back_to_back_is_accepted(
-    client: AsyncClient, db: Session, coordinator: User, event: Event, venue: Venue
+    client: AsyncClient, db: Session, coordinator: User, event: Event, plain_venue: Venue
 ) -> None:
-    make_venue_booking(db, event=event, venue=venue, user=coordinator)
+    make_venue_booking(db, event=event, venue=plain_venue, user=coordinator)
 
     response = await client.post(
         CREATE_URL,
         headers=auth(coordinator),
-        json=booking_body(event, venue, starts_at=END.isoformat(), ends_at=(END + timedelta(hours=1)).isoformat()),
+        json=booking_body(event, plain_venue, starts_at=END.isoformat(), ends_at=(END + timedelta(hours=1)).isoformat()),
     )
 
     assert response.status_code == 201
@@ -465,14 +472,14 @@ async def test_tc_us22_09_a_window_overlapping_a_venue_block_is_refused(
     coordinator: User,
     staff: User,
     event: Event,
-    venue: Venue,
+    plain_venue: Venue,
     block_starts: datetime,
     block_ends: datetime,
 ) -> None:
     """AC 3's unavailability period: US2's venue_blocks, the same [) rule as bookings."""
-    make_venue_block(db, venue, block_starts, block_ends, note="Maintenance")
+    make_venue_block(db, plain_venue, block_starts, block_ends, note="Maintenance")
 
-    response = await client.post(CREATE_URL, headers=auth(coordinator), json=booking_body(event, venue))
+    response = await client.post(CREATE_URL, headers=auth(coordinator), json=booking_body(event, plain_venue))
 
     assert response.status_code == 409
     assert response.json()["code"] == "VENUE_UNAVAILABLE"
@@ -484,12 +491,12 @@ async def test_tc_us22_09_a_window_overlapping_a_venue_block_is_refused(
 
 
 async def test_tc_us22_09_back_to_back_with_a_venue_block_is_accepted(
-    client: AsyncClient, db: Session, coordinator: User, event: Event, venue: Venue
+    client: AsyncClient, db: Session, coordinator: User, event: Event, plain_venue: Venue
 ) -> None:
-    make_venue_block(db, venue, START - timedelta(hours=1), START)
-    make_venue_block(db, venue, END, END + timedelta(hours=1))
+    make_venue_block(db, plain_venue, START - timedelta(hours=1), START)
+    make_venue_block(db, plain_venue, END, END + timedelta(hours=1))
 
-    response = await client.post(CREATE_URL, headers=auth(coordinator), json=booking_body(event, venue))
+    response = await client.post(CREATE_URL, headers=auth(coordinator), json=booking_body(event, plain_venue))
 
     assert response.status_code == 201
 

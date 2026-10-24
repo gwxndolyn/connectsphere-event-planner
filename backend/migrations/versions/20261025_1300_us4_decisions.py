@@ -1,7 +1,7 @@
 """record Venue Staff's decision on a venue booking
 
 Revision ID: 20261025_1300_us4_decisions
-Revises: 20261025_1200_us26_equipment
+Revises: 20261024_1200_us13_buffers
 Create Date: 2026-10-25
 
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 revision: str = "20261025_1300_us4_decisions"
-down_revision: Union[str, None] = "20261025_1200_us26_equipment"
+down_revision: Union[str, None] = "20261024_1200_us13_buffers"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
