@@ -24,11 +24,15 @@ const EVENT = {
 function booking(overrides: Partial<VenueBooking> = {}): VenueBooking {
   return {
     id: "booking-1",
+    reference: "VB-2026-000001",
     event: { id: "event-1", name: "Venue Booking Demo", request_reference: null, status: "approved" },
     venue: { id: "venue-1", name: "Hall A", location: "Building 1", capacity: 40 },
     requested_by_user_id: "coordinator-id",
     starts_at: "2026-11-20T02:00:00Z",
     ends_at: "2026-11-20T04:00:00Z",
+    // US13: Hall A's 30 min setup and 15 min turnaround.
+    occupied_starts_at: "2026-11-20T01:30:00Z",
+    occupied_ends_at: "2026-11-20T04:15:00Z",
     expected_attendees: 30,
     room_layout: "theatre",
     required_facilities: [],
@@ -68,6 +72,8 @@ describe("EventVenueBookings (US22, SCRUM-113)", () => {
     expect(requested).toHaveAccessibleName("Hall A, Fri, Nov 20, 10:00 AM – 12:00 PM");
     expect(within(requested).getByText("Requested")).toBeInTheDocument();
     expect(within(requested).getByRole("button", { name: "Withdraw" })).toBeInTheDocument();
+    // US13 (SCRUM-116): the reference and the window setup and turnaround occupy.
+    expect(requested).toHaveTextContent("VB-2026-000001 · Occupied 9:30 AM – 12:15 PM with setup and turnaround");
 
     const approved = row(/^Room B/);
     expect(within(approved).getByText("Approved")).toBeInTheDocument();
@@ -217,7 +223,7 @@ describe("EventVenueBookings (US22, SCRUM-113)", () => {
     await user.click(screen.getByRole("button", { name: "Send request" }));
 
     const notice = await screen.findByRole("status");
-    expect(notice).toHaveTextContent("Venue requested: Hall A, Fri, Nov 20, 2:00 PM – 4:00 PM. Venue staff have been notified.");
+    expect(notice).toHaveTextContent("Venue requested: Hall A, Fri, Nov 20, 2:00 PM – 4:00 PM (VB-2026-000001). Venue staff have been notified.");
     expect(within(notice).getByRole("list", { name: "Warnings from the booking" })).toHaveTextContent(
       "This venue doesn't offer the classroom layout.",
     );

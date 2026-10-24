@@ -1,19 +1,23 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../api/client";
 import { bookingApi } from "./bookingApi";
-import type { VenueBooking } from "./bookingTypes";
+import type { BookingEvaluation, VenueBooking } from "./bookingTypes";
 import { PendingBookings } from "./PendingBookings";
 
 function booking(overrides: Partial<VenueBooking> = {}): VenueBooking {
   return {
     id: "booking-1",
+    reference: "VB-2026-000001",
     event: { id: "event-1", name: "Venue Booking Demo", request_reference: null, status: "approved" },
     venue: { id: "venue-1", name: "Hall A", location: "Building 1", capacity: 40 },
     requested_by_user_id: "coordinator-id",
     starts_at: "2026-11-20T02:00:00Z",
     ends_at: "2026-11-20T04:00:00Z",
+    // US13: Hall A's 30 min setup and 15 min turnaround.
+    occupied_starts_at: "2026-11-20T01:30:00Z",
+    occupied_ends_at: "2026-11-20T04:15:00Z",
     expected_attendees: 30,
     room_layout: "u_shape",
     required_facilities: ["projector"],
@@ -30,6 +34,25 @@ function booking(overrides: Partial<VenueBooking> = {}): VenueBooking {
     ...overrides,
   };
 }
+
+function evaluated(overrides: Partial<BookingEvaluation> = {}): BookingEvaluation {
+  return {
+    booking_id: "booking-1",
+    reference: "VB-2026-000001",
+    occupied: { starts_at: "2026-11-20T01:30:00Z", ends_at: "2026-11-20T04:15:00Z" },
+    conflicts: [],
+    outside_hours: null,
+    clear: true,
+    ...overrides,
+  };
+}
+
+let evaluation: ReturnType<typeof vi.spyOn>;
+
+beforeEach(() => {
+  // US13 (D36): each row's evaluation; nothing in the way unless a test says otherwise.
+  evaluation = vi.spyOn(bookingApi, "evaluation").mockImplementation(async (id: string) => evaluated({ booking_id: id }));
+});
 
 describe("PendingBookings (US22 AC 4)", () => {
   it("lists each pending request with its event, venue, window and needs", async () => {
@@ -165,5 +188,94 @@ describe("PendingBookings decisions (US4, SCRUM-8)", () => {
       "This request was already decided or withdrawn (it's withdrawn now). Reload the list.",
     );
     expect(pending).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("PendingBookings buffers and conflicts (US13, SCRUM-116)", () => {
+  it("shows each request's reference and occupied window, and that nothing is in the way (TC-US13-18)", async () => {
+    vi.spyOn(bookingApi, "pending").mockResolvedValue([booking()]);
+    render(<PendingBookings />);
+
+    const row = await screen.findByRole("listitem", { name: "Venue Booking Demo at Hall A" });
+    expect(row).toHaveTextContent("VB-2026-000001 · Occupied 9:30 AM – 12:15 PM with setup and turnaround");
+    expect(await within(row).findByText("No conflicts with setup and turnaround.")).toBeInTheDocument();
+    expect(evaluation).toHaveBeenCalledWith("booking-1");
+  });
+
+  it("lists what now overlaps a request, with the overlap and the clashing reference, and an hours breach (TC-US13-18, AC 4)", async () => {
+    vi.spyOn(bookingApi, "pending").mockResolvedValue([booking()]);
+    evaluation.mockResolvedValue(
+      evaluated({
+        clear: false,
+        outside_hours: { opens_at: "09:00:00", closes_at: "18:00:00", fields: ["starts_at"] },
+        conflicts: [
+          {
+            kind: "booking",
+            reference: "VB-2026-000007",
+            note: null,
+            starts_at: "2026-11-20T04:15:00Z",
+            ends_at: "2026-11-20T05:00:00Z",
+            occupied: { starts_at: "2026-11-20T04:00:00Z", ends_at: "2026-11-20T05:15:00Z" },
+            overlap: { starts_at: "2026-11-20T04:00:00Z", ends_at: "2026-11-20T04:15:00Z" },
+          },
+          {
+            kind: "block",
+            reference: null,
+            note: "Aircon repair",
+            starts_at: "2026-11-20T01:00:00Z",
+            ends_at: "2026-11-20T02:30:00Z",
+            occupied: { starts_at: "2026-11-20T01:00:00Z", ends_at: "2026-11-20T02:30:00Z" },
+            overlap: { starts_at: "2026-11-20T01:30:00Z", ends_at: "2026-11-20T02:30:00Z" },
+          },
+        ],
+      }),
+    );
+    render(<PendingBookings />);
+
+    const row = await screen.findByRole("listitem", { name: "Venue Booking Demo at Hall A" });
+    const conflicts = await within(row).findByRole("list", { name: "Conflicts" });
+    expect(within(conflicts).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+      "Outside opening hours (9:00 AM – 6:00 PM) with setup and turnaround",
+      "Booking VB-2026-000007, Fri, Nov 20, 12:15 PM – 1:00 PM: overlap 12:00 PM – 12:15 PM",
+      "Venue closure (Aircon repair), Fri, Nov 20, 9:00 AM – 10:30 AM: overlap 9:30 AM – 10:30 AM",
+    ]);
+    // Approve is still offered: the API decides, and refuses with its reason (US4 AC 3).
+    expect(within(row).getByRole("button", { name: "Approve" })).toBeEnabled();
+  });
+
+  it("says when a request couldn't be checked, and can still be decided", async () => {
+    vi.spyOn(bookingApi, "pending").mockResolvedValue([booking()]);
+    evaluation.mockRejectedValue(new ApiError(500, "INTERNAL"));
+    render(<PendingBookings />);
+
+    const row = await screen.findByRole("listitem", { name: "Venue Booking Demo at Hall A" });
+    expect(await within(row).findByText("Couldn't check for conflicts; approving still checks.")).toBeInTheDocument();
+    expect(within(row).getByRole("button", { name: "Reject" })).toBeInTheDocument();
+  });
+
+  it("checks a request again after its approval is refused (TC-US4-03)", async () => {
+    vi.spyOn(bookingApi, "pending").mockResolvedValue([booking()]);
+    vi.spyOn(bookingApi, "approve").mockRejectedValue(
+      new ApiError(409, "VENUE_OUTSIDE_HOURS", ["ends_at"], {
+        opens_at: "08:00:00",
+        closes_at: "12:00:00",
+        occupied: { starts_at: "2026-11-20T01:30:00Z", ends_at: "2026-11-20T04:15:00Z" },
+      }),
+    );
+    const user = userEvent.setup();
+    render(<PendingBookings />);
+
+    const row = await screen.findByRole("listitem", { name: "Venue Booking Demo at Hall A" });
+    await within(row).findByText("No conflicts with setup and turnaround.");
+    evaluation.mockResolvedValue(
+      evaluated({ clear: false, outside_hours: { opens_at: "08:00:00", closes_at: "12:00:00", fields: ["ends_at"] } }),
+    );
+    await user.click(within(row).getByRole("button", { name: "Approve" }));
+
+    expect(await within(row).findByRole("alert")).toHaveTextContent(
+      "Can't approve: with setup and turnaround the venue would be occupied 9:30 AM – 12:15 PM, outside its opening hours of 8:00 AM – 12:00 PM now. Reject the request instead.",
+    );
+    expect(await within(row).findByText("Outside opening hours (8:00 AM – 12:00 PM) with setup and turnaround")).toBeInTheDocument();
+    expect(evaluation).toHaveBeenCalledTimes(2);
   });
 });

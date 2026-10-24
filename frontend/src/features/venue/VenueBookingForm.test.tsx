@@ -169,3 +169,75 @@ describe("VenueBookingForm (US22, SCRUM-113)", () => {
     expect(screen.getByLabelText("Venue")).not.toHaveAttribute("aria-invalid");
   });
 });
+
+describe("VenueBookingForm buffers (US13, SCRUM-116)", () => {
+  it("previews the window the chosen venue's setup and turnaround occupy, as the times change (TC-US13-16, AC 2)", async () => {
+    vi.spyOn(venueApi, "list").mockResolvedValue([venue({ setup_minutes: 30, turnaround_minutes: 45 })]);
+    const { user } = await renderForm();
+    expect(screen.queryByText(/The venue is occupied/)).not.toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText("Venue"), "venue-1");
+    // The event's preferred 14:00–16:00.
+    expect(screen.getByText("The venue is occupied 1:30 PM – 4:45 PM (30 min setup, 45 min turnaround). Open 8:00 AM – 10:00 PM.")).toBeInTheDocument();
+
+    await user.clear(screen.getByLabelText("End time"));
+    await user.type(screen.getByLabelText("End time"), "17:00");
+    expect(screen.getByText(/^The venue is occupied 1:30 PM – 5:45 PM/)).toBeInTheDocument();
+
+    await user.clear(screen.getByLabelText("Start time"));
+    expect(screen.getByText("This venue needs 30 min setup, 45 min turnaround. Open 8:00 AM – 10:00 PM.")).toBeInTheDocument();
+  });
+
+  it("shows VENUE_OUTSIDE_HOURS on the time field that breaches, until it's changed (TC-US13-17, AC 5)", async () => {
+    create.mockRejectedValue(
+      new ApiError(422, "VENUE_OUTSIDE_HOURS", ["ends_at"], {
+        opens_at: "08:00:00",
+        closes_at: "16:00:00",
+        occupied: { starts_at: "2026-11-20T06:00:00+00:00", ends_at: "2026-11-20T08:15:00+00:00" },
+      }),
+    );
+    const { user, onBooked } = await renderForm();
+
+    await user.selectOptions(screen.getByLabelText("Venue"), "venue-1");
+    await user.selectOptions(screen.getByLabelText("Layout"), "theatre");
+    await user.click(screen.getByRole("button", { name: "Send request" }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "With setup and turnaround the venue would be occupied 2:00 PM – 4:15 PM, outside its opening hours of 8:00 AM – 4:00 PM. Choose times that fit.",
+    );
+    const end = screen.getByLabelText("End time");
+    expect(end).toHaveAttribute("aria-invalid", "true");
+    expect(end).toHaveAccessibleDescription("With turnaround, ends after the venue closes at 4:00 PM.");
+    expect(screen.getByLabelText("Start time")).not.toHaveAttribute("aria-invalid");
+    expect(onBooked).not.toHaveBeenCalled();
+
+    await user.clear(end);
+    expect(end).not.toHaveAttribute("aria-invalid");
+  });
+
+  it("shows VENUE_UNAVAILABLE's overlap period on the start time (TC-US13-17, AC 3, 4)", async () => {
+    create.mockRejectedValue(
+      new ApiError(409, "VENUE_UNAVAILABLE", [], {
+        conflict: {
+          kind: "booking",
+          starts_at: "2026-11-20T04:00:00+00:00",
+          ends_at: "2026-11-20T06:00:00+00:00",
+          occupied: { starts_at: "2026-11-20T03:30:00+00:00", ends_at: "2026-11-20T06:15:00+00:00" },
+          overlap: { starts_at: "2026-11-20T06:00:00+00:00", ends_at: "2026-11-20T06:15:00+00:00" },
+        },
+      }),
+    );
+    const { user } = await renderForm();
+
+    await user.selectOptions(screen.getByLabelText("Venue"), "venue-1");
+    await user.selectOptions(screen.getByLabelText("Layout"), "theatre");
+    await user.click(screen.getByRole("button", { name: "Send request" }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "This venue is already booked on Fri, Nov 20, 12:00 PM – 2:00 PM. With setup and turnaround, that overlaps your request 2:00 PM – 2:15 PM.",
+    );
+    expect(screen.getByLabelText("Start time")).toHaveAccessibleDescription(
+      "With setup and turnaround, overlaps another booking 2:00 PM – 2:15 PM.",
+    );
+  });
+});
