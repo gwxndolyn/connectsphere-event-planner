@@ -22,7 +22,8 @@ def test_tc_us10a_01_coordinator_assignment_schema_is_installed(db: Session, eng
             """
         )
     ).scalars().all()
-    assert roles == ["organiser", "coordinator", "coordinator_lead", "operations_manager", "attendee"]
+    # 'tech_support' is appended later by US26's migration (SCRUM-108, deviation 34).
+    assert roles == ["organiser", "coordinator", "coordinator_lead", "operations_manager", "attendee", "tech_support"]
 
     inspector = inspect(engine)
     column = {c["name"]: c for c in inspector.get_columns("events")}["coordinator_id"]
