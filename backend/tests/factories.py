@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.event.models import DeliveryMode, Event, EventRegistrationField, EventStatus
 from app.registration.models import Registration, RegistrationStatus
 from app.user.models import Attendee, User, UserRole
-from app.venue.models import Venue, VenueBlock, VenueBooking, VenueBookingStatus
+from app.venue.models import Venue, VenueBlock, VenueBooking, VenueBookingStatus, occupied_window
 
 SGT = timezone(timedelta(hours=8))
 # Frozen "now" for every API test (spec §8: freeze time).
@@ -153,17 +153,24 @@ def make_venue_booking(
     **overrides: object,
 ) -> VenueBooking:
     starts_at = starts_at or NOW + timedelta(days=7)
+    ends_at = ends_at or starts_at + timedelta(hours=2)
+    # US13: the window the venue's buffers make it occupy; a test can override either end.
+    occupied_starts_at, occupied_ends_at = occupied_window(venue, starts_at, ends_at)
     fields: dict[str, object] = {
         "event_id": event.id,
         "venue_id": venue.id,
         "requested_by_user_id": user.id,
         "starts_at": starts_at,
-        "ends_at": ends_at or starts_at + timedelta(hours=2),
+        "ends_at": ends_at,
+        "occupied_starts_at": occupied_starts_at,
+        "occupied_ends_at": occupied_ends_at,
         "expected_attendees": 30,
         "room_layout": "theatre",
         "status": status,
         # venue_bookings_withdrawn_consistent: a withdrawn booking always carries its timestamp.
         "withdrawn_at": NOW if status == VenueBookingStatus.WITHDRAWN else None,
+        # venue_bookings_decided_consistent: an approved or rejected booking carries its decision time.
+        "decided_at": NOW if status in (VenueBookingStatus.APPROVED, VenueBookingStatus.REJECTED) else None,
     }
     booking = VenueBooking(**(fields | overrides))
     db.add(booking)

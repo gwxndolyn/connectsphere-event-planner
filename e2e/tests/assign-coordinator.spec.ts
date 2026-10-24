@@ -30,7 +30,7 @@ test("TC-US10A-26: the Coordinator Lead assigns a submitted request and the orga
   await page.getByLabel("Acting as").selectOption("coordinator_lead");
   await expect(page.getByRole("heading", { name: "Unassigned requests" })).toBeVisible();
   await expect(page.getByRole("alert")).toHaveCount(0);
-  const queue = page.getByRole("region", { name: "Unassigned requests" });
+  const queue = page.getByRole("tabpanel", { name: "Unassigned" });
   const row = queue.locator(".assign-row", { hasText: eventName });
   await expect(row).toContainText("Expected attendance: 40");
   await expect(row).toContainText(`Preferred dates: ${preferredDate}`);
@@ -57,7 +57,7 @@ test("TC-US10A-26: the Coordinator Lead assigns a submitted request and the orga
 
   // SCRUM-86: it is now on the Lead's Assigned tab with coordinator, status and date, filterable.
   await page.getByRole("tab", { name: "Assigned", exact: true }).click();
-  const assignedRow = page.getByRole("region", { name: "Assigned requests" }).locator(".assign-row", { hasText: eventName });
+  const assignedRow = page.getByRole("tabpanel", { name: "Assigned" }).locator(".assign-row", { hasText: eventName });
   await expect(assignedRow).toContainText("under review");
   await expect(assignedRow).toContainText(`Event date: ${preferredDate}`);
   await expect(assignedRow).toContainText("Coordinator: ");

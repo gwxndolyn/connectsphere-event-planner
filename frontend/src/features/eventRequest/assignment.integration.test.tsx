@@ -26,7 +26,7 @@ describe("Coordinator Lead: assign a coordinator (US10a)", () => {
     await openEventRequestsAs(user, "coordinator_lead");
 
     expect(await screen.findByRole("heading", { name: "Unassigned requests" })).toBeInTheDocument();
-    const queue = screen.getByRole("region", { name: "Unassigned requests" });
+    const queue = screen.getByRole("tabpanel", { name: "Unassigned" });
     // AC 2: name, organiser, preferred dates, expected attendance and status.
     expect(within(queue).getByText("Alumni night")).toBeInTheDocument();
     expect(queue).toHaveTextContent("Organiser: Olivia Organiser");
@@ -181,7 +181,7 @@ const OTHER_LEAD = { id: "other-lead-id", name: "Leo Lee", email: "leo.lee@smu.e
 async function openAssignedTab(user: ReturnType<typeof userEvent.setup>) {
   await openEventRequestsAs(user, "coordinator_lead");
   await user.click(await screen.findByRole("tab", { name: "Assigned" }));
-  return screen.findByRole("region", { name: "Assigned requests" });
+  return screen.findByRole("tabpanel", { name: "Assigned" });
 }
 
 describe("Coordinator Lead: views the assignment history (US10d)", () => {
@@ -256,11 +256,11 @@ describe("Coordinator Lead: queue and oversight view (US19)", () => {
     await openEventRequestsAs(user, "coordinator_lead");
 
     expect(await screen.findByRole("tab", { name: "Unassigned", selected: true })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "Unassigned requests" })).toHaveTextContent("Alumni night");
+    expect(screen.getByRole("tabpanel", { name: "Unassigned" })).toHaveTextContent("Alumni night");
     expect(screen.queryByText("Careers fair")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("tab", { name: "Assigned" }));
-    const assigned = await screen.findByRole("region", { name: "Assigned requests" });
+    const assigned = await screen.findByRole("tabpanel", { name: "Assigned" });
     expect(assigned).toHaveTextContent("Careers fair");
     expect(screen.queryByText("Alumni night")).not.toBeInTheDocument();
   });
@@ -296,8 +296,8 @@ describe("Coordinator Lead: queue and oversight view (US19)", () => {
     expect(assigned).toHaveTextContent("B");
 
     await user.selectOptions(screen.getByLabelText("Coordinator"), "Dana Lim");
-    await waitFor(() => expect(screen.getByRole("region", { name: "Assigned requests" })).not.toHaveTextContent("Coordinator: Casey Tan"));
-    expect(screen.getByRole("region", { name: "Assigned requests" })).toHaveTextContent("B");
+    await waitFor(() => expect(screen.getByRole("tabpanel", { name: "Assigned" })).not.toHaveTextContent("Coordinator: Casey Tan"));
+    expect(screen.getByRole("tabpanel", { name: "Assigned" })).toHaveTextContent("B");
     expect(callsTo("GET", /\/assigned$/).some((call) => call.url.search === "?coordinator_id=dana-id")).toBe(true);
     // The coordinator list doesn't shrink to the one just chosen.
     expect(within(screen.getByLabelText("Coordinator")).getAllByRole("option")).toHaveLength(3);
@@ -346,7 +346,7 @@ describe("Coordinator Lead: queue and oversight view (US19)", () => {
     await user.click(await screen.findByRole("button", { name: "Back to queue" }));
 
     await user.click(screen.getByRole("tab", { name: "Assigned" }));
-    expect(await screen.findByRole("region", { name: "Assigned requests" })).toHaveTextContent("Alumni night");
+    expect(await screen.findByRole("tabpanel", { name: "Assigned" })).toHaveTextContent("Alumni night");
   });
 
   it("TC-US19-18: other roles get no Lead tabs and the backend refuses them (AC 5)", async () => {

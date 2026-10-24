@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from app.event.models import Event, EventStatus
 from app.seed import VENUE_BLOCKS, VENUE_BOOKINGS, VENUE_SLOT_IN_DAYS, VENUES, seed, seed_id
 from app.user.models import User, UserRole
-from app.venue.models import Venue, VenueBlock, VenueBooking, VenueBookingStatus
+from app.venue.models import Venue, VenueBlock, VenueBooking, VenueBookingStatus, occupied_window
 from app.venue.service import VENUE_TIMEZONE, venue_service
 from tests.factories import NOW, make_event, make_user
 
@@ -62,17 +62,23 @@ def book(
     ends: time,
     on: date = DAY,
 ) -> VenueBooking:
-    """A US22 booking for a fresh approved event, requested by a fresh coordinator."""
+    """A US22 booking for a fresh approved event, requested by a fresh coordinator. It occupies
+    the window its venue's buffers make (US13)."""
+    occupied_starts_at, occupied_ends_at = occupied_window(venue, at(on, starts), at(on, ends))
     booking = VenueBooking(
         event_id=make_event(db, status=EventStatus.APPROVED).id,
         venue_id=venue.id,
         requested_by_user_id=make_user(db, UserRole.COORDINATOR).id,
         starts_at=at(on, starts),
         ends_at=at(on, ends),
+        occupied_starts_at=occupied_starts_at,
+        occupied_ends_at=occupied_ends_at,
         expected_attendees=20,
         room_layout="classroom",
         status=status,
         withdrawn_at=NOW if status == VenueBookingStatus.WITHDRAWN else None,
+        # US4's venue_bookings_decided_consistent: a decided booking carries its decision time.
+        decided_at=NOW if status in (VenueBookingStatus.APPROVED, VenueBookingStatus.REJECTED) else None,
     )
     db.add(booking)
     db.flush()
@@ -313,8 +319,9 @@ async def test_tc_us2_05_a_multi_day_block_hides_the_venue_on_a_middle_day(
 async def test_tc_us2_05_overlap_is_half_open(
     client: AsyncClient, db: Session, coordinator: User, starts: time, ends: time, clashes: bool, kind: str
 ) -> None:
-    """Half-open like US22's venue_bookings_no_overlap, for bookings and blocks alike."""
-    venue = make_venue(db, name="Venue")
+    """Half-open like US22's venue_bookings_no_overlap, for bookings and blocks alike. The venue has no
+    setup or turnaround, so this is the plain [) rule; US13 covers the buffered one."""
+    venue = make_venue(db, name="Venue", setup_minutes=0, turnaround_minutes=0)
     if kind == "booking":
         book(db, venue, VenueBookingStatus.APPROVED, starts, ends)
     else:
@@ -396,20 +403,24 @@ def _fill_calendar(db: Session, venue_count: int, days: int) -> list[Venue]:
     venues = [make_venue(db, name=f"Bulk {i:04}", capacity=20 + i) for i in range(venue_count)]
     event_id = make_event(db, status=EventStatus.APPROVED).id
     requester_id = make_user(db, UserRole.COORDINATOR).id
-    db.add_all(
-        VenueBooking(
+    def approved(venue: Venue, on: date) -> VenueBooking:
+        starts_at, ends_at = at(on, time(10, 0)), at(on, time(12, 0))
+        occupied_starts_at, occupied_ends_at = occupied_window(venue, starts_at, ends_at)  # US13
+        return VenueBooking(
             event_id=event_id,
             venue_id=venue.id,
             requested_by_user_id=requester_id,
-            starts_at=at(DAY + timedelta(days=d), time(10, 0)),
-            ends_at=at(DAY + timedelta(days=d), time(12, 0)),
+            starts_at=starts_at,
+            ends_at=ends_at,
+            occupied_starts_at=occupied_starts_at,
+            occupied_ends_at=occupied_ends_at,
             expected_attendees=20,
             room_layout="classroom",
             status=VenueBookingStatus.APPROVED,
+            decided_at=NOW,
         )
-        for venue in venues[::2]
-        for d in range(days)
-    )
+
+    db.add_all(approved(venue, DAY + timedelta(days=d)) for venue in venues[::2] for d in range(days))
     db.add_all(
         VenueBlock(
             venue_id=venue.id,

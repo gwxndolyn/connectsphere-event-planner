@@ -1,7 +1,7 @@
 """add the coordinator assignment history
 
 Revision ID: 20261026_1200_us10d_history
-Revises: 20261025_1200_us26_equipment
+Revises: 20261025_1300_us4_decisions
 Create Date: 2026-10-26
 
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 revision: str = "20261026_1200_us10d_history"
-down_revision: Union[str, None] = "20261025_1200_us26_equipment"
+down_revision: Union[str, None] = "20261025_1300_us4_decisions"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

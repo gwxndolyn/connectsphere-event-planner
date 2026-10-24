@@ -127,6 +127,7 @@ def submit_request(
 ) -> EventRequestOut:
     return event_request_service.submit(db, request_id, organiser, now, notifier)
 
+
 @router.get("/{request_id}/assignment-history", response_model=AssignmentHistoryOut)
 def assignment_history(
     request_id: uuid.UUID,

@@ -247,7 +247,7 @@ export function AssignmentQueuePage() {
       )}
 
       {screen === "queue" && tab === "unassigned" && (
-        <section id="panel-unassigned" aria-label="Unassigned requests" className="request-list">
+        <section id="panel-unassigned" role="tabpanel" aria-labelledby="tab-unassigned" aria-label="Unassigned requests" className="request-list">
           {loading ? (
             <p className="request-empty" role="status">Loading requests…</p>
           ) : requests.length === 0 ? (
@@ -289,7 +289,7 @@ export function AssignmentQueuePage() {
       )}
 
       {screen === "queue" && tab === "assigned" && (
-        <section id="panel-assigned" aria-label="Assigned requests" className="request-list">
+        <section id="panel-assigned" role="tabpanel" aria-labelledby="tab-assigned" aria-label="Assigned requests" className="request-list">
           <div className="assign-filters">
             <label className="request-field">
               Coordinator

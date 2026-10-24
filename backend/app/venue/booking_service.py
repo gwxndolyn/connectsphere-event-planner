@@ -8,11 +8,20 @@ from sqlalchemy.orm import Session
 
 from app.core.exceptions import DomainError
 from app.event.models import Event, EventStatus
-from app.notification.service import Notifier
+from app.notification.service import BookingDecision, Notifier
 from app.user.models import User, UserRole
-from app.venue.models import ROOM_LAYOUTS, LIVE_BOOKING_STATUSES, Venue, VenueBlock, VenueBooking, VenueBookingStatus
+from app.venue.models import (
+    ROOM_LAYOUTS,
+    LIVE_BOOKING_STATUSES,
+    Venue,
+    VenueBlock,
+    VenueBooking,
+    VenueBookingStatus,
+    occupied_window,
+)
 from app.venue.schemas import (
     BookingEventOut,
+    BookingRejectWrite,
     BookingVenueOut,
     BookingWarning,
     VenueBookingCreatedOut,
@@ -55,16 +64,19 @@ def may_book(event: Event, coordinator: User) -> bool:
     return coordinator.role == UserRole.COORDINATOR and event.coordinator_id == coordinator.id
 
 
-def _find_conflict(db: Session, venue_id: uuid.UUID, starts_at: datetime, ends_at: datetime) -> VenueBooking | None:
-    """A live booking at the venue whose [starts_at, ends_at) overlaps this window: the same rule
-    as the exclusion constraint, asked first so the refusal can name the window (D21, D22)."""
+def _find_conflict(
+    db: Session, venue_id: uuid.UUID, occupied_starts_at: datetime, occupied_ends_at: datetime
+) -> VenueBooking | None:
+    """A live booking at the venue whose stored occupied window overlaps this occupied window: the
+    same rule as the exclusion constraint (US13 AC 3), asked first so the refusal can name the
+    booking (D21, D22). PR 2 reports the overlap period and the reference (AC 4)."""
     return db.scalars(
         select(VenueBooking)
         .where(
             VenueBooking.venue_id == venue_id,
             VenueBooking.status.in_(LIVE_BOOKING_STATUSES),
-            VenueBooking.starts_at < ends_at,
-            VenueBooking.ends_at > starts_at,
+            VenueBooking.occupied_starts_at < occupied_ends_at,
+            VenueBooking.occupied_ends_at > occupied_starts_at,
         )
         .order_by(VenueBooking.starts_at)
         .limit(1)
@@ -83,10 +95,51 @@ def _find_block(db: Session, venue_id: uuid.UUID, starts_at: datetime, ends_at: 
     ).first()
 
 
-def _unavailable(conflict: VenueBooking | VenueBlock | None) -> DomainError:
+def _find_approval_conflict(db: Session, booking: VenueBooking) -> VenueBooking | VenueBlock | None:
+    """US4 AC 3: what stops this request being approved. Its stored occupied window (US13: setup
+    before, turnaround after) may not overlap another live booking's occupied window or a block at
+    the venue. venue_bookings_no_overlap already keeps live bookings' occupied windows apart, so the
+    booking half is a backstop for rows made before it; blocks are only ever checked by the service
+    (D22), and one may have been added since the request. A booking is reported before a block."""
+    other = db.scalars(
+        select(VenueBooking)
+        .where(
+            VenueBooking.venue_id == booking.venue_id,
+            VenueBooking.id != booking.id,
+            VenueBooking.status.in_(LIVE_BOOKING_STATUSES),
+            VenueBooking.occupied_starts_at < booking.occupied_ends_at,
+            VenueBooking.occupied_ends_at > booking.occupied_starts_at,
+        )
+        .order_by(VenueBooking.starts_at)
+        .limit(1)
+    ).first()
+    if other is not None:
+        return other
+    return _find_block(db, booking.venue_id, booking.occupied_starts_at, booking.occupied_ends_at)
+
+
+def _overlaps(conflict: VenueBooking | VenueBlock, booking: VenueBooking) -> bool:
+    return conflict.starts_at < booking.ends_at and conflict.ends_at > booking.starts_at
+
+
+def _unavailable(conflict: VenueBooking | VenueBlock | None, *, buffers: bool = False) -> DomainError:
+    """`buffers`: the clash is only with the venue's setup and turnaround, not the window itself
+    (US4 approval), so the message says too close rather than already booked (PR #73 review)."""
     if conflict is None:
         return DomainError(409, "VENUE_UNAVAILABLE", message="This venue is already booked for that time.")
     window = {"starts_at": conflict.starts_at.isoformat(), "ends_at": conflict.ends_at.isoformat()}
+    what = "a venue closure" if isinstance(conflict, VenueBlock) else "a booking"
+    if buffers:
+        return DomainError(
+            409,
+            "VENUE_UNAVAILABLE",
+            conflict=window,
+            buffers=True,
+            message=(
+                f"Too close to {what} from {window['starts_at']} to {window['ends_at']} "
+                "to fit the venue's setup and turnaround."
+            ),
+        )
     reason = "unavailable" if isinstance(conflict, VenueBlock) else "already booked"
     return DomainError(
         409,
@@ -169,11 +222,16 @@ def _out(booking: VenueBooking, event: Event, venue: Venue) -> VenueBookingOut:
         created_at=booking.created_at,
         updated_at=booking.updated_at,
         withdrawn_at=booking.withdrawn_at,
+        decided_at=booking.decided_at,
+        decided_by_user_id=booking.decided_by_user_id,
+        rejection_reason=booking.rejection_reason,
+        alternative_suggestion=booking.alternative_suggestion,
     )
 
 
 class VenueBookingService:
-    """A coordinator's venue booking requests (US22, SCRUM-89). Approving and rejecting them is US4's."""
+    """A coordinator's venue booking requests (US22, SCRUM-89) and Venue Staff's decision on them
+    (US4, SCRUM-8)."""
 
     def create(
         self, db: Session, coordinator: User, body: VenueBookingWrite, now: datetime, notifier: Notifier
@@ -225,7 +283,9 @@ class VenueBookingService:
                 capacity=venue.capacity,
                 message=f"Expected attendance is more than this venue's capacity of {venue.capacity}.",
             )
-        conflict = _find_conflict(db, venue.id, cleaned["starts_at"], cleaned["ends_at"])
+        # US13: what the venue's own buffers make this request occupy (AC 1, 2).
+        occupied_starts_at, occupied_ends_at = occupied_window(venue, cleaned["starts_at"], cleaned["ends_at"])
+        conflict = _find_conflict(db, venue.id, occupied_starts_at, occupied_ends_at)
         if conflict is not None:
             raise _unavailable(conflict)
         # DECISION-PENDING: D22 — blocks are checked here only, not by a constraint: a block added
@@ -235,9 +295,14 @@ class VenueBookingService:
         if block is not None:
             raise _unavailable(block)
 
-        booking = VenueBooking(requested_by_user_id=coordinator.id, **cleaned)
+        booking = VenueBooking(
+            requested_by_user_id=coordinator.id,
+            occupied_starts_at=occupied_starts_at,
+            occupied_ends_at=occupied_ends_at,
+            **cleaned,
+        )
         db.add(booking)
-        self._commit(db, venue.id, cleaned["starts_at"], cleaned["ends_at"])
+        self._commit(db, venue.id, occupied_starts_at, occupied_ends_at)
         db.refresh(booking)
         return booking, event, venue
 
@@ -257,6 +322,128 @@ class VenueBookingService:
         db.commit()
         db.refresh(booking)
         return _out(booking, db.get(Event, booking.event_id), db.get(Venue, booking.venue_id))
+
+    def approve(
+        self, db: Session, staff: User, booking_id: uuid.UUID, now: datetime, notifier: Notifier
+    ) -> VenueBookingOut:
+        """US4 AC 2, 3, 7: approves the request as a whole, which reserves the venue for the event.
+        Refused, with no override, while the venue is booked or blocked for any part of the window
+        with its buffers, once the start has passed, or above the venue's capacity; the request then
+        stays pending, to be rejected or withdrawn."""
+        booking = self._lock_pending(db, booking_id)
+        # Pending requests don't expire yet (US25), so one can still be waiting after its start;
+        # approving it would reserve a window that's gone. Create refuses a past start too.
+        if booking.starts_at <= now:
+            raise DomainError(
+                409, "BOOKING_EXPIRED", message="This request's start time has passed. It can only be rejected."
+            )
+        # The event FOR SHARE, as create reads it. The venue FOR UPDATE, so a buffer or capacity edit,
+        # or a new request there (which reads it FOR SHARE), waits for the decision.
+        event = db.scalars(select(Event).where(Event.id == booking.event_id).with_for_update(read=True)).one()
+        venue = db.scalars(select(Venue).where(Venue.id == booking.venue_id).with_for_update()).one()
+        if event.status not in BOOKABLE_STATUSES:
+            raise DomainError(409, "EVENT_NOT_BOOKABLE", status=event.status.value)
+        # DECISION-PENDING: D39 — a deactivated venue can't be reserved; it reads as unavailable.
+        if not venue.is_active:
+            raise DomainError(409, "VENUE_UNAVAILABLE", message="This venue is inactive, so it can't be reserved.")
+        # Capacity can be edited after the request (US20), so it's checked again, as create does.
+        if booking.expected_attendees > venue.capacity:
+            raise DomainError(
+                409,
+                "VENUE_CAPACITY_EXCEEDED",
+                capacity=venue.capacity,
+                message=f"Expected attendance is now more than this venue's capacity of {venue.capacity}.",
+            )
+        # DECISION-PENDING: D22 — blocks are checked here only, not by a constraint (see _insert).
+        conflict = _find_approval_conflict(db, booking)
+        if conflict is not None:
+            raise _unavailable(conflict, buffers=not _overlaps(conflict, booking))
+        return self._decide(db, notifier, staff, booking, event, venue, VenueBookingStatus.APPROVED, now)
+
+    def reject(
+        self,
+        db: Session,
+        staff: User,
+        booking_id: uuid.UUID,
+        body: BookingRejectWrite,
+        now: datetime,
+        notifier: Notifier,
+    ) -> VenueBookingOut:
+        """US4 AC 4, 5, 8: rejects the request as a whole, optionally saying why and what else might
+        work. The window is freed, and the event keeps its status (Approved or Planning), so its
+        coordinator can request another venue."""
+        reason = body.reason.strip() or None if body.reason is not None else None
+        alternative = body.alternative_suggestion.strip() or None if body.alternative_suggestion is not None else None
+        booking = self._lock_pending(db, booking_id)
+        event = db.get(Event, booking.event_id)
+        venue = db.get(Venue, booking.venue_id)
+        # Set with the status in one flush: the notes alone on a pending booking break
+        # venue_bookings_rejection_notes_only_when_rejected, and loading anything could autoflush them.
+        booking.rejection_reason = reason
+        booking.alternative_suggestion = alternative
+        return self._decide(db, notifier, staff, booking, event, venue, VenueBookingStatus.REJECTED, now)
+
+    def _lock_pending(self, db: Session, booking_id: uuid.UUID) -> VenueBooking:
+        """The booking, locked FOR UPDATE so a decision and a withdrawal can't both land."""
+        booking = db.scalars(
+            select(VenueBooking).where(VenueBooking.id == booking_id).with_for_update()
+        ).one_or_none()
+        if booking is None:
+            raise DomainError(404, "NOT_FOUND")
+        if booking.status != VenueBookingStatus.REQUESTED:
+            raise DomainError(409, "BOOKING_NOT_PENDING", status=booking.status.value)
+        return booking
+
+    def _decide(
+        self,
+        db: Session,
+        notifier: Notifier,
+        staff: User,
+        booking: VenueBooking,
+        event: Event,
+        venue: Venue,
+        status: VenueBookingStatus,
+        now: datetime,
+    ) -> VenueBookingOut:
+        booking.status = status
+        booking.decided_at = now
+        booking.decided_by_user_id = staff.id
+        booking.updated_at = now
+        db.commit()
+        db.refresh(booking)
+        result = _out(booking, event, venue)
+        self._notify_coordinators(db, notifier, booking, event, venue, status.value)
+        return result
+
+    def _notify_coordinators(
+        self, db: Session, notifier: Notifier, booking: VenueBooking, event: Event, venue: Venue, decision: BookingDecision
+    ) -> None:
+        """US4 AC 6: the coordinator who made the request hears the decision, and so does the event's
+        assigned coordinator if that's someone else now. Runs after the commit; a failure is logged
+        and the decision stands."""
+        # DECISION-PENDING: D40 — the requester and the assigned coordinator, once each, if active.
+        try:
+            ids = {booking.requested_by_user_id, event.coordinator_id} - {None}
+            recipients = db.scalars(
+                select(User).where(User.id.in_(ids), User.is_active.is_(True)).order_by(User.email)
+            ).all()
+            if not recipients:
+                logger.warning("no active coordinator to notify about venue booking %s", booking.id)
+                return
+            for user in recipients:
+                notifier.venue_booking_decided(
+                    email=user.email,
+                    booking_id=booking.id,
+                    decision=decision,
+                    event_name=event.name or event.request_reference or str(event.id),
+                    venue_name=venue.name,
+                    starts_at=booking.starts_at,
+                    ends_at=booking.ends_at,
+                    reason=booking.rejection_reason,
+                    alternative_suggestion=booking.alternative_suggestion,
+                )
+        except Exception:
+            logger.exception("could not notify coordinators about venue booking %s", booking.id)
 
     def pending(self, db: Session) -> list[VenueBookingOut]:
         """Venue Staff's review queue (AC 4): Requested bookings, oldest first."""
@@ -285,7 +472,9 @@ class VenueBookingService:
         )
         return [_out(booking, event, venue) for booking, venue in rows]
 
-    def _commit(self, db: Session, venue_id: uuid.UUID, starts_at: datetime, ends_at: datetime) -> None:
+    def _commit(
+        self, db: Session, venue_id: uuid.UUID, occupied_starts_at: datetime, occupied_ends_at: datetime
+    ) -> None:
         try:
             db.commit()
         except IntegrityError as error:
@@ -293,7 +482,7 @@ class VenueBookingService:
             constraint = getattr(getattr(error.orig, "diag", None), "constraint_name", None)
             if constraint == NO_OVERLAP:
                 # AC 7: another request for an overlapping window committed first. It's visible now.
-                raise _unavailable(_find_conflict(db, venue_id, starts_at, ends_at)) from None
+                raise _unavailable(_find_conflict(db, venue_id, occupied_starts_at, occupied_ends_at)) from None
             field = CONSTRAINT_FIELDS.get(constraint)
             if field is None:
                 raise

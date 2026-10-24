@@ -30,7 +30,7 @@ WORKLOAD_STATUSES = (
     EventStatus.PLANNING,
 )
 
-# SCRUM-86 (D43): "active" events on the Lead's Assigned tab: owned by a coordinator and not yet over.
+# SCRUM-86 (D44, DECISION-PENDING): "active" events on the Lead's Assigned tab: owned by a coordinator and not yet over.
 ACTIVE_ASSIGNED_STATUSES = (
     EventStatus.UNDER_REVIEW,
     EventStatus.AWAITING_CLARIFICATION,
@@ -66,7 +66,7 @@ class AssignmentService:
     ) -> list[AssignedRequestOut]:
         """The active events this Lead assigned, optionally for one coordinator and/or one status
         (SCRUM-86 AC 2, 3). The Lead's scope is the assigner on an event's latest assignment record
-        (D43), so each Lead sees their own and none is hard-coded (AC 6). Soonest event date first,
+        (D44), so each Lead sees their own and none is hard-coded (AC 6). Soonest event date first,
         undated last."""
         if status is not None and status not in ACTIVE_ASSIGNED_STATUSES:
             raise DomainError(422, "INVALID_STATUS_FILTER", status=status.value)

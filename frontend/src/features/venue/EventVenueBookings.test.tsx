@@ -38,6 +38,10 @@ function booking(overrides: Partial<VenueBooking> = {}): VenueBooking {
     created_at: "2026-10-01T02:00:00Z",
     updated_at: "2026-10-01T02:00:00Z",
     withdrawn_at: null,
+    decided_at: null,
+    decided_by_user_id: null,
+    rejection_reason: null,
+    alternative_suggestion: null,
     ...overrides,
   };
 }
@@ -93,6 +97,20 @@ describe("EventVenueBookings (US22, SCRUM-113)", () => {
     ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Request venue" })).not.toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("shows a rejection's reason and suggested alternative, and still offers Request venue (TC-US4-05, 08)", async () => {
+    forEvent.mockResolvedValue([
+      booking({ status: "rejected", rejection_reason: "Being repainted", alternative_suggestion: "Room B is free then" }),
+    ]);
+    render(<EventVenueBookings event={EVENT} />);
+
+    const rejected = await screen.findByRole("listitem", { name: /^Hall A/ });
+    expect(within(rejected).getByText("Rejected")).toBeInTheDocument();
+    expect(rejected).toHaveTextContent("Reason: Being repainted");
+    expect(rejected).toHaveTextContent("Suggested instead: Room B is free then");
+    expect(within(rejected).queryByRole("button", { name: "Withdraw" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Request venue" })).toBeInTheDocument();
   });
 
   it("says so when nothing is booked yet", async () => {

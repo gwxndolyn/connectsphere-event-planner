@@ -292,3 +292,29 @@
   background: #fff5f5;
   color: #c53030;
 }
+
+/* US4 (SCRUM-8): Venue staff's decision on a pending request, and the coordinator's view of it. */
+.venue-booking-row__actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.venue-booking-row__error {
+  color: #c53030;
+  font-weight: 600;
+}
+
+.venue-booking-row__decision {
+  font-style: italic;
+}
+
+.venue-dialog__note {
+  font: inherit;
+  font-size: 15px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  resize: vertical;
+}

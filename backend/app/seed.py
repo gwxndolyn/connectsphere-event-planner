@@ -27,7 +27,7 @@ from app.event.models import DeliveryMode, Event, EventStatus
 from app.registration.models import ACTIVE_STATUSES, Registration, RegistrationStatus
 from app.user.models import Attendee, User, UserRole
 from app.user.supabase_admin import SupabaseAdmin, SupabaseAdminError
-from app.venue.models import Venue, VenueBlock, VenueBooking, VenueBookingStatus
+from app.venue.models import Venue, VenueBlock, VenueBooking, VenueBookingStatus, occupied_window
 
 # Fixed namespace so slugs map to the same UUIDs on every machine and every run.
 SEED_NAMESPACE = uuid.UUID("3f2b0c54-9b1a-4f3e-9a7e-2c0d1b8e5a41")
@@ -351,6 +351,17 @@ class BookableEventSpec:
 # Approved straight away (D24).
 BOOKABLE_EVENT = BookableEventSpec(slug="bookable-venue-booking-demo", name="Venue Booking Demo", expected_attendees=40)
 
+# US26 (SCRUM-109): the dev coordinator adds equipment lines to it (SCRUM-110, TC-US26-16). Only a
+# planning or confirmed event takes them, from its assigned coordinator (D20), and no other seeded
+# event is both. Registration is off, so it stays off the attendees' events board.
+EQUIPMENT_EVENT = EventSpec(
+    slug="equipment-request-demo",
+    name="Equipment Request Demo",
+    note="confirmed, assigned to the seeded coordinator, registration off (US26)",
+    registration_enabled=False,
+    starts_in=timedelta(days=14),
+)
+
 VENUE_BLOCKS = [
     VenueBlockSpec(
         slug="connexion-maintenance",
@@ -594,21 +605,43 @@ def upsert_bookable_event(db: Session, spec: BookableEventSpec, organiser: User,
     return event
 
 
+def upsert_equipment_event(
+    db: Session, spec: EventSpec, organiser: User, coordinator: User, now: datetime
+) -> Event:
+    """The confirmed event the equipment screens add lines to, assigned to `coordinator`. Its lines are
+    made through the app, so a reseed leaves them alone: the seed owns only the event row."""
+    event = upsert_event(db, spec, now)
+    event.created_by_user_id = organiser.id
+    event.coordinator_id = coordinator.id
+    return event
+
+
 def upsert_venue_booking(
     db: Session, spec: VenueBookingSpec, event: Event, coordinator: User, now: datetime
 ) -> VenueBooking:
     booking_id = seed_id("venue-booking", spec.slug)
     day = _slot_day(now)
+    starts_at = datetime.combine(day, spec.starts, SEED_TIMEZONE)
+    ends_at = datetime.combine(day, spec.ends, SEED_TIMEZONE)
+    # US13: the window the venue's buffers make it occupy. The reference comes from the database.
+    occupied_starts_at, occupied_ends_at = occupied_window(db.get(Venue, seed_id("venue", spec.venue_slug)), starts_at, ends_at)
     values = {
         "event_id": event.id,
         "venue_id": seed_id("venue", spec.venue_slug),
         "requested_by_user_id": coordinator.id,
-        "starts_at": datetime.combine(day, spec.starts, SEED_TIMEZONE),
-        "ends_at": datetime.combine(day, spec.ends, SEED_TIMEZONE),
+        "starts_at": starts_at,
+        "ends_at": ends_at,
+        "occupied_starts_at": occupied_starts_at,
+        "occupied_ends_at": occupied_ends_at,
         "expected_attendees": spec.expected_attendees,
         "room_layout": spec.room_layout,
         "status": spec.status,
         "withdrawn_at": None,
+        # US4: an approved seeded booking was decided by the seeded Venue Staff member, when seeded.
+        "decided_at": now if spec.status == VenueBookingStatus.APPROVED else None,
+        "decided_by_user_id": seed_id("user", "venue-staff") if spec.status == VenueBookingStatus.APPROVED else None,
+        "rejection_reason": None,
+        "alternative_suggestion": None,
     }
     booking = db.get(VenueBooking, booking_id)
     if booking is None:
@@ -720,6 +753,7 @@ def seed(db: Session, now: datetime | None = None) -> None:
     for spec in VENUE_BLOCKS:
         upsert_venue_block(db, spec, now)
     upsert_bookable_event(db, BOOKABLE_EVENT, organiser, coordinator)
+    upsert_equipment_event(db, EQUIPMENT_EVENT, organiser, coordinator, now)
     for name in EQUIPMENT_TYPES:
         upsert_equipment_type(db, name)
     db.flush()

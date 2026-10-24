@@ -150,4 +150,41 @@ describe("venue booking (US22)", () => {
     );
     expect(callsTo("GET", "/api/v1/venue-bookings/pending")[0].headers.get("X-User-Id")).toBe("venue-staff-id");
   });
+
+  it("Venue staff approve one request and reject another; the coordinator sees both decisions (TC-US4-02, 04, 05)", async () => {
+    const request = seedRequest({ status: "approved", name: "Venue Booking Demo", ...MINE });
+    seedBooking(request, seedVenue({ name: "Hall A" }), { created_at: "2026-10-01T01:00:00Z" });
+    seedBooking(request, seedVenue({ name: "Hall B" }), { starts_at: "2026-11-21T02:00:00Z", ends_at: "2026-11-21T04:00:00Z" });
+    setDevRole("venue_staff");
+    const user = userEvent.setup();
+    const { unmount } = render(<App />);
+    await user.click(within(screen.getByRole("banner")).getByRole("button", { name: "Venues" }));
+
+    const pending = await screen.findByRole("list", { name: "Pending venue requests" });
+    await user.click(within(within(pending).getByRole("listitem", { name: "Venue Booking Demo at Hall A" })).getByRole("button", { name: "Approve" }));
+    expect(await screen.findByText(/Approved: Hall A is reserved for Venue Booking Demo/)).toBeInTheDocument();
+
+    await user.click(within(screen.getByRole("listitem", { name: "Venue Booking Demo at Hall B" })).getByRole("button", { name: "Reject" }));
+    const dialog = screen.getByRole("dialog", { name: "Reject this venue request?" });
+    await user.type(within(dialog).getByLabelText("Reason (optional)"), "Closed for maintenance");
+    await user.type(within(dialog).getByLabelText("Suggested alternative (optional)"), "Hall A on Saturday");
+    await user.click(within(dialog).getByRole("button", { name: "Reject request" }));
+    expect(await screen.findByText("No venue requests are waiting for review.")).toBeInTheDocument();
+
+    const [rejected] = callsTo("POST", /\/reject$/);
+    expect(rejected.headers.get("X-User-Id")).toBe("venue-staff-id");
+    expect(rejected.body).toEqual({ reason: "Closed for maintenance", alternative_suggestion: "Hall A on Saturday" });
+    expect(callsTo("POST", /\/approve$/)).toHaveLength(1);
+
+    // The coordinator sees Approved and Rejected, with the notes, and can request again (AC 8).
+    unmount();
+    const user2 = userEvent.setup();
+    await openRequest(user2, "Venue Booking Demo");
+    expect(await bookings().findByRole("listitem", { name: /^Hall A/ })).toHaveTextContent("Approved");
+    const hallB = bookings().getByRole("listitem", { name: /^Hall B/ });
+    expect(hallB).toHaveTextContent("Rejected");
+    expect(hallB).toHaveTextContent("Reason: Closed for maintenance");
+    expect(hallB).toHaveTextContent("Suggested instead: Hall A on Saturday");
+    expect(bookings().getByRole("button", { name: "Request venue" })).toBeInTheDocument();
+  });
 });
