@@ -92,4 +92,30 @@
 | TC-US16A-48 | — | `AUTH_DEV_HEADERS=true` | The backend starts | A warning is logged that the header stubs bypass login | SCRUM-102 |
 | TC-US16A-49 | — | Any token is refused (401) | The refusal happens | A warning names the reason; the token never appears in the log | SCRUM-102 |
 | TC-US16A-50 | 6 | A new email | Signs up | Sees "Check your email to confirm your account"; not logged in until the link is clicked | SCRUM-106 |
-| TC-US16A-51 | 2 | A valid token | `GET /api/v1/me` | `200 {id, email, full_name, role}` for a user with a profile (`full_name` null for seeded users); `403 PROFILE_REQUIRED` without one; `401` without a token | SCRUM-105 |
+| TC-US16A-51 | 2 | A valid token | `GET /api/v1/me` | `200 {id, email, full_name, role}` for a user with a profile (`full_name` null until a name is set); `403 PROFILE_REQUIRED` without one; `401` without a token | SCRUM-105 |
+
+## Run log
+
+### 24 Oct 2026: SCRUM-105 login E2E with real logins (PR #62)
+
+Setup: local Postgres at `alembic` head, seeded from #56's branch (SCRUM-104) with `SEED_AUTH_PASSWORD`, which
+created and linked nine Supabase logins. Backend from #62 with `SUPABASE_URL` set; Playwright `login` project
+with `E2E_SEED_PASSWORD`.
+
+| Test case | Result | Note |
+| --- | --- | --- |
+| TC-US16A-32 | Pass | Organiser lands on "My event requests" |
+| TC-US16A-33 | Pass | Coordinator on "Requests to review"; attendee on the events board |
+| TC-US16A-34 | Pass | Wrong password and unknown email |
+| TC-US16A-35 | Pass | Refresh keeps the login and My events |
+| TC-US16A-36 | Pass | Log out, then reload: login page |
+| TC-US16A-37 | Pass | No login: login page |
+| TC-US16A-38 | Pass | Checks the login page only, so it passes either way (PR #62 review, point 5) |
+| TC-US16A-39 | Pass | Bearer token, no dev headers |
+
+- **First run: TC-32, 33, 35 and 36 failed.** The backend's CORS list allowed only `localhost:5173`, so the browser
+  blocked `GET /api/v1/me` from the login frontend on `:5174`. Fixed by adding `:5174` to the default `CORS_ORIGINS`.
+- **Staff screens with a real login (PR #62 review, point 1):** the organiser, coordinator, Coordinator Lead and venue
+  staff each land on their home screen, but every one gets `401` from `GET /api/v1/me/registrations` and
+  `GET /api/v1/events/available` straight after logging in, and My events shows "Set VITE_DEV_ATTENDEE_ID in
+  frontend/.env…". The attendee has no failed calls. Not yet fixed.
