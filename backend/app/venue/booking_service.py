@@ -129,7 +129,7 @@ def _approval_unavailable(conflict: Conflict, booking: VenueBooking) -> DomainEr
 def _outside_hours(breach: HoursBreach, occupied: Window, status_code: int = 422) -> DomainError:
     """VENUE_OUTSIDE_HOURS (US13 AC 5, D32): `fields` names the end that breaches. 422 for a request
     (its fields); 409 at approval, which has no body: like US4's capacity re-check, it's the booking's
-    state now that refuses it (deviation 40)."""
+    state now that refuses it (deviation 43)."""
     return DomainError(
         status_code,
         "VENUE_OUTSIDE_HOURS",

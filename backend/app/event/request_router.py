@@ -15,7 +15,10 @@ from app.event.clarification_schemas import (
 )
 from app.event.clarification_service import clarification_service
 from app.event.assignment_service import assignment_service
+from app.event.models import EventStatus
 from app.event.request_schemas import (
+    AssignedRequestsOut,
+    AssignmentHistoryOut,
     AssignmentWrite,
     CoordinatorOptionsOut,
     EventRequestOut,
@@ -77,6 +80,16 @@ def list_unassigned(
     return UnassignedRequestsOut(event_requests=assignment_service.list_unassigned(db))
 
 
+@router.get("/assigned", response_model=AssignedRequestsOut)
+def list_assigned(
+    lead: Lead,
+    coordinator_id: uuid.UUID | None = None,
+    status: EventStatus | None = None,
+    db: Session = Depends(get_db),
+) -> AssignedRequestsOut:
+    return AssignedRequestsOut(event_requests=assignment_service.list_assigned(db, lead, coordinator_id, status))
+
+
 @coordinators_router.get("", response_model=CoordinatorOptionsOut)
 def list_coordinators(
     _: Lead,
@@ -113,6 +126,16 @@ def submit_request(
     notifier: Notifier = Depends(get_notifier),
 ) -> EventRequestOut:
     return event_request_service.submit(db, request_id, organiser, now, notifier)
+
+
+@router.get("/{request_id}/assignment-history", response_model=AssignmentHistoryOut)
+def assignment_history(
+    request_id: uuid.UUID,
+    _: Lead,
+    db: Session = Depends(get_db),
+) -> AssignmentHistoryOut:
+    return AssignmentHistoryOut(assignments=assignment_service.history(db, request_id))
+
 
 @router.post("/{request_id}/assignment", response_model=EventRequestOut)
 def assign_coordinator(
