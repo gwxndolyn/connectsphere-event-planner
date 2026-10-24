@@ -126,10 +126,11 @@ test("TC-US22-20: attendance over capacity is refused on the field; a missing la
 
 test("TC-US22-21: the coordinator confirms withdrawing a pending request, which shows as Withdrawn (AC 5)", async ({ page }) => {
   const day = runDay();
-  const window = shownWindow(day, "16:00", "18:00");
+  // US13: the Library closes at 18:00 and its 20-minute turnaround must fit, so 15:00-17:00 (to 17:20).
+  const window = shownWindow(day, "15:00", "17:00");
   await openEvent(page);
 
-  await fillRequest(page, { venue: "Li Ka Shing Library Seminar Room 3-4 (capacity 60)", day, start: "16:00", end: "18:00", attendees: "20", layout: "classroom" });
+  await fillRequest(page, { venue: "Li Ka Shing Library Seminar Room 3-4 (capacity 60)", day, start: "15:00", end: "17:00", attendees: "20", layout: "classroom" });
   await page.getByRole("button", { name: "Send request" }).click();
   const row = bookingRow(page, "Li Ka Shing Library Seminar Room 3-4", window);
   await expect(row).toContainText("Requested");

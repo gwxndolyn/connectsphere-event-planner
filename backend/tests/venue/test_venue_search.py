@@ -363,7 +363,8 @@ async def test_tc_us2_05_inactive_venues_never_appear(client: AsyncClient, db: S
 async def test_tc_us2_06_operating_hours_must_cover_the_whole_time(
     client: AsyncClient, db: Session, coordinator: User, start: str, end: str, inside: bool
 ) -> None:
-    make_venue(db, name="Nine to six", opens_at=time(9, 0), closes_at=time(18, 0))
+    # No setup or turnaround, so this is US2 AC 6's plain rule; with buffers it's TC-US13-13.
+    make_venue(db, name="Nine to six", opens_at=time(9, 0), closes_at=time(18, 0), setup_minutes=0, turnaround_minutes=0)
 
     response = await search(client, coordinator, start_time=start, end_time=end)
 
