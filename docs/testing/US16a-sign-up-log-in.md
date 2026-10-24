@@ -118,4 +118,7 @@ with `E2E_SEED_PASSWORD`.
 - **Staff screens with a real login (PR #62 review, point 1):** the organiser, coordinator, Coordinator Lead and venue
   staff each land on their home screen, but every one gets `401` from `GET /api/v1/me/registrations` and
   `GET /api/v1/events/available` straight after logging in, and My events shows "Set VITE_DEV_ATTENDEE_ID in
-  frontend/.env…". The attendee has no failed calls. Not yet fixed.
+  frontend/.env…". The attendee has no failed calls.
+- **Fixed the same day:** each logged-in role now gets only its own screens (`SCREENS` in `App.tsx`), and the
+  attendee lists load only for attendees. TC-US16A-32 and 33 now also check there are no attendee links or failed
+  calls for staff and no staff links for the attendee. Rerun: login project 8 of 8, full E2E suite 30 of 30.
