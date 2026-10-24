@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { ApiError } from "../../api/client";
 import type { EventRequest } from "../eventRequest/types";
-import { bookingApi, bookingErrorMessage, bookingStatusLabel, formatBookingWindow } from "./bookingApi";
+import { bookingApi, bookingErrorMessage, bookingStatusLabel, formatBookingWindow, formatOccupied } from "./bookingApi";
 import type { VenueBooking, VenueBookingCreated } from "./bookingTypes";
 import { tagLabel } from "./tags";
 import { VenueBookingForm } from "./VenueBookingForm";
@@ -19,7 +19,8 @@ type Notice = { kind: "booked"; booking: VenueBookingCreated } | { kind: "withdr
 /**
  * US22 (SCRUM-113): an event's venue bookings with their status, Withdraw on a pending one (AC 5),
  * and Request venue (AC 2). Only the event's assigned coordinator may book it (US10a, D20): the API
- * answers anyone else with 404, which this panel explains instead of offering Request venue.
+ * answers anyone else with 404, which this panel explains instead of offering Request venue. US13
+ * (SCRUM-116): each booking shows its reference and the window its setup and turnaround occupy.
  */
 export function EventVenueBookings({ event }: EventVenueBookingsProps) {
   const [bookings, setBookings] = useState<VenueBooking[]>([]);
@@ -110,8 +111,8 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
           {notice.kind === "booked" ? (
             <>
               <p>
-                Venue requested: {notice.booking.venue.name}, {formatBookingWindow(notice.booking)}. Venue staff have been
-                notified.
+                Venue requested: {notice.booking.venue.name}, {formatBookingWindow(notice.booking)} (
+                {notice.booking.reference}). Venue staff have been notified.
               </p>
               {notice.booking.warnings.length > 0 && (
                 <ul className="venue-booking__warnings" aria-label="Warnings from the booking">
@@ -157,6 +158,9 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
                 <div className="venue-booking-row__main">
                   <strong>{booking.venue.name}</strong>
                   <span>{window}</span>
+                  <span className="venue-booking-row__occupied">
+                    {booking.reference} · Occupied {formatOccupied(booking)} with setup and turnaround
+                  </span>
                   <span>
                     {booking.expected_attendees} attending · {tagLabel(booking.room_layout)}
                   </span>

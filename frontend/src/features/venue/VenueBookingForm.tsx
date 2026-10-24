@@ -1,7 +1,16 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import type { EventRequest } from "../eventRequest/types";
 import { venueApi, venueErrorMessage } from "./api";
-import { bookingApi, bookingErrorMessage, bookingFieldErrors, missingForVenue, toBookingBody } from "./bookingApi";
+import {
+  bookingApi,
+  bookingErrorMessage,
+  bookingFieldErrors,
+  formatVenueTime,
+  formatWindowTimes,
+  missingForVenue,
+  occupiedPreview,
+  toBookingBody,
+} from "./bookingApi";
 import type { BookingFormValues, VenueBookingCreated } from "./bookingTypes";
 import { ACCESSIBILITY_FEATURES, FACILITIES, ROOM_LAYOUTS, tagLabel } from "./tags";
 import type { Venue } from "./types";
@@ -9,6 +18,16 @@ import "../eventRequest/eventRequests.css";
 import "./venues.css";
 
 const ACTIVE_VENUES = { q: "", minCapacity: "", facilities: [], accessibility: [], active: "all" as const };
+
+/** US13 AC 2: what the chosen venue's buffers make of the times, before anything is sent. */
+function occupiedText(form: BookingFormValues, venue: Venue): string {
+  const buffers = `${venue.setup_minutes} min setup, ${venue.turnaround_minutes} min turnaround`;
+  const hours = `Open ${formatVenueTime(venue.opens_at)} – ${formatVenueTime(venue.closes_at)}.`;
+  const occupied = occupiedPreview(form, venue);
+  return occupied
+    ? `The venue is occupied ${formatWindowTimes(occupied)} (${buffers}). ${hours}`
+    : `This venue needs ${buffers}. ${hours}`;
+}
 
 function toggle(list: string[], tag: string): string[] {
   return list.includes(tag) ? list.filter((t) => t !== tag) : [...list, tag];
@@ -38,7 +57,9 @@ interface VenueBookingFormProps {
 /**
  * US22 AC 2 (SCRUM-113): request a venue for an approved event. Warns before sending when the venue
  * lacks something asked for, but still sends (AC 3). The API applies every rule (capacity, overlap,
- * blocks, the event's status) and its refusals are shown on the fields they concern.
+ * blocks, the event's status) and its refusals are shown on the fields they concern. US13 (SCRUM-116):
+ * previews the window the venue's setup and turnaround make it occupy; whether that fits its hours and
+ * clears other bookings is still the API's call (VENUE_OUTSIDE_HOURS, VENUE_UNAVAILABLE).
  */
 export function VenueBookingForm({ event, onBooked, onCancel }: VenueBookingFormProps) {
   const [form, setForm] = useState<BookingFormValues>(() => initialValues(event));
@@ -125,7 +146,7 @@ export function VenueBookingForm({ event, onBooked, onCancel }: VenueBookingForm
           <select
             id="venue-booking-venue_id"
             value={form.venueId}
-            onChange={(changed) => update("venueId", changed.target.value, "venue_id", "expected_attendees", "starts_at")}
+            onChange={(changed) => update("venueId", changed.target.value, "venue_id", "expected_attendees", "starts_at", "ends_at")}
             {...invalid("venue_id")}
           >
             <option value="">Choose a venue</option>
@@ -236,6 +257,12 @@ export function VenueBookingForm({ event, onBooked, onCancel }: VenueBookingForm
           />
         </label>
       </div>
+
+      {venue && (
+        <p className="venue-booking__occupied" aria-live="polite">
+          {occupiedText(form, venue)}
+        </p>
+      )}
 
       {missing.length > 0 && (
         <p className="venue-booking__gaps">

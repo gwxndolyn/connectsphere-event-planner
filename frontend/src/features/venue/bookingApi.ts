@@ -1,8 +1,10 @@
 import { ApiError, apiClient } from "../../api/client";
-import { formatEventDate, formatEventTimeRange } from "../registration/datetime";
+import { formatEventDate, formatEventTimeRange, formatInstantTime } from "../registration/datetime";
 import type {
+  BookingEvaluation,
   BookingFormValues,
   BookingRejectWrite,
+  TimeWindow,
   VenueBooking,
   VenueBookingCreated,
   VenueBookingStatus,
@@ -33,6 +35,9 @@ export const bookingApi = {
   async pending(): Promise<VenueBooking[]> {
     return (await apiClient.get<VenueBookingsResponse>("/api/v1/venue-bookings/pending")).bookings;
   },
+
+  // US13 AC 4 (D36): Venue Staff only. What stands in the way of a booking now, with each overlap.
+  evaluation: (id: string) => apiClient.get<BookingEvaluation>(`/api/v1/venue-bookings/${id}/evaluation`),
 };
 
 // Every event is in Singapore (D9), so the window is sent with its +08:00 offset; the API refuses a
@@ -76,6 +81,41 @@ export function formatBookingWindow(booking: Pick<VenueBooking, "starts_at" | "e
   return `${formatEventDate(timed)}, ${formatEventTimeRange(timed)}`;
 }
 
+/** Just the times of a window, e.g. "9:45 AM – 12:15 PM", for one on a day already shown. */
+export function formatWindowTimes(window: TimeWindow): string {
+  return formatEventTimeRange({ startsAt: window.starts_at, endsAt: window.ends_at });
+}
+
+/** A booking's occupied window (US13), e.g. "9:45 AM – 12:15 PM". */
+export function formatOccupied(booking: Pick<VenueBooking, "occupied_starts_at" | "occupied_ends_at">): string {
+  return formatWindowTimes({ starts_at: booking.occupied_starts_at, ends_at: booking.occupied_ends_at });
+}
+
+/** A venue's opening or closing time ("HH:MM:SS", Singapore wall-clock) as the screens show times. */
+export function formatVenueTime(time: string): string {
+  return formatInstantTime(`2026-01-01T${time.slice(0, 5)}:00${SINGAPORE_OFFSET}`);
+}
+
+const MINUTE = 60_000;
+
+/**
+ * US13 AC 2: the window the venue would be occupied for this form, setup before and turnaround
+ * after, as the API will store it. Null until the date and both times are filled in and the end is
+ * after the start; the API decides whether it fits (hours, overlaps).
+ */
+export function occupiedPreview(form: BookingFormValues, venue: Venue): TimeWindow | null {
+  const startsAt = singaporeInstant(form.date, form.startTime);
+  const endsAt = singaporeInstant(form.date, form.endTime);
+  if (!startsAt || !endsAt) return null;
+  const start = new Date(startsAt).getTime();
+  const end = new Date(endsAt).getTime();
+  if (Number.isNaN(start) || Number.isNaN(end) || end <= start) return null;
+  return {
+    starts_at: new Date(start - venue.setup_minutes * MINUTE).toISOString(),
+    ends_at: new Date(end + venue.turnaround_minutes * MINUTE).toISOString(),
+  };
+}
+
 const STATUS_LABELS: Record<VenueBookingStatus, string> = {
   requested: "Requested",
   approved: "Approved",
@@ -87,15 +127,41 @@ export function bookingStatusLabel(status: VenueBookingStatus): string {
   return STATUS_LABELS[status] ?? status;
 }
 
+function isWindow(value: unknown): value is TimeWindow {
+  const window = value as { starts_at?: unknown; ends_at?: unknown } | null | undefined;
+  return !!window && typeof window.starts_at === "string" && typeof window.ends_at === "string";
+}
+
 function conflictWindow(error: ApiError): string | null {
-  const conflict = error.body.conflict as { starts_at?: unknown; ends_at?: unknown } | undefined;
-  if (!conflict || typeof conflict.starts_at !== "string" || typeof conflict.ends_at !== "string") return null;
-  return formatBookingWindow({ starts_at: conflict.starts_at, ends_at: conflict.ends_at });
+  return isWindow(error.body.conflict) ? formatBookingWindow(error.body.conflict) : null;
+}
+
+/** US13 AC 4: where, with buffers, the clash overlaps the request, e.g. "12:00 PM – 12:15 PM". */
+function conflictOverlap(error: ApiError): string | null {
+  const conflict = error.body.conflict as { overlap?: unknown } | undefined;
+  return conflict && isWindow(conflict.overlap) ? formatWindowTimes(conflict.overlap) : null;
+}
+
+function conflictIsBlock(error: ApiError): boolean {
+  return (error.body.conflict as { kind?: unknown } | undefined)?.kind === "block";
+}
+
+/** VENUE_OUTSIDE_HOURS (US13 AC 5): "8:00 AM – 6:00 PM", or null if the body lacks the hours. */
+function openingHours(error: ApiError): string | null {
+  const { opens_at: opens, closes_at: closes } = error.body;
+  return typeof opens === "string" && typeof closes === "string" ? `${formatVenueTime(opens)} – ${formatVenueTime(closes)}` : null;
+}
+
+/** Why the occupied window doesn't fit the venue's hours, lower-case so it can follow "Can't approve: ". */
+function outsideHoursReason(error: ApiError): string {
+  const occupied = isWindow(error.body.occupied) ? formatWindowTimes(error.body.occupied) : null;
+  const hours = openingHours(error);
+  return `with setup and turnaround the venue would be occupied ${occupied ?? "for longer"}, outside its opening hours${hours ? ` of ${hours}` : ""}`;
 }
 
 const FALLBACK_MESSAGE = "The request could not be completed. Check the backend connection and try again.";
 
-/** Readable text for the booking routes' error codes (§3, deviations 24 to 28). */
+/** Readable text for the booking routes' error codes (§3, deviations 24 to 28, 43). */
 export function bookingErrorMessage(error: unknown): string {
   if (!(error instanceof ApiError)) return FALLBACK_MESSAGE;
   const status = typeof error.body.status === "string" ? error.body.status.replaceAll("_", " ") : null;
@@ -108,9 +174,19 @@ export function bookingErrorMessage(error: unknown): string {
       return typeof error.body.message === "string" ? error.body.message : "Expected attendance is more than this venue's capacity.";
     case "VENUE_UNAVAILABLE": {
       const window = conflictWindow(error);
+      const overlap = conflictOverlap(error);
+      if (window && overlap) {
+        // US13 AC 4: the overlap, but not the other booking's reference, which is for Venue staff (D35).
+        const what = conflictIsBlock(error) ? "closed" : "already booked";
+        return `This venue is ${what} on ${window}. With setup and turnaround, that overlaps your request ${overlap}. Choose another time or venue.`;
+      }
       return window
         ? `This venue is already booked or unavailable on ${window}. Choose another time or venue.`
         : "This venue isn't available at that time. Choose another time or venue.";
+    }
+    case "VENUE_OUTSIDE_HOURS": {
+      const reason = outsideHoursReason(error);
+      return `${reason[0].toUpperCase()}${reason.slice(1)}. Choose times that fit.`;
     }
     case "EVENT_NOT_BOOKABLE":
       return `Venues can only be requested for approved events or events in planning${status ? `; this one is ${status}` : ""}.`;
@@ -141,6 +217,9 @@ export function decisionErrorMessage(error: unknown): string {
         ? `Can't approve: the venue is already booked or unavailable on ${window}. Reject the request instead.`
         : `Can't approve: ${typeof error.body.message === "string" ? error.body.message : "the venue isn't available then."} Reject the request instead.`;
     }
+    case "VENUE_OUTSIDE_HOURS":
+      // US13 AC 5 (D32): the hours may have changed since the request.
+      return `Can't approve: ${outsideHoursReason(error)} now. Reject the request instead.`;
     case "BOOKING_EXPIRED":
       return "Can't approve: this request's start time has passed. Reject it instead.";
     case "VENUE_CAPACITY_EXCEEDED":
@@ -175,7 +254,21 @@ export function bookingFieldErrors(error: unknown): Record<string, string> {
       return { expected_attendees: bookingErrorMessage(error) };
     case "VENUE_UNAVAILABLE": {
       const window = conflictWindow(error);
+      const overlap = conflictOverlap(error);
+      if (overlap) {
+        const what = conflictIsBlock(error) ? "a venue closure" : "another booking";
+        return { starts_at: `With setup and turnaround, overlaps ${what} ${overlap}.` };
+      }
       return { starts_at: window ? `Clashes with ${window}.` : "This time isn't available." };
+    }
+    case "VENUE_OUTSIDE_HOURS": {
+      // US13 AC 5: on whichever end runs past the hours (both if it crosses midnight).
+      const { opens_at: opens, closes_at: closes } = error.body;
+      const messages: Record<string, string> = {
+        starts_at: `With setup, starts before the venue opens${typeof opens === "string" ? ` at ${formatVenueTime(opens)}` : ""}.`,
+        ends_at: `With turnaround, ends after the venue closes${typeof closes === "string" ? ` at ${formatVenueTime(closes)}` : ""}.`,
+      };
+      return Object.fromEntries(error.fields.filter((field) => field in messages).map((field) => [field, messages[field]]));
     }
     default:
       return {};
