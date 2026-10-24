@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Body, Depends
 from sqlalchemy.orm import Session
 
 from app.core.clock import get_now
@@ -12,7 +12,9 @@ from app.user.dependencies import require_user_roles
 from app.user.models import User, UserRole
 from app.venue.booking_service import booking_service
 from app.venue.schemas import (
+    BookingApproveWrite,
     BookingEvaluationOut,
+    BookingRejectWrite,
     VenueBookingCreatedOut,
     VenueBookingOut,
     VenueBookingsOut,
@@ -59,6 +61,31 @@ def withdraw_booking(
     now: datetime = Depends(get_now),
 ) -> VenueBookingOut:
     return booking_service.withdraw(db, coordinator, booking_id, now)
+
+
+@router.post("/{booking_id}/approve", response_model=VenueBookingOut)
+def approve_booking(
+    booking_id: uuid.UUID,
+    staff: VenueStaff,
+    # US4 AC 7: nothing to send. Any field (a different layout, say) is refused, so no partial approval.
+    _: BookingApproveWrite | None = Body(default=None),
+    db: Session = Depends(get_db),
+    now: datetime = Depends(get_now),
+    notifier: Notifier = Depends(get_notifier),
+) -> VenueBookingOut:
+    return booking_service.approve(db, staff, booking_id, now, notifier)
+
+
+@router.post("/{booking_id}/reject", response_model=VenueBookingOut)
+def reject_booking(
+    booking_id: uuid.UUID,
+    staff: VenueStaff,
+    body: BookingRejectWrite | None = Body(default=None),
+    db: Session = Depends(get_db),
+    now: datetime = Depends(get_now),
+    notifier: Notifier = Depends(get_notifier),
+) -> VenueBookingOut:
+    return booking_service.reject(db, staff, booking_id, body or BookingRejectWrite(), now, notifier)
 
 
 @events_router.get("/{event_id}/venue-bookings", response_model=VenueBookingsOut)

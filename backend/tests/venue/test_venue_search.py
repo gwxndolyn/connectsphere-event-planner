@@ -77,6 +77,8 @@ def book(
         room_layout="classroom",
         status=status,
         withdrawn_at=NOW if status == VenueBookingStatus.WITHDRAWN else None,
+        # US4's venue_bookings_decided_consistent: a decided booking carries its decision time.
+        decided_at=NOW if status in (VenueBookingStatus.APPROVED, VenueBookingStatus.REJECTED) else None,
     )
     db.add(booking)
     db.flush()
@@ -416,6 +418,7 @@ def _fill_calendar(db: Session, venue_count: int, days: int) -> list[Venue]:
             expected_attendees=20,
             room_layout="classroom",
             status=VenueBookingStatus.APPROVED,
+            decided_at=NOW,
         )
 
     db.add_all(approved(venue, DAY + timedelta(days=d)) for venue in venues[::2] for d in range(days))

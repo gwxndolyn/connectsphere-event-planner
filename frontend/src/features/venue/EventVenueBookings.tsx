@@ -160,6 +160,17 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
                   <span>
                     {booking.expected_attendees} attending · {tagLabel(booking.room_layout)}
                   </span>
+                  {/* US4 AC 5, 8: why Venue staff said no, and what they'd suggest; the event can book again. */}
+                  {booking.status === "rejected" && (
+                    <>
+                      {booking.rejection_reason && (
+                        <span className="venue-booking-row__decision">Reason: {booking.rejection_reason}</span>
+                      )}
+                      {booking.alternative_suggestion && (
+                        <span className="venue-booking-row__decision">Suggested instead: {booking.alternative_suggestion}</span>
+                      )}
+                    </>
+                  )}
                 </div>
                 <span className={`venue-booking-status venue-booking-status--${booking.status}`}>
                   {bookingStatusLabel(booking.status)}

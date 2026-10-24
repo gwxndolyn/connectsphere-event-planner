@@ -7,6 +7,8 @@ logger = logging.getLogger(__name__)
 
 # Who an assignment notice is for (SCRUM-68). Reassignment (SCRUM-83) adds more.
 AssignmentRecipient = Literal["coordinator", "organiser"]
+# What Venue Staff decided on a booking request (SCRUM-8).
+BookingDecision = Literal["approved", "rejected"]
 
 
 class Notifier(Protocol):
@@ -36,6 +38,20 @@ class Notifier(Protocol):
         venue_name: str,
         starts_at: datetime,
         ends_at: datetime,
+    ) -> None: ...
+
+    def venue_booking_decided(
+        self,
+        *,
+        email: str,
+        booking_id: uuid.UUID,
+        decision: BookingDecision,
+        event_name: str,
+        venue_name: str,
+        starts_at: datetime,
+        ends_at: datetime,
+        reason: str | None,
+        alternative_suggestion: str | None,
     ) -> None: ...
 
     def request_queued(
@@ -125,6 +141,33 @@ class LoggingNotifier:
             starts_at,
             ends_at,
             booking_id,
+        )
+
+    def venue_booking_decided(
+        self,
+        *,
+        email: str,
+        booking_id: uuid.UUID,
+        decision: BookingDecision,
+        event_name: str,
+        venue_name: str,
+        starts_at: datetime,
+        ends_at: datetime,
+        reason: str | None,
+        alternative_suggestion: str | None,
+    ) -> None:
+        # SCRUM-8 AC 6: the coordinator hears whether the venue is theirs; a rejection says why if given.
+        logger.info(
+            "venue booking %s: %s, %r at %r from %s to %s (booking %s); reason: %s; alternative: %s",
+            decision,
+            email,
+            event_name,
+            venue_name,
+            starts_at,
+            ends_at,
+            booking_id,
+            reason or "none given",
+            alternative_suggestion or "none given",
         )
 
     def request_queued(

@@ -637,6 +637,11 @@ def upsert_venue_booking(
         "room_layout": spec.room_layout,
         "status": spec.status,
         "withdrawn_at": None,
+        # US4: an approved seeded booking was decided by the seeded Venue Staff member, when seeded.
+        "decided_at": now if spec.status == VenueBookingStatus.APPROVED else None,
+        "decided_by_user_id": seed_id("user", "venue-staff") if spec.status == VenueBookingStatus.APPROVED else None,
+        "rejection_reason": None,
+        "alternative_suggestion": None,
     }
     booking = db.get(VenueBooking, booking_id)
     if booking is None:
