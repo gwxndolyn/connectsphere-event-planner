@@ -79,6 +79,7 @@ VENUE_STAFF_EMAIL = "venue.staff@smu.edu.sg"
 EVENT_COORDINATOR_LEAD_EMAILS = ("lead.one@smu.edu.sg", "lead.two@smu.edu.sg")
 EVENT_COORDINATOR_LEAD_NAMES = {"lead.one@smu.edu.sg": "Lena Lim", "lead.two@smu.edu.sg": "Leo Lee"}
 TECH_SUPPORT_EMAIL = "tech.support@smu.edu.sg"
+TECH_SUPPORT_NAME = "Terry Ong"
 # Everyone the seed creates a Supabase login for (SCRUM-104). Staff can't sign up (US16a AC 7), so this
 # is how the coordinator, venue staff, Tech Support and Leads get one.
 SEEDED_LOGIN_EMAILS = [
@@ -441,10 +442,17 @@ def upsert_tech_support(db: Session) -> User:
     staff_id = seed_id("user", "tech-support")
     staff = db.get(User, staff_id)
     if staff is None:
-        staff = User(id=staff_id, email=TECH_SUPPORT_EMAIL, role=UserRole.TECH_SUPPORT, is_active=True)
+        staff = User(
+            id=staff_id,
+            email=TECH_SUPPORT_EMAIL,
+            full_name=TECH_SUPPORT_NAME,
+            role=UserRole.TECH_SUPPORT,
+            is_active=True,
+        )
         db.add(staff)
     else:
         staff.email = TECH_SUPPORT_EMAIL
+        staff.full_name = TECH_SUPPORT_NAME
         staff.role = UserRole.TECH_SUPPORT
         staff.is_active = True
     return staff
