@@ -13,6 +13,8 @@ interface SiteHeaderProps {
   onDevRoleChange: (role: DevRole) => void;
   // Shown while logged in (AC 5).
   onLogOut?: () => void;
+  // The screens this user may open, home first; every screen in dev mode without a login.
+  views: View[];
 }
 
 export function SiteHeader({
@@ -23,34 +25,38 @@ export function SiteHeader({
   devRole,
   onDevRoleChange,
   onLogOut,
+  views,
 }: SiteHeaderProps) {
+  const attendeeScreens = views.includes("discovery");
   return (
     <header className="site-header">
       <div className="site-header__bar">
         <button
           type="button"
           className="site-header__logo"
-          onClick={() => onNavigate("discovery")}
+          onClick={() => onNavigate(views[0])}
         >
           <span className="site-header__logo-mark" aria-hidden="true" />
           ConnectSphere
         </button>
 
-        <div className="site-header__search">
-          <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
-            <path
-              fill="currentColor"
-              d="M13.6 12.2a6 6 0 1 0-1.4 1.4l4 4 1.4-1.4zM3 8a5 5 0 1 1 10 0A5 5 0 0 1 3 8"
+        {attendeeScreens && (
+          <div className="site-header__search">
+            <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
+              <path
+                fill="currentColor"
+                d="M13.6 12.2a6 6 0 1 0-1.4 1.4l4 4 1.4-1.4zM3 8a5 5 0 1 1 10 0A5 5 0 0 1 3 8"
+              />
+            </svg>
+            <input
+              type="search"
+              placeholder="Search campus events"
+              value={search}
+              onChange={(e) => onSearchChange(e.target.value)}
+              aria-label="Search campus events"
             />
-          </svg>
-          <input
-            type="search"
-            placeholder="Search campus events"
-            value={search}
-            onChange={(e) => onSearchChange(e.target.value)}
-            aria-label="Search campus events"
-          />
-        </div>
+          </div>
+        )}
 
         <div className="site-header__location">
           <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true">
@@ -62,29 +68,35 @@ export function SiteHeader({
           Main Campus
         </div>
 
-        <button
-          type="button"
-          className="site-header__nav-link"
-          onClick={() => onNavigate(view === "my-events" ? "discovery" : "my-events")}
-        >
-          {view === "my-events" ? "Browse events" : "My events"}
-        </button>
-        <button
-          type="button"
-          className="site-header__nav-link"
-          aria-current={view === "event-requests" ? "page" : undefined}
-          onClick={() => onNavigate("event-requests")}
-        >
-          Event requests
-        </button>
-        <button
-          type="button"
-          className="site-header__nav-link"
-          aria-current={view === "venues" ? "page" : undefined}
-          onClick={() => onNavigate("venues")}
-        >
-          Venues
-        </button>
+        {attendeeScreens && (
+          <button
+            type="button"
+            className="site-header__nav-link"
+            onClick={() => onNavigate(view === "my-events" ? "discovery" : "my-events")}
+          >
+            {view === "my-events" ? "Browse events" : "My events"}
+          </button>
+        )}
+        {views.includes("event-requests") && (
+          <button
+            type="button"
+            className="site-header__nav-link"
+            aria-current={view === "event-requests" ? "page" : undefined}
+            onClick={() => onNavigate("event-requests")}
+          >
+            Event requests
+          </button>
+        )}
+        {views.includes("venues") && (
+          <button
+            type="button"
+            className="site-header__nav-link"
+            aria-current={view === "venues" ? "page" : undefined}
+            onClick={() => onNavigate("venues")}
+          >
+            Venues
+          </button>
+        )}
         {/* Dev-only stand-in for login (D12): picks which seeded user's X-User-Id is sent. */}
         {devRole && (
           <label className="site-header__role">

@@ -43,10 +43,18 @@ function storedView(): View {
   }
 }
 
-// Each role's home screen after logging in (AC 2): staff review requests, organisers make them.
+// The screens each logged-in role may open, its home screen first (AC 2). Staff get no attendee
+// screens, so the attendee routes are never called with a staff token (PR #62 review).
+const SCREENS: Record<Me["role"], View[]> = {
+  organiser: ["event-requests", "venues"],
+  coordinator: ["event-requests", "venues"],
+  coordinator_lead: ["event-requests", "venues"],
+  operations_manager: ["venues"],
+  attendee: ["discovery", "my-events"],
+};
+
 function homeFor(role: Me["role"]): View {
-  if (role === "attendee") return "discovery";
-  return role === "operations_manager" ? "venues" : "event-requests";
+  return SCREENS[role][0];
 }
 
 function App() {
@@ -137,7 +145,11 @@ interface WorkspaceProps {
 
 // Mounted only once someone is identified, so its data loads with their identity.
 function Workspace({ me, view, onNavigate, onLogOut }: WorkspaceProps) {
-  const registry = useEventRegistry();
+  // Dev mode without a login keeps every screen, as before.
+  const views = me ? SCREENS[me.role] : VIEWS;
+  // A screen saved by someone else on this browser falls back to this user's home screen.
+  const shown = views.includes(view) ? view : views[0];
+  const registry = useEventRegistry(views.includes("discovery"));
   const [search, setSearch] = useState("");
   const [devRole, setDevRoleState] = useState<DevRole>(getDevRole);
   const role = me ? SCREEN_ROLE[me.role] : devRole;
@@ -150,8 +162,9 @@ function Workspace({ me, view, onNavigate, onLogOut }: WorkspaceProps) {
           setSearch(value);
           onNavigate("discovery");
         }}
-        view={view}
+        view={shown}
         onNavigate={onNavigate}
+        views={views}
         devRole={me ? undefined : devRole}
         onDevRoleChange={(role) => {
           setDevRole(role);
@@ -160,9 +173,9 @@ function Workspace({ me, view, onNavigate, onLogOut }: WorkspaceProps) {
         onLogOut={onLogOut}
       />
 
-      {view === "venues" ? (
+      {shown === "venues" ? (
         <VenuesPage key={role} staff={role === "venue_staff"} canSearch={role === "coordinator" || role === "venue_staff"} />
-      ) : view === "event-requests" ? (
+      ) : shown === "event-requests" ? (
         role === "coordinator" ? (
           <ClarificationReviewPage key="coordinator" />
         ) : role === "coordinator_lead" ? (
@@ -174,7 +187,7 @@ function Workspace({ me, view, onNavigate, onLogOut }: WorkspaceProps) {
         ) : (
           <EventRequestsPage key="organiser" />
         )
-      ) : view === "discovery" ? (
+      ) : shown === "discovery" ? (
         <EventsBoard registry={registry} search={search} />
       ) : (
         <MyEventsView registry={registry} onBrowse={() => onNavigate("discovery")} />
