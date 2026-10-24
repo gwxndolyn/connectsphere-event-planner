@@ -1,7 +1,7 @@
 import { http, HttpResponse, type JsonBodyType } from "msw";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll } from "vitest";
-import type { Clarification, EventRequest, EventRequestWrite } from "../features/eventRequest/types";
+import type { AssignmentRecord, Clarification, EventRequest, EventRequestWrite } from "../features/eventRequest/types";
 import type { VenueBooking } from "../features/venue/bookingTypes";
 import type { Venue } from "../features/venue/types";
 
@@ -63,6 +63,8 @@ interface Db {
   events: FakeEvent[];
   registrations: FakeRegistration[];
   requests: EventRequest[];
+  // SCRUM-69: each request's Assignment History, newest first.
+  assignments: Record<string, AssignmentRecord[]>;
   clarifications: Clarification[];
   // US22 venue bookings (SCRUM-113).
   bookings: VenueBooking[];
@@ -78,6 +80,7 @@ function emptyDb(): Db {
     events: [],
     registrations: [],
     requests: [],
+    assignments: {},
     clarifications: [],
     bookings: [],
     calls: [],
@@ -352,6 +355,7 @@ function visibleTo(request: EventRequest, role: string, userId: string) {
 export const COORDINATOR_PERSON = { id: COORDINATOR_ID, name: "Casey Tan", email: "casey.tan@smu.edu.sg" };
 // SCRUM-67, D30: the statuses a coordinator is actively working an event through.
 const WORKLOAD_STATUSES = new Set(["under_review", "awaiting_clarification", "approved", "planning"]);
+export const LEAD_PERSON = { id: LEAD_ID, name: "Lena Lead", email: "lena.lead@smu.edu.sg" };
 const ORGANISER_PERSON = { id: ORGANISER_ID, name: "Olivia Organiser", email: "event.organiser@smu.edu.sg" };
 
 const CLARIFIABLE = new Set(["submitted", "under_review"]);
@@ -650,6 +654,30 @@ const handlers = [
     return HttpResponse.json({ event_requests: queue });
   }),
 
+  // SCRUM-86: the Lead's Assigned tab. In scope = the latest history record names the caller.
+  route("get", "/api/v1/event-requests/assigned", ({ request }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "coordinator_lead") return error(403, "FORBIDDEN");
+    const caller = request.headers.get("X-User-Id");
+    const url = new URL(request.url);
+    const coordinator = url.searchParams.get("coordinator_id");
+    const status = url.searchParams.get("status");
+    const active = ["under_review", "awaiting_clarification", "approved", "planning", "confirmed"];
+    if (status && !active.includes(status)) return error(422, "INVALID_STATUS_FILTER", { status });
+    const rows = db.requests
+      .filter(
+        (r) =>
+          r.coordinator !== null &&
+          active.includes(r.status) &&
+          db.assignments[r.id]?.[0]?.assigned_by.id === caller &&
+          (!coordinator || r.coordinator.id === coordinator) &&
+          (!status || r.status === status),
+      )
+      .map((r) => ({ ...r, event_date: r.preferred_dates?.[0] ?? null }));
+    return HttpResponse.json({ event_requests: rows });
+  }),
+
   route("get", "/api/v1/coordinators", ({ request }) => {
     const role = userRole(request);
     if (!role) return error(401, "UNAUTHENTICATED");
@@ -673,13 +701,32 @@ const handlers = [
     if (target === LEAD_ID) return error(422, "INVALID_COORDINATOR", { reason: "self_assignment" });
     if (target !== COORDINATOR_PERSON.id) return error(422, "INVALID_COORDINATOR", { reason: "not_a_coordinator" });
     Object.assign(found, { status: "under_review", coordinator: { id: COORDINATOR_PERSON.id, name: COORDINATOR_PERSON.name } });
+    db.assignments[found.id] = [
+      {
+        id: newId("assignment"),
+        kind: "assignment",
+        assigned_by: LEAD_PERSON,
+        coordinator: COORDINATOR_PERSON,
+        created_at: "2026-10-24T03:15:00Z",
+      },
+      ...(db.assignments[found.id] ?? []),
+    ];
     return HttpResponse.json(found);
+  }),
+
+  route("get", "/api/v1/event-requests/:id/assignment-history", ({ request, params }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "coordinator_lead") return error(403, "FORBIDDEN");
+    const found = db.requests.find((r) => r.id === params.id);
+    if (!found || found.status === "draft") return error(404, "NOT_FOUND");
+    return HttpResponse.json({ assignments: db.assignments[found.id] ?? [] });
   }),
 
   route("get", "/api/v1/event-requests", ({ request }) => {
     const role = userRole(request);
     if (!role) return error(401, "UNAUTHENTICATED");
-    if (role !== "coordinator") return error(403, "FORBIDDEN");
+    if (role !== "coordinator" && role !== "coordinator_lead") return error(403, "FORBIDDEN");
     return HttpResponse.json({ event_requests: db.requests.filter((r) => r.status !== "draft") });
   }),
 

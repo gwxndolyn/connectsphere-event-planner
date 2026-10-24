@@ -66,6 +66,29 @@ export interface CoordinatorOptionsResponse {
   coordinators: CoordinatorOption[];
 }
 
+// A row of the Lead's Assigned tab (SCRUM-86 AC 2): `event_date` is the start date, else the first
+// preferred date, null when neither is set.
+export interface AssignedRequest extends EventRequest {
+  event_date: string | null;
+}
+
+export interface AssignedRequestsResponse {
+  event_requests: AssignedRequest[];
+}
+
+// One Assignment History entry (SCRUM-69 AC 3), newest first as the API returns them.
+export interface AssignmentRecord {
+  id: string;
+  kind: "assignment" | "reassignment";
+  assigned_by: QueuePerson;
+  coordinator: QueuePerson;
+  created_at: string;
+}
+
+export interface AssignmentHistoryResponse {
+  assignments: AssignmentRecord[];
+}
+
 export interface EventRequestsResponse {
   event_requests: EventRequest[];
 }
