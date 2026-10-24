@@ -10,7 +10,15 @@ from app.core.exceptions import DomainError
 from app.event.models import Event, EventStatus
 from app.notification.service import Notifier
 from app.user.models import User, UserRole
-from app.venue.models import ROOM_LAYOUTS, LIVE_BOOKING_STATUSES, Venue, VenueBlock, VenueBooking, VenueBookingStatus
+from app.venue.models import (
+    ROOM_LAYOUTS,
+    LIVE_BOOKING_STATUSES,
+    Venue,
+    VenueBlock,
+    VenueBooking,
+    VenueBookingStatus,
+    occupied_window,
+)
 from app.venue.schemas import (
     BookingEventOut,
     BookingVenueOut,
@@ -55,16 +63,19 @@ def may_book(event: Event, coordinator: User) -> bool:
     return coordinator.role == UserRole.COORDINATOR and event.coordinator_id == coordinator.id
 
 
-def _find_conflict(db: Session, venue_id: uuid.UUID, starts_at: datetime, ends_at: datetime) -> VenueBooking | None:
-    """A live booking at the venue whose [starts_at, ends_at) overlaps this window: the same rule
-    as the exclusion constraint, asked first so the refusal can name the window (D21, D22)."""
+def _find_conflict(
+    db: Session, venue_id: uuid.UUID, occupied_starts_at: datetime, occupied_ends_at: datetime
+) -> VenueBooking | None:
+    """A live booking at the venue whose stored occupied window overlaps this occupied window: the
+    same rule as the exclusion constraint (US13 AC 3), asked first so the refusal can name the
+    booking (D21, D22). PR 2 reports the overlap period and the reference (AC 4)."""
     return db.scalars(
         select(VenueBooking)
         .where(
             VenueBooking.venue_id == venue_id,
             VenueBooking.status.in_(LIVE_BOOKING_STATUSES),
-            VenueBooking.starts_at < ends_at,
-            VenueBooking.ends_at > starts_at,
+            VenueBooking.occupied_starts_at < occupied_ends_at,
+            VenueBooking.occupied_ends_at > occupied_starts_at,
         )
         .order_by(VenueBooking.starts_at)
         .limit(1)
@@ -225,7 +236,9 @@ class VenueBookingService:
                 capacity=venue.capacity,
                 message=f"Expected attendance is more than this venue's capacity of {venue.capacity}.",
             )
-        conflict = _find_conflict(db, venue.id, cleaned["starts_at"], cleaned["ends_at"])
+        # US13: what the venue's own buffers make this request occupy (AC 1, 2).
+        occupied_starts_at, occupied_ends_at = occupied_window(venue, cleaned["starts_at"], cleaned["ends_at"])
+        conflict = _find_conflict(db, venue.id, occupied_starts_at, occupied_ends_at)
         if conflict is not None:
             raise _unavailable(conflict)
         # DECISION-PENDING: D22 — blocks are checked here only, not by a constraint: a block added
@@ -235,9 +248,14 @@ class VenueBookingService:
         if block is not None:
             raise _unavailable(block)
 
-        booking = VenueBooking(requested_by_user_id=coordinator.id, **cleaned)
+        booking = VenueBooking(
+            requested_by_user_id=coordinator.id,
+            occupied_starts_at=occupied_starts_at,
+            occupied_ends_at=occupied_ends_at,
+            **cleaned,
+        )
         db.add(booking)
-        self._commit(db, venue.id, cleaned["starts_at"], cleaned["ends_at"])
+        self._commit(db, venue.id, occupied_starts_at, occupied_ends_at)
         db.refresh(booking)
         return booking, event, venue
 
@@ -285,7 +303,9 @@ class VenueBookingService:
         )
         return [_out(booking, event, venue) for booking, venue in rows]
 
-    def _commit(self, db: Session, venue_id: uuid.UUID, starts_at: datetime, ends_at: datetime) -> None:
+    def _commit(
+        self, db: Session, venue_id: uuid.UUID, occupied_starts_at: datetime, occupied_ends_at: datetime
+    ) -> None:
         try:
             db.commit()
         except IntegrityError as error:
@@ -293,7 +313,7 @@ class VenueBookingService:
             constraint = getattr(getattr(error.orig, "diag", None), "constraint_name", None)
             if constraint == NO_OVERLAP:
                 # AC 7: another request for an overlapping window committed first. It's visible now.
-                raise _unavailable(_find_conflict(db, venue_id, starts_at, ends_at)) from None
+                raise _unavailable(_find_conflict(db, venue_id, occupied_starts_at, occupied_ends_at)) from None
             field = CONSTRAINT_FIELDS.get(constraint)
             if field is None:
                 raise
