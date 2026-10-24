@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.exceptions import DomainError, domain_error_handler
 from app.equipment.router import events_router as equipment_events_router
+from app.equipment.router import me_router as equipment_me_router
 from app.equipment.router import router as equipment_router
 from app.equipment.router import types_router as equipment_types_router
 from app.event.router import router as event_router
@@ -55,5 +56,6 @@ app.include_router(venue_booking_events_router)
 app.include_router(equipment_types_router)
 app.include_router(equipment_router)
 app.include_router(equipment_events_router)
+app.include_router(equipment_me_router)
 app.include_router(auth_router)
 app.include_router(auth_me_router)

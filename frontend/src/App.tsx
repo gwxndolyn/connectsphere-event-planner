@@ -8,6 +8,8 @@ import { completeProfile, profileFromMetadata } from "./auth/signUp";
 import { screensFor } from "./auth/screens";
 import { DEV_AUTH, supabase } from "./auth/supabase";
 import { SiteHeader, type View } from "./components/SiteHeader";
+import { EquipmentQueue } from "./features/equipment/EquipmentQueue";
+import { EventEquipment } from "./features/equipment/EventEquipment";
 import { EventHealthCheck } from "./features/event/EventHealthCheck";
 import { AssignmentQueuePage } from "./features/eventRequest/AssignmentQueuePage";
 import { ClarificationReviewPage } from "./features/eventRequest/ClarificationReviewPage";
@@ -32,7 +34,7 @@ function screenRole(role: string): DevRole | "attendee" {
 
 // The last screen, so a refresh comes back to it (TC-US16A-35).
 const VIEW_KEY = "connectsphere.view";
-const VIEWS: View[] = ["discovery", "my-events", "event-requests", "venues"];
+const VIEWS: View[] = ["discovery", "my-events", "event-requests", "venues", "equipment"];
 
 function storedView(): View {
   try {
@@ -206,12 +208,25 @@ function Workspace({ me, view, onNavigate, onLogOut }: WorkspaceProps) {
           <ClarificationReviewPage key="coordinator" />
         ) : role === "coordinator_lead" ? (
           <AssignmentQueuePage key="coordinator_lead" />
-        ) : role === "venue_staff" ? (
+        ) : role === "venue_staff" || role === "tech_support" ? (
           <main className="request-page">
-            <p className="request-empty">Event requests aren't part of the Venue staff role. Switch Acting as to see them.</p>
+            <p className="request-empty">
+              Event requests aren't part of the {role === "venue_staff" ? "Venue staff" : "Tech support"} role. Switch Acting as
+              to see them.
+            </p>
           </main>
         ) : (
           <EventRequestsPage key="organiser" />
+        )
+      ) : shown === "equipment" ? (
+        role === "coordinator" ? (
+          <EventEquipment key="coordinator" />
+        ) : role === "tech_support" ? (
+          <EquipmentQueue key="tech_support" />
+        ) : (
+          <main className="request-page">
+            <p className="request-empty">Equipment requests are for Coordinators and Tech support. Switch Acting as to see them.</p>
+          </main>
         )
       ) : shown === "discovery" ? (
         <EventsBoard registry={registry} search={search} />

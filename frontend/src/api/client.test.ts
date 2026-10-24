@@ -51,6 +51,16 @@ describe("apiClient identity headers", () => {
     expect(sentHeaders().get("X-User-Id")).toBe("lead-id");
   });
 
+  it("sends Tech support's X-User-Id after switching Acting as, and remembers it (SCRUM-110)", async () => {
+    const { apiClient, setDevRole } = await loadClient();
+    setDevRole("tech_support");
+    await apiClient.get("/api/v1/equipment-lines?status=pending");
+    expect(sentHeaders().get("X-User-Id")).toBe("tech-support-id");
+
+    const reloaded = await loadClient();
+    expect(reloaded.getDevRole()).toBe("tech_support");
+  });
+
   it("sends only X-Attendee-Id for the attendee routes", async () => {
     const { apiClient } = await loadClient();
     await apiClient.get("/api/v1/me/registrations", "attendee");
@@ -75,6 +85,16 @@ describe("apiClient identity headers", () => {
     expect(init.method).toBe("PATCH");
     expect(init.body).toBe(JSON.stringify({ name: "Workshop" }));
     expect(sentHeaders().get("Content-Type")).toBe("application/json");
+  });
+
+  it("sends DELETE with no body, and reads an empty 204 (SCRUM-110)", async () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+    const { apiClient } = await loadClient();
+    await expect(apiClient.delete("/api/v1/equipment-lines/l1")).resolves.toBe("");
+
+    const init = fetchMock.mock.calls[0][1];
+    expect(init.method).toBe("DELETE");
+    expect(init.body).toBeUndefined();
   });
 });
 
