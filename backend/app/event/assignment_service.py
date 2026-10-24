@@ -2,7 +2,7 @@ import logging
 import uuid
 from datetime import date
 
-from sqlalchemy import select
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import DomainError
@@ -16,6 +16,16 @@ from app.notification.service import AssignmentRecipient, Notifier
 from app.user.models import User, UserRole
 
 logger = logging.getLogger(__name__)
+
+# D30: what "events currently planning" counts in the picker (SCRUM-67). Literally "Planning status"
+# would stay at 0 after an assignment, because an assigned request is Under Review (D27) until
+# approval, so it counts every status a coordinator is actively working an event through.
+WORKLOAD_STATUSES = (
+    EventStatus.UNDER_REVIEW,
+    EventStatus.AWAITING_CLARIFICATION,
+    EventStatus.APPROVED,
+    EventStatus.PLANNING,
+)
 
 # What a notice says when a request has no reference or name (the screens say the same).
 MISSING_REFERENCE = "no reference yet"
@@ -35,13 +45,24 @@ class AssignmentService:
         return [UnassignedRequestOut.model_validate(event) for event in events]
 
     def list_coordinators(self, db: Session) -> list[CoordinatorOptionOut]:
-        """Who the Lead may pick: active users with the coordinator role (AC 4)."""
-        users = db.scalars(
-            select(User)
+        """Who the Lead may pick: active users with the coordinator role (SCRUM-13 AC 4), each with
+        the number of events they are currently planning, 0 when none (SCRUM-67 AC 1, 2, D30)."""
+        rows = db.execute(
+            select(User, func.count(Event.id))
+            .outerjoin(
+                Event,
+                and_(Event.coordinator_id == User.id, Event.status.in_(WORKLOAD_STATUSES)),
+            )
             .where(User.role == UserRole.COORDINATOR, User.is_active.is_(True))
+            .group_by(User.id)
             .order_by(User.full_name, User.email)
         ).all()
-        return [CoordinatorOptionOut.model_validate(user) for user in users]
+        return [
+            CoordinatorOptionOut.model_validate(
+                {"id": user.id, "display_name": user.display_name, "email": user.email, "planning_count": count}
+            )
+            for user, count in rows
+        ]
 
     def assign(
         self,

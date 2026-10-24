@@ -50,3 +50,8 @@
     gap: 10px;
   }
 }
+
+.assign-picker__workload {
+  margin-left: auto;
+  font-weight: 600;
+}
