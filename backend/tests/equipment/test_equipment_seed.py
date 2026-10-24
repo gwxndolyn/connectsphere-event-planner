@@ -3,6 +3,7 @@
 docs/testing/US26-equipment-requests.md."""
 
 import sys
+from contextlib import nullcontext
 
 import pytest
 from sqlalchemy import func, select
@@ -93,3 +94,19 @@ def test_tc_us26_20_a_remote_reseed_says_it_empties_the_demo_events_equipment(
     out = capsys.readouterr().out
     assert "Refusing to seed a non-local database" in out
     assert "deletes every equipment line on Equipment Request Demo, approved ones included" in out
+
+
+def test_tc_us26_20_a_remote_reseed_with_yes_warns_before_it_deletes(
+    db: Session, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Whoever has already passed `--yes` sees the warning too, before anything is deleted (PR #78
+    review, second round)."""
+    monkeypatch.setattr(settings, "database_url", "postgresql+psycopg://u:p@db.example.supabase.co:5432/postgres")
+    monkeypatch.setattr(sys, "argv", ["app.seed", "--yes"])
+    monkeypatch.setattr(seed_module, "SessionLocal", lambda: nullcontext(db))
+    monkeypatch.setattr(seed_module, "admin_from_settings", lambda: None)
+
+    assert seed_module.main() == 0
+    out = capsys.readouterr().out
+    warning = out.index("deletes every equipment line on Equipment Request Demo, approved ones included")
+    assert warning < out.index("Seeding db.example.supabase.co")

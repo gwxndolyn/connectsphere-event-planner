@@ -69,6 +69,41 @@ describe("coordinator's equipment (US26 AC 1, 2, 4)", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows only the error when the events can't load, not the empty-list message (PR #78 review)", async () => {
+    seedEquipmentEvent();
+    server.use(
+      http.get("http://api.test/api/v1/me/equipment-events", () => HttpResponse.json({ detail: "boom" }, { status: 500 })),
+    );
+    const user = userEvent.setup();
+    await openEquipment(user, "coordinator");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("The request could not be completed.");
+    expect(screen.queryByText(/None of your events can take equipment requests yet/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Event")).not.toBeInTheDocument();
+  });
+
+  it("clears an earlier error once a line is added (PR #78 review)", async () => {
+    seedEquipmentEvent();
+    seedEquipmentType("Projector");
+    // The event's lines fail to load once, then the coordinator adds a line anyway.
+    server.use(
+      http.get("http://api.test/api/v1/events/:id/equipment-lines", () => HttpResponse.json({ detail: "boom" }, { status: 500 }), {
+        once: true,
+      }),
+    );
+    const user = userEvent.setup();
+    await openEquipment(user, "coordinator");
+    await pickEvent(user, "Equipment Request Demo");
+    expect(await screen.findByRole("alert")).toHaveTextContent("The request could not be completed.");
+
+    await user.selectOptions(addForm().getByLabelText("Equipment type"), "Projector");
+    await user.type(addForm().getByLabelText("Quantity"), "2");
+    await user.click(addForm().getByRole("button", { name: "Add line" }));
+
+    expect(await lines().findByRole("listitem", { name: "Projector" })).toHaveTextContent("Pending");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("adds a line: the quantity error shows on the field, and once fixed the line is Pending (TC-US26-16)", async () => {
     seedEquipmentEvent();
     const projector = seedEquipmentType("Projector");

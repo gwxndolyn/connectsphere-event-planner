@@ -889,15 +889,29 @@ async def test_tc_us26_19_keeping_a_lines_own_type_is_not_a_duplicate(
 MY_EVENTS_URL = "/api/v1/me/equipment-events"
 
 
-async def test_tc_us26_20_a_coordinator_lists_their_planning_and_confirmed_events_soonest_first(
+async def test_tc_us26_20_a_coordinator_lists_their_events_upcoming_first_then_past(
     client: AsyncClient, db: Session, coordinator: User
 ) -> None:
-    later = make_event(
-        db, name="Career Fair", status=EventStatus.CONFIRMED, start_at=NOW + timedelta(days=20), coordinator_id=coordinator.id
-    )
-    sooner = make_event(
-        db, name="Data Science Summit", status=EventStatus.PLANNING, start_at=NOW + timedelta(days=5), coordinator_id=coordinator.id
-    )
+    """Events not over yet come first, soonest first, then ended ones, most recent first (PR #78
+    review), so last month's confirmed event isn't at the top. Ended ones stay listed: the API still
+    takes lines for them (SCRUM-109's rule is status only)."""
+
+    def mine(name: str, status: EventStatus, start: timedelta, hours: int = 2) -> Event:
+        return make_event(
+            db,
+            name=name,
+            status=status,
+            start_at=NOW + start,
+            end_at=NOW + start + timedelta(hours=hours),
+            coordinator_id=coordinator.id,
+        )
+
+    later = mine("Career Fair", EventStatus.CONFIRMED, timedelta(days=20))
+    sooner = mine("Data Science Summit", EventStatus.PLANNING, timedelta(days=5))
+    # Under way: started an hour ago, ends in an hour, so not over yet.
+    under_way = mine("Hackathon", EventStatus.CONFIRMED, timedelta(hours=-1))
+    older = mine("Spring Showcase", EventStatus.CONFIRMED, timedelta(days=-30))
+    recent = mine("Alumni Night", EventStatus.CONFIRMED, timedelta(days=-7))
     # Not listed: their events in any other status, someone else's, and unassigned ones.
     for status in [*NOT_ELIGIBLE, EventStatus.DRAFT]:
         make_event(db, status=status, coordinator_id=coordinator.id)
@@ -908,10 +922,12 @@ async def test_tc_us26_20_a_coordinator_lists_their_planning_and_confirmed_event
 
     assert response.status_code == 200
     events = response.json()["events"]
-    assert [item["id"] for item in events] == [str(sooner.id), str(later.id)]
-    assert (events[0]["name"], events[0]["status"]) == ("Data Science Summit", "planning")
-    assert when(events[0]["start_at"]) == sooner.start_at
-    assert (events[1]["name"], events[1]["status"]) == ("Career Fair", "confirmed")
+    assert [item["id"] for item in events] == [
+        str(e.id) for e in (under_way, sooner, later, recent, older)
+    ]
+    assert (events[1]["name"], events[1]["status"]) == ("Data Science Summit", "planning")
+    assert when(events[1]["start_at"]) == sooner.start_at
+    assert (events[2]["name"], events[2]["status"]) == ("Career Fair", "confirmed")
 
 
 async def test_tc_us26_20_a_coordinator_with_no_such_events_gets_an_empty_list(
