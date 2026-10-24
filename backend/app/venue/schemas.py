@@ -98,6 +98,27 @@ class VenueBookingOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     withdrawn_at: datetime | None
+    # US4 (SCRUM-8): Venue Staff's decision, null while pending or once withdrawn.
+    decided_at: datetime | None
+    decided_by_user_id: uuid.UUID | None
+    rejection_reason: str | None
+    alternative_suggestion: str | None
+
+
+class BookingApproveWrite(BaseModel):
+    """Approve body (US4). A request is approved as a whole (AC 7), so there is nothing to send:
+    any field, such as a different layout or time, is an unknown field and refused."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class BookingRejectWrite(BaseModel):
+    """Reject body (US4 AC 5): both optional; blank is the same as leaving it out."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str | None = None
+    alternative_suggestion: str | None = None
 
 
 class BookingWarning(BaseModel):
