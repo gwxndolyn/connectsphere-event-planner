@@ -169,6 +169,8 @@ def make_venue_booking(
         "status": status,
         # venue_bookings_withdrawn_consistent: a withdrawn booking always carries its timestamp.
         "withdrawn_at": NOW if status == VenueBookingStatus.WITHDRAWN else None,
+        # venue_bookings_decided_consistent: an approved or rejected booking carries its decision time.
+        "decided_at": NOW if status in (VenueBookingStatus.APPROVED, VenueBookingStatus.REJECTED) else None,
     }
     booking = VenueBooking(**(fields | overrides))
     db.add(booking)
