@@ -5,13 +5,13 @@ import { expect, test, type Page } from "@playwright/test";
 //
 // "Confirm email" is on, so each case signs up a unique address, confirms it through the Supabase
 // Admin API instead of an inbox, and deletes the account afterwards so the shared project doesn't fill
-// with test users. Needs SUPABASE_URL and SUPABASE_SECRET_KEY (the backend's values); skips without them.
-// The addresses are plus-addressed to the team inbox, so the confirmation emails Supabase still sends
-// are delivered rather than bounced.
+// with test users. Needs SUPABASE_URL and SUPABASE_SECRET_KEY (the backend's values) and E2E_SIGNUP_INBOX,
+// an inbox you control that accepts plus-addressing (e.g. you@gmail.com); skips without them. Sign-ups go
+// to `<inbox>+e2e-…`, so the confirmation emails Supabase still sends are delivered rather than bounced.
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SECRET_KEY = process.env.SUPABASE_SECRET_KEY;
-const INBOX = process.env.E2E_SIGNUP_INBOX || "connectsphereis212@gmail.com";
+const INBOX = process.env.E2E_SIGNUP_INBOX;
 const PASSWORD = `E2e-${Date.now()}-pass`;
 
 type AdminUser = { id: string; email: string; email_confirmed_at: string | null };
@@ -35,7 +35,7 @@ async function findUser(email: string): Promise<AdminUser | undefined> {
 }
 
 function uniqueEmail(tag: string): string {
-  const [local, domain] = INBOX.split("@");
+  const [local, domain] = INBOX!.split("@");
   return `${local}+e2e-${tag}-${Date.now()}@${domain}`;
 }
 
@@ -56,15 +56,27 @@ async function logIn(page: Page, email: string) {
   await page.getByRole("button", { name: "Log in" }).click();
 }
 
-// Sign up, check the "confirm your email" state (TC-US16A-50), confirm through the Admin API, log in.
+// Every account a test makes, deleted after the run even if the test fails part-way (PR #75 review).
+const created: AdminUser[] = [];
+
+// Sign up, check the "confirm your email" state and that logging in waits for the confirmation
+// (TC-US16A-50), confirm through the Admin API, log in.
 async function signUpConfirmAndLogIn(page: Page, role: "Organiser" | "Attendee"): Promise<AdminUser> {
   const email = uniqueEmail(role.toLowerCase());
   await signUp(page, `E2E ${role}`, email, role);
 
-  await expect(page.getByText("Check your email to confirm your account")).toBeVisible();
+  // Supabase answers only after the SMTP server accepts the confirmation email, which can take
+  // longer than the default 5 seconds.
+  await expect(page.getByText("Check your email to confirm your account")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByRole("button", { name: "Log out" })).toHaveCount(0);
   const user = await findUser(email);
-  expect(user?.email_confirmed_at).toBeFalsy();
+  expect(user).toBeDefined();
+  created.push(user!);
+  expect(user!.email_confirmed_at).toBeFalsy();
+
+  // Logging in before confirming says so, not "Email or password is incorrect" (PR #75 review).
+  await logIn(page, email);
+  await expect(page.getByRole("alert")).toHaveText("Confirm your email first: open the link we sent you, then log in.");
 
   await admin(`/users/${user!.id}`, { method: "PUT", body: JSON.stringify({ email_confirm: true }) });
   await logIn(page, email);
@@ -72,16 +84,17 @@ async function signUpConfirmAndLogIn(page: Page, role: "Organiser" | "Attendee")
 }
 
 test.describe("sign up", () => {
-  test.skip(!SUPABASE_URL || !SECRET_KEY, "set SUPABASE_URL and SUPABASE_SECRET_KEY to run the sign-up journeys");
+  test.skip(
+    !SUPABASE_URL || !SECRET_KEY || !INBOX,
+    "set SUPABASE_URL, SUPABASE_SECRET_KEY and E2E_SIGNUP_INBOX to run the sign-up journeys",
+  );
 
-  const created: AdminUser[] = [];
   test.afterAll(async () => {
     for (const user of created) await admin(`/users/${user.id}`, { method: "DELETE" });
   });
 
   test("TC-US16A-40, 45, 50: an attendee signs up, confirms, lands on the events board, and logs back in", async ({ page }) => {
     const user = await signUpConfirmAndLogIn(page, "Attendee");
-    created.push(user);
 
     await expect(page.getByRole("heading", { name: "Events at ConnectSphere" })).toBeVisible();
     await page.getByRole("button", { name: "My events" }).click();
@@ -94,7 +107,7 @@ test.describe("sign up", () => {
   });
 
   test("TC-US16A-41: an organiser signs up, confirms and lands on Event requests", async ({ page }) => {
-    created.push(await signUpConfirmAndLogIn(page, "Organiser"));
+    await signUpConfirmAndLogIn(page, "Organiser");
 
     await expect(page.getByRole("heading", { name: "My event requests" })).toBeVisible();
   });
