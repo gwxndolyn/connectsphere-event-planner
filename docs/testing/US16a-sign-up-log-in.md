@@ -69,10 +69,10 @@
 | TC-US16A-25 | 6 | The body includes `email` or `auth_user_id` | Profile created | `422`; identity can't be set from the body | SCRUM-103 |
 | TC-US16A-26 | 6 | No token, an invalid one, or one whose email isn't verified | Profile created | `401 UNAUTHENTICATED`; nothing is created | SCRUM-103 |
 | TC-US16A-27 | 7 | Secret key and password set | Seed runs | One confirmed auth account per seeded user; each `users` row gets its `auth_user_id` | SCRUM-104 |
-| TC-US16A-28 | 7 | Auth accounts already exist | Seed runs again | Accounts found by email and reused; no duplicates; links unchanged | SCRUM-104 |
-| TC-US16A-29 | — | No secret key | Seed runs | Seeds as today; output says auth logins were skipped | SCRUM-104 |
+| TC-US16A-28 | 7 | Auth accounts already exist | Seed runs again | Accounts the seed created (marked, confirmed) found by email and reused; no duplicates; links unchanged. An account the seed didn't create, or an unconfirmed one, is refused; a row linked to a different account is never re-pointed | SCRUM-104 |
+| TC-US16A-29 | — | No URL, secret key or password; or a password under 12 characters | Seed runs | Missing: seeds as today; output says logins were skipped and names what's missing. Too short: refused, nothing linked | SCRUM-104 |
 | TC-US16A-30 | — | Secret key set | Seed runs | Neither the secret key nor the password appears in the output | SCRUM-104 |
-| TC-US16A-31 | — | The Admin API errors for one user | Seed runs | Stops with a message naming that email; no half-linked row | SCRUM-104 |
+| TC-US16A-31 | — | The Admin API errors, times out or replies badly for one user | Seed runs | Stops with a message naming that email and exits 1; no half-linked row | SCRUM-104 |
 | TC-US16A-32 | 1, 2 | The seeded organiser's email and password | Logs in | Lands on Event requests | SCRUM-105 |
 | TC-US16A-33 | 2 | The seeded coordinator; a seeded attendee | Each logs in | Coordinator lands on the review queue; attendee on the events board | SCRUM-105 |
 | TC-US16A-34 | 3 | A wrong password; an email with no account | Each is submitted | Both show exactly "Email or password is incorrect" | SCRUM-105 |
