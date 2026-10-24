@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, literal, select
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
@@ -12,7 +12,7 @@ from app.event.models import Event, EventStatus
 from app.notification.service import BookingDecision, Notifier
 from app.user.models import User, UserRole
 from app.venue.availability import Conflict, Evaluation, HoursBreach, Window, evaluate_booking, evaluate_window
-from app.venue.models import ROOM_LAYOUTS, LIVE_BOOKING_STATUSES, Venue, VenueBlock, VenueBooking, VenueBookingStatus
+from app.venue.models import ROOM_LAYOUTS, Venue, VenueBooking, VenueBookingStatus
 from app.venue.schemas import (
     BookingConflictOut,
     BookingEvaluationOut,
@@ -26,7 +26,7 @@ from app.venue.schemas import (
     VenueBookingWrite,
     WindowOut,
 )
-from app.venue.service import VENUE_STAFF_ROLES, _clean_tags, _slot
+from app.venue.service import VENUE_STAFF_ROLES, _clean_tags
 
 logger = logging.getLogger(__name__)
 
@@ -95,53 +95,18 @@ def _unavailable(conflict: Conflict | None, occupied: Window | None = None) -> D
     return DomainError(409, "VENUE_UNAVAILABLE", message=message, **body)
 
 
-def _find_block(db: Session, venue_id: uuid.UUID, starts_at: datetime, ends_at: datetime) -> VenueBlock | None:
-    """A venue block (US2's unavailability period, AC 3) overlapping this window by the same [)
-    rule, so back-to-back is fine. Written as && on the range venue_blocks_venue_window indexes."""
-    window = func.tstzrange(literal(starts_at), literal(ends_at), literal("[)"))
-    return db.scalars(
-        select(VenueBlock)
-        .where(VenueBlock.venue_id == venue_id, _slot(VenueBlock).op("&&")(window))
-        .order_by(VenueBlock.starts_at)
-        .limit(1)
-    ).first()
+def _overlaps(window: Window, booking: VenueBooking) -> bool:
+    """Whether the clash is with the booking's own window, not only its setup and turnaround."""
+    return window.starts_at < booking.ends_at and window.ends_at > booking.starts_at
 
 
-def _find_approval_conflict(db: Session, booking: VenueBooking) -> VenueBooking | VenueBlock | None:
-    """US4 AC 3: what stops this request being approved. Its stored occupied window (US13: setup
-    before, turnaround after) may not overlap another live booking's occupied window or a block at
-    the venue. venue_bookings_no_overlap already keeps live bookings' occupied windows apart, so the
-    booking half is a backstop for rows made before it; blocks are only ever checked by the service
-    (D22), and one may have been added since the request. A booking is reported before a block."""
-    other = db.scalars(
-        select(VenueBooking)
-        .where(
-            VenueBooking.venue_id == booking.venue_id,
-            VenueBooking.id != booking.id,
-            VenueBooking.status.in_(LIVE_BOOKING_STATUSES),
-            VenueBooking.occupied_starts_at < booking.occupied_ends_at,
-            VenueBooking.occupied_ends_at > booking.occupied_starts_at,
-        )
-        .order_by(VenueBooking.starts_at)
-        .limit(1)
-    ).first()
-    if other is not None:
-        return other
-    return _find_block(db, booking.venue_id, booking.occupied_starts_at, booking.occupied_ends_at)
-
-
-def _overlaps(conflict: VenueBooking | VenueBlock, booking: VenueBooking) -> bool:
-    return conflict.starts_at < booking.ends_at and conflict.ends_at > booking.starts_at
-
-
-def _approval_unavailable(conflict: VenueBooking | VenueBlock | None, *, buffers: bool = False) -> DomainError:
-    """US4's approval refusal (409 VENUE_UNAVAILABLE), as #73 built it. `buffers`: the clash is only with the venue's setup and turnaround, not the window itself
-    (US4 approval), so the message says too close rather than already booked (PR #73 review)."""
-    if conflict is None:
-        return DomainError(409, "VENUE_UNAVAILABLE", message="This venue is already booked for that time.")
-    window = {"starts_at": conflict.starts_at.isoformat(), "ends_at": conflict.ends_at.isoformat()}
-    what = "a venue closure" if isinstance(conflict, VenueBlock) else "a booking"
-    if buffers:
+def _approval_unavailable(conflict: Conflict, booking: VenueBooking) -> DomainError:
+    """US4's approval refusal, 409 VENUE_UNAVAILABLE, as #73 built it: `conflict` is the clashing
+    booking's or block's own window, and `buffers` is true when the clash is only with the venue's
+    setup and turnaround, so the message says too close rather than already booked (PR #73 review)."""
+    window = conflict.window.as_json()
+    if not _overlaps(conflict.window, booking):
+        what = "a venue closure" if conflict.kind == "block" else "a booking"
         return DomainError(
             409,
             "VENUE_UNAVAILABLE",
@@ -152,7 +117,7 @@ def _approval_unavailable(conflict: VenueBooking | VenueBlock | None, *, buffers
                 "to fit the venue's setup and turnaround."
             ),
         )
-    reason = "unavailable" if isinstance(conflict, VenueBlock) else "already booked"
+    reason = "unavailable" if conflict.kind == "block" else "already booked"
     return DomainError(
         409,
         "VENUE_UNAVAILABLE",
@@ -161,10 +126,12 @@ def _approval_unavailable(conflict: VenueBooking | VenueBlock | None, *, buffers
     )
 
 
-def _outside_hours(breach: HoursBreach, occupied: Window) -> DomainError:
-    """422 VENUE_OUTSIDE_HOURS (US13 AC 5, D32): `fields` names the end that breaches."""
+def _outside_hours(breach: HoursBreach, occupied: Window, status_code: int = 422) -> DomainError:
+    """VENUE_OUTSIDE_HOURS (US13 AC 5, D32): `fields` names the end that breaches. 422 for a request
+    (its fields); 409 at approval, which has no body: like US4's capacity re-check, it's the booking's
+    state now that refuses it (deviation 40)."""
     return DomainError(
-        422,
+        status_code,
         "VENUE_OUTSIDE_HOURS",
         fields=breach.fields,
         opens_at=breach.opens_at.isoformat(),
@@ -418,10 +385,14 @@ class VenueBookingService:
                 capacity=venue.capacity,
                 message=f"Expected attendance is now more than this venue's capacity of {venue.capacity}.",
             )
+        # US13 AC 3, 5 (D32): the rule US13 built for this. The stored occupied window must fit the
+        # opening hours now and clash with no live booking or block (bookings reported first).
         # DECISION-PENDING: D22 — blocks are checked here only, not by a constraint (see _insert).
-        conflict = _find_approval_conflict(db, booking)
-        if conflict is not None:
-            raise _approval_unavailable(conflict, buffers=not _overlaps(conflict, booking))
+        evaluation = evaluate_booking(db, booking)
+        if evaluation.outside_hours is not None:
+            raise _outside_hours(evaluation.outside_hours, evaluation.occupied, status_code=409)
+        if evaluation.conflicts:
+            raise _approval_unavailable(evaluation.conflicts[0], booking)
         return self._decide(db, notifier, staff, booking, event, venue, VenueBookingStatus.APPROVED, now)
 
     def reject(

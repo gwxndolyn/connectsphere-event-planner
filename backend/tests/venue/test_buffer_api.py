@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import Engine, delete, func, inspect, select
+from sqlalchemy import Engine, delete, func, inspect, select, text
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import DomainError
@@ -272,19 +272,29 @@ async def test_tc_us13_09_hours_are_checked_before_overlaps(
 # --- TC-US13-10 the reusable rule US4 calls ---
 
 
+def stored_window_wider_than_now(db: Session, booking: VenueBooking, occupied_starts_at: datetime) -> None:
+    """A booking whose stored occupied window is wider than the venue's buffers give now: only a row
+    changed outside the API can be (D31 recomputes on every buffer edit). The overlap guard would
+    refuse it, so it's dropped inside the test's transaction, as US4's tests do."""
+    db.execute(text("ALTER TABLE venue_bookings DROP CONSTRAINT venue_bookings_no_overlap"))
+    booking.occupied_starts_at = occupied_starts_at
+    db.flush()
+
+
 def test_tc_us13_10_evaluate_booking_lists_conflicts_and_an_hours_breach(
     db: Session, coordinator: User, event: Event, venue: Venue
 ) -> None:
-    """US4's contract: what stops this booking being approved now, from the venue as it is now.
-    The stored windows were fine when made; a later block, a later hours edit and buffers changed
-    outside the API (so nothing recomputed them) all show up."""
+    """US4's contract: what stops this booking being approved now. It judges the booking's stored
+    occupied window (the range the overlap guard holds) against everything at the venue now: a
+    later block, a later hours edit and a stored window wider than when made all show up."""
     earlier = make_venue_booking(
         db, event=event, venue=venue, user=coordinator, status=VenueBookingStatus.APPROVED, starts_at=at(10), ends_at=at(12)
     )
     booking = make_venue_booking(db, event=event, venue=venue, user=coordinator, starts_at=at(13, 15), ends_at=at(14))
     db.refresh(earlier)
     block = make_venue_block(db, venue, at(14, 30), at(15), note="Closed for cleaning")
-    venue.setup_minutes = 45  # 12:30 setup now runs into the earlier booking's 12:45 turnaround
+    # A 12:30 stored setup runs into the earlier booking's 12:45 turnaround.
+    stored_window_wider_than_now(db, booking, at(12, 30))
     venue.closes_at = time(14, 40)  # and the 14:45 turnaround end is now after closing
     db.flush()
 
@@ -362,8 +372,7 @@ async def test_tc_us13_11_venue_staff_see_the_clashing_bookings_reference(
     earlier = make_venue_booking(db, event=event, venue=venue, user=coordinator, starts_at=at(10), ends_at=at(12))
     booking = make_venue_booking(db, event=event, venue=venue, user=coordinator, starts_at=at(13, 15), ends_at=at(14))
     db.refresh(earlier)
-    venue.setup_minutes = 45
-    db.flush()
+    stored_window_wider_than_now(db, booking, at(12, 30))
 
     payload = (await client.get(evaluation_url(booking.id), headers=auth(staff))).json()
 

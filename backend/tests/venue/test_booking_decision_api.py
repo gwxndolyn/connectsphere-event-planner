@@ -2,7 +2,7 @@
 request, its refusals and the coordinator's notice. See docs/testing/US4-booking-decision.md."""
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 
 import pytest
 from httpx import AsyncClient
@@ -415,6 +415,54 @@ async def test_tc_us4_03_capacity_is_checked_again_on_approval(
     assert stored(db, booking).status == VenueBookingStatus.REQUESTED
     venue.capacity = 30
     db.flush()
+    assert (await client.post(approve_url(booking.id), headers=auth(staff))).status_code == 200
+
+
+@pytest.mark.parametrize(
+    ("hours", "fields"),
+    [
+        ({"opens_at": time(9, 0)}, ["starts_at"]),  # the 08:30 setup now starts before opening
+        ({"closes_at": time(11, 0)}, ["ends_at"]),  # the 11:15 turnaround now ends after closing
+    ],
+    ids=["setup before opening", "turnaround after closing"],
+)
+async def test_tc_us4_03_approval_is_refused_outside_opening_hours(
+    client: AsyncClient,
+    db: Session,
+    staff: User,
+    venue: Venue,
+    booking: VenueBooking,
+    notifier: FakeNotifier,
+    hours: dict[str, time],
+    fields: list[str],
+) -> None:
+    """US13 AC 5 (D32) at approval: the request occupies 08:30-11:15 (30/15 buffers) and fitted the
+    08:00-20:00 hours when made. Hours edited since (US20) block approval, as US4's capacity re-check
+    does, so it's 409 with the request's stored occupied window; it stays pending and nobody is told."""
+    for field, value in hours.items():
+        setattr(venue, field, value)
+    db.flush()
+
+    response = await client.post(approve_url(booking.id), headers=auth(staff))
+
+    assert response.status_code == 409
+    body = response.json()
+    assert body["code"] == "VENUE_OUTSIDE_HOURS"
+    assert body["fields"] == fields
+    assert (body["opens_at"], body["closes_at"]) == (venue.opens_at.isoformat(), venue.closes_at.isoformat())
+    assert datetime.fromisoformat(body["occupied"]["starts_at"]) == START - timedelta(minutes=30)
+    assert datetime.fromisoformat(body["occupied"]["ends_at"]) == END + timedelta(minutes=15)
+    saved = stored(db, booking)
+    assert (saved.status, saved.decided_at) == (VenueBookingStatus.REQUESTED, None)
+    assert notifier.booking_decisions == []
+
+
+async def test_tc_us4_03_approval_inside_opening_hours_exactly_is_fine(
+    client: AsyncClient, db: Session, staff: User, venue: Venue, booking: VenueBooking
+) -> None:
+    venue.opens_at, venue.closes_at = time(8, 30), time(11, 15)  # exactly the occupied window
+    db.flush()
+
     assert (await client.post(approve_url(booking.id), headers=auth(staff))).status_code == 200
 
 

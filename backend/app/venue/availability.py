@@ -139,6 +139,17 @@ def _hold_conflicts(db: Session, venue_id: uuid.UUID, occupied: Window) -> list[
     return []
 
 
+def _evaluate(
+    db: Session, venue: Venue, starts_at: datetime, occupied: Window, exclude_booking_id: uuid.UUID | None
+) -> Evaluation:
+    conflicts = (
+        _booking_conflicts(db, venue.id, occupied, exclude_booking_id)
+        + _block_conflicts(db, venue.id, occupied)
+        + _hold_conflicts(db, venue.id, occupied)
+    )
+    return Evaluation(occupied=occupied, conflicts=conflicts, outside_hours=hours_breach(venue, starts_at, occupied))
+
+
 def evaluate_window(
     db: Session,
     venue: Venue,
@@ -148,18 +159,16 @@ def evaluate_window(
     exclude_booking_id: uuid.UUID | None = None,
 ) -> Evaluation:
     """What stands in the way of occupying `venue` for [starts_at, ends_at) plus its buffers (AC 1-5),
-    with the venue as it is now. Conflicts are bookings first, then blocks, each by start."""
-    occupied = Window(*occupied_window(venue, starts_at, ends_at))
-    conflicts = (
-        _booking_conflicts(db, venue.id, occupied, exclude_booking_id)
-        + _block_conflicts(db, venue.id, occupied)
-        + _hold_conflicts(db, venue.id, occupied)
-    )
-    return Evaluation(occupied=occupied, conflicts=conflicts, outside_hours=hours_breach(venue, starts_at, occupied))
+    for a window not booked yet: the venue's current buffers make the occupied window. Conflicts are
+    bookings first, then blocks, each by start."""
+    return _evaluate(db, venue, starts_at, Window(*occupied_window(venue, starts_at, ends_at)), exclude_booking_id)
 
 
 def evaluate_booking(db: Session, booking: VenueBooking) -> Evaluation:
-    """US4's check before approving (AC 3, 5): the booking as it would occupy its venue now, with the
-    venue's current buffers and hours, against everything else. It ignores itself."""
+    """US4's check before approving (AC 3, 5; US4 AC 3): the booking's stored occupied window, the
+    range venue_bookings_no_overlap guards, against every other live booking, block and hold now,
+    and inside the venue's opening hours now. It ignores itself. Buffer edits through the API keep
+    the stored window current (D31); a row changed outside it is judged by what it stores."""
     venue = db.get(Venue, booking.venue_id)
-    return evaluate_window(db, venue, booking.starts_at, booking.ends_at, exclude_booking_id=booking.id)
+    occupied = Window(booking.occupied_starts_at, booking.occupied_ends_at)
+    return _evaluate(db, venue, booking.starts_at, occupied, booking.id)

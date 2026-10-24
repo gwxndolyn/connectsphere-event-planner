@@ -35,7 +35,7 @@
 | TC-US13-07 | 3, 4 | A request whose occupied window overlaps a live booking's, even by one second, is `409 VENUE_UNAVAILABLE` with the overlap period; touching is accepted | Auto pytest | 2 |
 | TC-US13-08 | 3 | Setup or turnaround inside a venue block is refused with the overlap; touching a block is accepted | Auto pytest | 2 |
 | TC-US13-09 | 5 | An occupied window starting before opening or ending after closing is `422 VENUE_OUTSIDE_HOURS`; exactly opening to closing is accepted; a window crossing midnight is refused | Auto pytest | 2 |
-| TC-US13-10 | 3, 4, 5 | `evaluate_booking` lists every conflict (bookings, blocks) with overlap and reference, plus any hours breach, excluding the booking itself; it's empty when clear (US4's contract) | Auto pytest | 2 |
+| TC-US13-10 | 3, 4, 5 | `evaluate_booking` lists every conflict (bookings, blocks) with overlap and reference, plus any hours breach, excluding the booking itself, for the booking's stored occupied window; it's empty when clear (US4's contract) | Auto pytest | 2 |
 | TC-US13-11 | 4 | `GET /api/v1/venue-bookings/{id}/evaluation`: Venue Staff only (`403` otherwise), `404` for an unknown id; it shows a block added after the request | Auto pytest | 2 |
 | TC-US13-12 | 6 | A buffer edit with only Requested future bookings recomputes their windows; an edit that would make two overlap, or run one outside hours, is `409 VENUE_BUFFERS_CONFLICT`, naming them, with nothing saved; past bookings are untouched; approved future bookings are still `VENUE_BUFFERS_LOCKED` | Auto pytest | 2 |
 | TC-US13-13 | 1, 3, 5 | US2 search hides a venue whose occupied window clashes or runs outside its hours; a touching window is shown | Auto pytest | 2 |
@@ -49,7 +49,7 @@
 ## Decisions (story owner's choices, 24 Oct; `DECISION-PENDING` for the team)
 
 - **D31: buffer edits while Requested future bookings exist.** Recompute their occupied windows in the same transaction, and refuse the edit with `409 VENUE_BUFFERS_CONFLICT` if any would then clash or run outside hours (PR 2).
-- **D32: when AC 5 applies.** At request time too, and again at approval through `evaluate_booking`, since hours can change (PR 2).
+- **D32: when AC 5 applies.** At request time too, and again at approval through `evaluate_booking`, since hours can change (PR 2). Approval refuses with `409 VENUE_OUTSIDE_HOURS` (TC-US4-03).
 - **D33: booking reference.** `VB-<year>-<6 digits>` on every booking, from `next_venue_booking_reference()` (the column default), the year it was made in Singapore (PR 1).
 - **D34: overlaps the buffers create in existing data.** The migration refuses and names each pair, for a person to withdraw or reject one of them. CR-01 says such bookings are identified, not removed, and an exclusion constraint can't be added `NOT VALID` (PR 1).
 - **D35: what a coordinator sees in a 409.** The overlap period and the kind of clash, but not the other booking's reference, which AC 4 gives to Venue Staff (PR 2).
@@ -65,7 +65,7 @@
 
 ## PR 2 notes
 
-- **One rule:** `evaluate_window` / `evaluate_booking` (`app/venue/availability.py`) serve the request, the buffer-edit recompute's hours check, Venue Staff's evaluation and US4's approval. A request is refused for hours before overlaps.
+- **One rule:** `evaluate_window` / `evaluate_booking` (`app/venue/availability.py`) serve the request, the buffer-edit recompute's hours check, Venue Staff's evaluation and US4's approval. `evaluate_window` uses the venue's current buffers; `evaluate_booking` uses the booking's stored occupied window. A request is refused for hours before overlaps.
 - **What a coordinator sees (D35):** a 409's `conflict` carries `kind`, `occupied` and the exact `overlap`, never the other booking's reference. Venue Staff get the reference from `GET /api/v1/venue-bookings/{id}/evaluation`.
 - **Existing tests changed for buffers:** US2's TC-US2-06 hours case uses a 0/0 venue (the plain rule; TC-US13-13 has the buffered one). US22's TC-US22-15 race test wraps `evaluate_window`, the new pre-check, instead of the removed `_find_conflict`.
 - **E2E times changed:** TC-US22-21 books the Library 15:00–17:00, not 16:00–18:00 (its 20-minute turnaround must end by its 18:00 closing). TC-US2-14 searches 17:00–17:50, not 17:30–18:30: Lawn C (90/60) still fits by its 19:00 closing and the Library's turnaround still runs past 18:00.
