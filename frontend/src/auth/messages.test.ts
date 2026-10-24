@@ -45,6 +45,12 @@ describe("accountErrorMessage", () => {
     );
   });
 
+  it("TC-US16A-43: says when a new sign-up's email already belongs to a profile", () => {
+    expect(accountErrorMessage(new ApiError(409, "EMAIL_ALREADY_REGISTERED"))).toBe(
+      "This email already belongs to an account. Log in with that account instead.",
+    );
+  });
+
   it("says when login is down on the server", () => {
     expect(accountErrorMessage(new ApiError(503, "AUTH_UNAVAILABLE"))).toBe(
       "Login is unavailable right now. Try again shortly.",
