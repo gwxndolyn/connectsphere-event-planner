@@ -75,5 +75,17 @@ export interface Profile {
 export async function completeProfile(metadata: Record<string, unknown> | undefined): Promise<Profile> {
   const profile = profileFromMetadata(metadata);
   if (!profile) throw new ApiError(403, "PROFILE_REQUIRED");
-  return apiClient.post<Profile>("/api/v1/auth/profile", profile);
+  try {
+    return await apiClient.post<Profile>("/api/v1/auth/profile", profile);
+  } catch (error) {
+    // 409 also comes back when this account's own profile already exists: the confirmation link's
+    // tab, a retry or StrictMode's double effect created it first. Read it back; if there's still no
+    // profile, the email belongs to someone else and the 409 stands (PR #75 review).
+    if (!(error instanceof ApiError && error.code === "EMAIL_ALREADY_REGISTERED")) throw error;
+    try {
+      return await apiClient.get<Profile>("/api/v1/me");
+    } catch {
+      throw error;
+    }
+  }
 }
