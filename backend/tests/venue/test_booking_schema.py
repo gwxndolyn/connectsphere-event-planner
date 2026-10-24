@@ -32,6 +32,11 @@ AGREED_COLUMNS = {
     "created_at",
     "updated_at",
     "withdrawn_at",
+    # US4 (SCRUM-8): Venue Staff's decision.
+    "decided_at",
+    "decided_by_user_id",
+    "rejection_reason",
+    "alternative_suggestion",
 }
 # Every refused overlap names this constraint (AC 3 and 7).
 NO_OVERLAP = "venue_bookings_no_overlap"
@@ -136,6 +141,8 @@ def test_tc_us22_01_booking_schema_is_installed(db: Session, engine) -> None:
         "venue_bookings_required_facilities_known",
         "venue_bookings_required_accessibility_features_known",
         "venue_bookings_withdrawn_consistent",
+        "venue_bookings_decided_consistent",  # US4
+        "venue_bookings_rejection_notes_only_when_rejected",  # US4
     }
     exclusions = db.scalars(
         text("select conname from pg_constraint where conrelid = 'venue_bookings'::regclass and contype = 'x'")

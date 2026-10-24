@@ -75,8 +75,8 @@ class Venue(Base):
 
 class VenueBookingStatus(enum.StrEnum):
     REQUESTED = "requested"  # pending Venue Staff's review (US22 AC 4)
-    APPROVED = "approved"
-    REJECTED = "rejected"
+    APPROVED = "approved"  # Venue Staff approved it: the venue is reserved for the event (US4 AC 2)
+    REJECTED = "rejected"  # Venue Staff rejected it, optionally with a reason and an alternative (US4 AC 5)
     WITHDRAWN = "withdrawn"  # the coordinator withdrew it while pending (AC 5)
 
 
@@ -106,6 +106,14 @@ class VenueBooking(Base):
         CheckConstraint(
             "(status = 'withdrawn') = (withdrawn_at IS NOT NULL)", name="venue_bookings_withdrawn_consistent"
         ),
+        # US4 (SCRUM-8): a decision time exactly when approved or rejected; notes only on a rejection.
+        CheckConstraint(
+            "(status IN ('approved', 'rejected')) = (decided_at IS NOT NULL)", name="venue_bookings_decided_consistent"
+        ),
+        CheckConstraint(
+            "status = 'rejected' OR (rejection_reason IS NULL AND alternative_suggestion IS NULL)",
+            name="venue_bookings_rejection_notes_only_when_rejected",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, server_default=text("gen_random_uuid()"))
@@ -131,6 +139,12 @@ class VenueBooking(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
     withdrawn_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # US4 (SCRUM-8): Venue Staff's decision. decided_by_user_id is null only for a decision older
+    # than US4 (the migration backfills decided_at for those). The two notes go with a rejection (AC 5).
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    decided_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    rejection_reason: Mapped[str | None] = mapped_column(Text)
+    alternative_suggestion: Mapped[str | None] = mapped_column(Text)
 
 
 class VenueBlock(Base):
