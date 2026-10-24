@@ -44,7 +44,14 @@ test("TC-US10A-26: the Coordinator Lead assigns a submitted request and the orga
   await page.getByRole("button", { name: "Confirm assignment" }).click();
 
   await expect(page.getByRole("heading", { level: 2, name: "Coordinator assigned" })).toBeVisible();
-  await page.getByRole("button", { name: "Back to queue" }).click();
+  // SCRUM-69: the Lead can see who assigned whom, and when.
+  await page.getByRole("button", { name: "View assignment history" }).click();
+  const entry = page.getByRole("region", { name: "Assignment history" }).getByRole("listitem");
+  await expect(entry).toHaveCount(1);
+  await expect(entry).toContainText("Assignment");
+  await expect(entry).toContainText("Lena Lim assigned");
+  await expect(entry.locator("time")).toBeVisible();
+  await page.getByRole("button", { name: "Back to queue" }).first().click();
   // AC 5: it has left the queue.
   await expect(queue.locator(".assign-row", { hasText: eventName })).toHaveCount(0);
 

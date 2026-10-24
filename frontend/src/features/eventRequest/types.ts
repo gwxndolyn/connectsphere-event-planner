@@ -66,6 +66,19 @@ export interface CoordinatorOptionsResponse {
   coordinators: CoordinatorOption[];
 }
 
+// One Assignment History entry (SCRUM-69 AC 3), newest first as the API returns them.
+export interface AssignmentRecord {
+  id: string;
+  kind: "assignment" | "reassignment";
+  assigned_by: QueuePerson;
+  coordinator: QueuePerson;
+  created_at: string;
+}
+
+export interface AssignmentHistoryResponse {
+  assignments: AssignmentRecord[];
+}
+
 export interface EventRequestsResponse {
   event_requests: EventRequest[];
 }
