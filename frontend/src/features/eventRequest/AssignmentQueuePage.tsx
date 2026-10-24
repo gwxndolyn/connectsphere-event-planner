@@ -2,19 +2,25 @@ import { useEffect, useState } from "react";
 import { ApiError, apiClient } from "../../api/client";
 import { statusLabel } from "./clarificationSections";
 import type {
+  AssignedRequest,
+  AssignedRequestsResponse,
   AssignmentHistoryResponse,
   AssignmentRecord,
   CoordinatorOption,
   CoordinatorOptionsResponse,
   EventRequest,
-  EventRequestsResponse,
   UnassignedRequest,
   UnassignedRequestsResponse,
 } from "./types";
+import { LeadRequestDetail } from "./LeadRequestDetail";
 import "./eventRequests.css";
 import "./assignments.css";
 
-type Screen = "queue" | "assign" | "done" | "history";
+type Screen = "queue" | "assign" | "done" | "history" | "detail";
+type Tab = "unassigned" | "assigned";
+
+// SCRUM-86 AC 3: the statuses an assigned, still-active event can be in.
+const ACTIVE_STATUSES = ["under_review", "awaiting_clarification", "approved", "planning", "confirmed"];
 
 // SCRUM-13 AC 4 and 7: the backend says why a pick was refused.
 const REFUSALS: Record<string, string> = {
@@ -30,6 +36,7 @@ function errorMessage(error: unknown): string {
   if (error.code === "FORBIDDEN") return "Only the Event Coordinator Lead can assign. Switch \"Acting as\" to Coordinator Lead.";
   if (error.code === "NOT_FOUND") return "This request is no longer available.";
   if (error.code === "ASSIGNMENT_NOT_ALLOWED") return "This request is no longer waiting for a coordinator. It has been assigned or moved on.";
+  if (error.code === "INVALID_STATUS_FILTER") return "That status can't be filtered here. Pick an active status.";
   if (error.code === "INVALID_COORDINATOR") {
     const reason = error.body.reason;
     return (typeof reason === "string" && REFUSALS[reason]) || "That coordinator can't be assigned.";
@@ -69,8 +76,15 @@ export function AssignmentQueuePage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  // SCRUM-69: requests that already have a coordinator, and the history of the one being viewed.
-  const [assigned, setAssigned] = useState<EventRequest[]>([]);
+  // SCRUM-86: the Assigned tab, its filters, and the coordinators it can be filtered by.
+  const [tab, setTab] = useState<Tab>("unassigned");
+  const [assigned, setAssigned] = useState<AssignedRequest[]>([]);
+  const [assignedLoaded, setAssignedLoaded] = useState(false);
+  const [filterCoordinator, setFilterCoordinator] = useState("");
+  const [filterStatus, setFilterStatus] = useState("");
+  const [assignedVersion, setAssignedVersion] = useState(0);
+  const [filterOptions, setFilterOptions] = useState<{ id: string; name: string }[]>([]);
+  // SCRUM-69: the history of the request being viewed.
   const [history, setHistory] = useState<AssignmentRecord[]>([]);
 
   useEffect(() => {
@@ -93,10 +107,23 @@ export function AssignmentQueuePage() {
 
   useEffect(() => {
     let current = true;
+    const params = new URLSearchParams();
+    if (filterCoordinator) params.set("coordinator_id", filterCoordinator);
+    if (filterStatus) params.set("status", filterStatus);
+    const query = params.size ? `?${params.toString()}` : "";
     apiClient
-      .get<EventRequestsResponse>("/api/v1/event-requests")
+      .get<AssignedRequestsResponse>(`/api/v1/event-requests/assigned${query}`)
       .then((response) => {
-        if (current) setAssigned(response.event_requests.filter((request) => request.coordinator !== null));
+        if (!current) return;
+        setAssigned(response.event_requests);
+        // The coordinator filter lists everyone the Lead has assigned to, so it must not shrink
+        // to the coordinator just chosen.
+        if (!query) {
+          const seen = new Map<string, string>();
+          response.event_requests.forEach((row) => row.coordinator && seen.set(row.coordinator.id, row.coordinator.name));
+          setFilterOptions([...seen].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)));
+        }
+        setAssignedLoaded(true);
       })
       .catch((reason: unknown) => {
         if (current) setError(errorMessage(reason));
@@ -104,7 +131,13 @@ export function AssignmentQueuePage() {
     return () => {
       current = false;
     };
-  }, []);
+  }, [filterCoordinator, filterStatus, assignedVersion]);
+
+  function viewDetail(request: EventRequest) {
+    setError(null);
+    setActive(request as UnassignedRequest);
+    setScreen("detail");
+  }
 
   async function openHistory(request: EventRequest) {
     setError(null);
@@ -144,7 +177,11 @@ export function AssignmentQueuePage() {
       // AC 5: the request leaves the queue once it's assigned.
       setRequests((current) => current.filter((request) => request.id !== active.id));
       setAssignedTo(result.coordinator?.name ?? null);
-      setAssigned((current) => [result, ...current]);
+      // The Assigned tab now includes this request; reload it (and the filter options) from scratch.
+      setFilterCoordinator("");
+      setFilterStatus("");
+      setAssignedLoaded(false);
+      setAssignedVersion((version) => version + 1);
       setScreen("done");
     } catch (reason) {
       setError(errorMessage(reason));
@@ -176,10 +213,12 @@ export function AssignmentQueuePage() {
                 ? "Assign a coordinator"
                 : screen === "history"
                   ? "Assignment history"
-                  : "Assignment complete"}
+                  : screen === "detail"
+                    ? "Request details"
+                    : "Assignment complete"}
           </h1>
         </div>
-        {(screen === "assign" || screen === "history") && (
+        {(screen === "assign" || screen === "history" || screen === "detail") && (
           <button className="request-button request-button--quiet" type="button" onClick={backToQueue}>
             Back to queue
           </button>
@@ -189,7 +228,26 @@ export function AssignmentQueuePage() {
       {error && <div className="request-alert" role="alert">{error}</div>}
 
       {screen === "queue" && (
-        <section aria-label="Unassigned requests" className="request-list">
+        <div className="assign-tabs" role="tablist" aria-label="Lead views">
+          {(["unassigned", "assigned"] as Tab[]).map((id) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              id={`tab-${id}`}
+              aria-selected={tab === id}
+              aria-controls={`panel-${id}`}
+              className={`assign-tabs__tab${tab === id ? " assign-tabs__tab--active" : ""}`}
+              onClick={() => setTab(id)}
+            >
+              {id === "unassigned" ? "Unassigned" : "Assigned"}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {screen === "queue" && tab === "unassigned" && (
+        <section id="panel-unassigned" aria-label="Unassigned requests" className="request-list">
           {loading ? (
             <p className="request-empty" role="status">Loading requests…</p>
           ) : requests.length === 0 ? (
@@ -206,41 +264,97 @@ export function AssignmentQueuePage() {
                   <span>Expected attendance: {request.expected_attendees ?? "Not set"}</span>
                 </span>
                 <span className={`request-status request-status--${request.status}`}>{statusLabel(request.status)}</span>
-                <button
-                  className="request-button request-button--primary"
-                  type="button"
-                  aria-label={`Assign ${request.name || "request"}`}
-                  onClick={() => void startAssigning(request)}
-                >
-                  Assign
-                </button>
+                <span className="assign-row__actions">
+                  <button
+                    className="request-button request-button--quiet"
+                    type="button"
+                    aria-label={`View ${request.name || "request"}`}
+                    onClick={() => viewDetail(request)}
+                  >
+                    View
+                  </button>
+                  <button
+                    className="request-button request-button--primary"
+                    type="button"
+                    aria-label={`Assign ${request.name || "request"}`}
+                    onClick={() => void startAssigning(request)}
+                  >
+                    Assign
+                  </button>
+                </span>
               </div>
             ))
           )}
         </section>
       )}
 
-      {screen === "queue" && !loading && assigned.length > 0 && (
-        <section aria-label="Assigned requests" className="request-list">
-          <h2 className="assign-subheading">Assigned requests</h2>
-          {assigned.map((request) => (
-            <div className="assign-row" key={request.id}>
-              <span className="assign-row__main">
-                <strong>{request.name || "Untitled event request"}</strong>
-                <span>Coordinator: {request.coordinator?.name}</span>
-              </span>
-              <span className={`request-status request-status--${request.status}`}>{statusLabel(request.status)}</span>
-              <button
-                className="request-button request-button--quiet"
-                type="button"
-                aria-label={`Assignment history for ${request.name || "request"}`}
-                onClick={() => void openHistory(request)}
-              >
-                History
-              </button>
+      {screen === "queue" && tab === "assigned" && (
+        <section id="panel-assigned" aria-label="Assigned requests" className="request-list">
+          <div className="assign-filters">
+            <label className="request-field">
+              Coordinator
+              <select value={filterCoordinator} onChange={(event) => setFilterCoordinator(event.target.value)}>
+                <option value="">All coordinators</option>
+                {filterOptions.map((option) => (
+                  <option key={option.id} value={option.id}>{option.name}</option>
+                ))}
+              </select>
+            </label>
+            <label className="request-field">
+              Status
+              <select value={filterStatus} onChange={(event) => setFilterStatus(event.target.value)}>
+                <option value="">All statuses</option>
+                {ACTIVE_STATUSES.map((status) => (
+                  <option key={status} value={status}>{statusLabel(status)}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+          {!assignedLoaded ? (
+            <p className="request-empty" role="status">Loading events…</p>
+          ) : assigned.length === 0 ? (
+            <div className="request-empty">
+              <p>{filterCoordinator || filterStatus ? "No assigned events match these filters." : "You haven't assigned any active events yet."}</p>
             </div>
-          ))}
+          ) : (
+            assigned.map((request) => (
+              <div className="assign-row" key={request.id}>
+                <span className="assign-row__main">
+                  <strong>{request.name || "Untitled event request"}</strong>
+                  <span>Coordinator: {request.coordinator?.name}</span>
+                  <span>Event date: {request.event_date ?? "Not set"}</span>
+                </span>
+                <span className={`request-status request-status--${request.status}`}>{statusLabel(request.status)}</span>
+                <span className="assign-row__actions">
+                  <button
+                    className="request-button request-button--quiet"
+                    type="button"
+                    aria-label={`View ${request.name || "request"}`}
+                    onClick={() => viewDetail(request)}
+                  >
+                    View
+                  </button>
+                  <button
+                    className="request-button request-button--quiet"
+                    type="button"
+                    aria-label={`Assignment history for ${request.name || "request"}`}
+                    onClick={() => void openHistory(request)}
+                  >
+                    History
+                  </button>
+                </span>
+              </div>
+            ))
+          )}
         </section>
+      )}
+
+      {screen === "detail" && active && (
+        <LeadRequestDetail
+          request={active}
+          onAssign={() => void startAssigning(active)}
+          onHistory={() => void openHistory(active)}
+        />
       )}
 
       {screen === "history" && active && (

@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -162,6 +162,28 @@ describe("organiser: sees the coordinator (US10a AC 8)", () => {
   });
 });
 
+// A request `by` assigned to `to` (the history record that puts it in that Lead's scope).
+function seedAssigned(
+  overrides: Parameters<typeof seedRequest>[0],
+  to: { id: string; name: string; email: string } = COORDINATOR_PERSON,
+  by: { id: string; name: string; email: string } = LEAD_PERSON,
+) {
+  const request = seedRequest({ status: "under_review", coordinator: { id: to.id, name: to.name }, ...overrides });
+  db.assignments[request.id] = [
+    { id: `a-${request.id}`, kind: "assignment", assigned_by: by, coordinator: to, created_at: "2026-10-20T01:00:00Z" },
+  ];
+  return request;
+}
+
+const DANA = { id: "dana-id", name: "Dana Lim", email: "dana@smu.edu.sg" };
+const OTHER_LEAD = { id: "other-lead-id", name: "Leo Lee", email: "leo.lee@smu.edu.sg" };
+
+async function openAssignedTab(user: ReturnType<typeof userEvent.setup>) {
+  await openEventRequestsAs(user, "coordinator_lead");
+  await user.click(await screen.findByRole("tab", { name: "Assigned" }));
+  return screen.findByRole("region", { name: "Assigned requests" });
+}
+
 describe("Coordinator Lead: views the assignment history (US10d)", () => {
   it("TC-US10D-11: shows the entry made by assigning: kind, Lead, coordinator and time", async () => {
     seedRequest({ status: "submitted", name: "Alumni night" });
@@ -182,16 +204,14 @@ describe("Coordinator Lead: views the assignment history (US10d)", () => {
   });
 
   it("TC-US10D-12: opens the history of an assigned request, newest first, marking a reassignment", async () => {
-    const request = seedRequest({ status: "under_review", name: "Careers fair", coordinator: { id: "c2", name: "Dana Lim" } });
+    const request = seedAssigned({ name: "Careers fair" }, DANA);
     const earlier = { id: "a1", kind: "assignment" as const, assigned_by: LEAD_PERSON, coordinator: COORDINATOR_PERSON, created_at: "2026-10-20T01:00:00Z" };
     db.assignments[request.id] = [
-      { ...earlier, id: "a2", kind: "reassignment", coordinator: { id: "c2", name: "Dana Lim", email: "dana@smu.edu.sg" }, created_at: "2026-10-22T09:30:00Z" },
+      { ...earlier, id: "a2", kind: "reassignment", coordinator: DANA, created_at: "2026-10-22T09:30:00Z" },
       earlier,
     ];
     const user = userEvent.setup();
-    await openEventRequestsAs(user, "coordinator_lead");
-
-    const assigned = await screen.findByRole("region", { name: "Assigned requests" });
+    const assigned = await openAssignedTab(user);
     expect(assigned).toHaveTextContent("Careers fair");
     expect(assigned).toHaveTextContent("Coordinator: Dana Lim");
     await user.click(within(assigned).getByRole("button", { name: "Assignment history for Careers fair" }));
@@ -205,9 +225,12 @@ describe("Coordinator Lead: views the assignment history (US10d)", () => {
   });
 
   it("TC-US10D-13: says so when an assigned request has no records", async () => {
-    seedRequest({ status: "under_review", name: "Careers fair", coordinator: { id: "c1", name: "Casey Tan" } });
+    seedAssigned({ name: "Careers fair" });
+    server.use(
+      http.get("http://api.test/api/v1/event-requests/:id/assignment-history", () => HttpResponse.json({ assignments: [] })),
+    );
     const user = userEvent.setup();
-    await openEventRequestsAs(user, "coordinator_lead");
+    await openAssignedTab(user);
     await user.click(await screen.findByRole("button", { name: "Assignment history for Careers fair" }));
 
     expect(await screen.findByText("No assignments have been recorded for this event.")).toBeInTheDocument();
@@ -222,5 +245,121 @@ describe("Coordinator Lead: views the assignment history (US10d)", () => {
     await user.selectOptions(screen.getByLabelText("Acting as"), "organiser");
     expect(await screen.findByRole("heading", { name: "My event requests" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Assignment history/ })).not.toBeInTheDocument();
+  });
+});
+
+describe("Coordinator Lead: queue and oversight view (US19)", () => {
+  it("TC-US19-12: has an Unassigned tab (shown first) and an Assigned tab", async () => {
+    seedRequest({ status: "submitted", name: "Alumni night" });
+    seedAssigned({ name: "Careers fair" });
+    const user = userEvent.setup();
+    await openEventRequestsAs(user, "coordinator_lead");
+
+    expect(await screen.findByRole("tab", { name: "Unassigned", selected: true })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Unassigned requests" })).toHaveTextContent("Alumni night");
+    expect(screen.queryByText("Careers fair")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "Assigned" }));
+    const assigned = await screen.findByRole("region", { name: "Assigned requests" });
+    expect(assigned).toHaveTextContent("Careers fair");
+    expect(screen.queryByText("Alumni night")).not.toBeInTheDocument();
+  });
+
+  it("TC-US19-13: the Assigned tab shows coordinator, status and event date for each event (AC 2)", async () => {
+    seedAssigned({ name: "Careers fair", status: "approved", preferred_dates: ["2026-12-03"] });
+    const user = userEvent.setup();
+    const assigned = await openAssignedTab(user);
+
+    expect(assigned).toHaveTextContent("Careers fair");
+    expect(assigned).toHaveTextContent("Coordinator: Casey Tan");
+    expect(assigned).toHaveTextContent("approved");
+    expect(assigned).toHaveTextContent("Event date: 2026-12-03");
+    expect(callsTo("GET", /\/assigned$/)[0].headers.get("X-User-Id")).toBe("lead-id");
+  });
+
+  it("TC-US19-14: shows only events this Lead assigned, so a second Lead sees their own (AC 6)", async () => {
+    seedAssigned({ name: "Mine" });
+    seedAssigned({ name: "Theirs" }, COORDINATOR_PERSON, OTHER_LEAD);
+    const user = userEvent.setup();
+    const assigned = await openAssignedTab(user);
+
+    expect(assigned).toHaveTextContent("Mine");
+    expect(assigned).not.toHaveTextContent("Theirs");
+  });
+
+  it("TC-US19-15: filters by coordinator and by status, and says when nothing matches (AC 3)", async () => {
+    seedAssigned({ name: "A", status: "under_review" });
+    seedAssigned({ name: "B", status: "approved" }, DANA);
+    const user = userEvent.setup();
+    const assigned = await openAssignedTab(user);
+    expect(assigned).toHaveTextContent("A");
+    expect(assigned).toHaveTextContent("B");
+
+    await user.selectOptions(screen.getByLabelText("Coordinator"), "Dana Lim");
+    await waitFor(() => expect(screen.getByRole("region", { name: "Assigned requests" })).not.toHaveTextContent("Coordinator: Casey Tan"));
+    expect(screen.getByRole("region", { name: "Assigned requests" })).toHaveTextContent("B");
+    expect(callsTo("GET", /\/assigned$/).some((call) => call.url.search === "?coordinator_id=dana-id")).toBe(true);
+    // The coordinator list doesn't shrink to the one just chosen.
+    expect(within(screen.getByLabelText("Coordinator")).getAllByRole("option")).toHaveLength(3);
+
+    await user.selectOptions(screen.getByLabelText("Status"), "under review");
+    expect(await screen.findByText("No assigned events match these filters.")).toBeInTheDocument();
+    expect(
+      callsTo("GET", /\/assigned$/).some((call) => call.url.search === "?coordinator_id=dana-id&status=under_review"),
+    ).toBe(true);
+  });
+
+  it("TC-US19-16: opens any listed event read-only, with Assign only on an unassigned one (AC 4)", async () => {
+    seedRequest({ status: "submitted", name: "Alumni night", purpose: "Meet alumni" });
+    seedAssigned({ name: "Careers fair", purpose: "Meet employers" });
+    const user = userEvent.setup();
+    await openEventRequestsAs(user, "coordinator_lead");
+
+    await user.click(await screen.findByRole("button", { name: "View Alumni night" }));
+    const detail = await screen.findByRole("region", { name: "Request details" });
+    expect(detail).toHaveTextContent("Meet alumni");
+    expect(detail).toHaveTextContent("CoordinatorUnassigned");
+    // Read-only: nothing here edits, approves, rejects or confirms.
+    expect(within(detail).queryByRole("textbox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Approve|Reject|Confirm/ })).not.toBeInTheDocument();
+    await user.click(within(detail).getByRole("button", { name: "Assign a coordinator" }));
+    expect(await screen.findByRole("heading", { name: "Assign a coordinator" })).toBeInTheDocument();
+
+    await user.click(screen.getAllByRole("button", { name: "Back to queue" })[0]);
+    await user.click(await screen.findByRole("tab", { name: "Assigned" }));
+    await user.click(await screen.findByRole("button", { name: "View Careers fair" }));
+    const assignedDetail = await screen.findByRole("region", { name: "Request details" });
+    expect(assignedDetail).toHaveTextContent("Meet employers");
+    expect(assignedDetail).toHaveTextContent("CoordinatorCasey Tan");
+    expect(within(assignedDetail).queryByRole("button", { name: "Assign a coordinator" })).not.toBeInTheDocument();
+    await user.click(within(assignedDetail).getByRole("button", { name: "Assignment history" }));
+    expect(await screen.findByRole("heading", { name: "Assignment history" })).toBeInTheDocument();
+  });
+
+  it("TC-US19-17: an assignment made here appears on the Assigned tab", async () => {
+    seedRequest({ status: "submitted", name: "Alumni night" });
+    const user = userEvent.setup();
+    await openEventRequestsAs(user, "coordinator_lead");
+    await user.click(await screen.findByRole("button", { name: "Assign Alumni night" }));
+    await user.click(await screen.findByLabelText(/Casey Tan/));
+    await user.click(screen.getByRole("button", { name: "Confirm assignment" }));
+    await user.click(await screen.findByRole("button", { name: "Back to queue" }));
+
+    await user.click(screen.getByRole("tab", { name: "Assigned" }));
+    expect(await screen.findByRole("region", { name: "Assigned requests" })).toHaveTextContent("Alumni night");
+  });
+
+  it("TC-US19-18: other roles get no Lead tabs and the backend refuses them (AC 5)", async () => {
+    seedAssigned({ name: "Careers fair" });
+    const user = userEvent.setup();
+    await openEventRequestsAs(user, "coordinator");
+    expect(await screen.findByRole("heading", { name: "Requests to review" })).toBeInTheDocument();
+    expect(screen.queryByRole("tab")).not.toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("Acting as"), "organiser");
+    expect(await screen.findByRole("heading", { name: "My event requests" })).toBeInTheDocument();
+    expect(screen.queryByRole("tab")).not.toBeInTheDocument();
+
+    const refused = await fetch("http://api.test/api/v1/event-requests/assigned", { headers: { "X-User-Id": "organiser-id" } });
+    expect(refused.status).toBe(403);
   });
 });

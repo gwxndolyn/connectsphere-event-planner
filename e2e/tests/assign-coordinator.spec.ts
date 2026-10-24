@@ -55,6 +55,20 @@ test("TC-US10A-26: the Coordinator Lead assigns a submitted request and the orga
   // AC 5: it has left the queue.
   await expect(queue.locator(".assign-row", { hasText: eventName })).toHaveCount(0);
 
+  // SCRUM-86: it is now on the Lead's Assigned tab with coordinator, status and date, filterable.
+  await page.getByRole("tab", { name: "Assigned", exact: true }).click();
+  const assignedRow = page.getByRole("region", { name: "Assigned requests" }).locator(".assign-row", { hasText: eventName });
+  await expect(assignedRow).toContainText("under review");
+  await expect(assignedRow).toContainText(`Event date: ${preferredDate}`);
+  await expect(assignedRow).toContainText("Coordinator: ");
+  await page.getByLabel("Status").selectOption("approved");
+  await expect(assignedRow).toHaveCount(0);
+  await page.getByLabel("Status").selectOption("under_review");
+  await expect(assignedRow).toHaveCount(1);
+  await assignedRow.getByRole("button", { name: /^View/ }).click();
+  await expect(page.getByRole("region", { name: "Request details" })).toContainText("Run a planning workshop");
+  await page.getByRole("button", { name: "Back to queue" }).click();
+
   // The organiser now sees the coordinator and the request under review (AC 8).
   await page.getByLabel("Acting as").selectOption("organiser");
   const organiserRow = page.getByRole("button", { name: new RegExp(eventName) });

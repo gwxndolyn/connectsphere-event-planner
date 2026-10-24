@@ -626,6 +626,30 @@ const handlers = [
     return HttpResponse.json({ event_requests: queue });
   }),
 
+  // SCRUM-86: the Lead's Assigned tab. In scope = the latest history record names the caller.
+  route("get", "/api/v1/event-requests/assigned", ({ request }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "coordinator_lead") return error(403, "FORBIDDEN");
+    const caller = request.headers.get("X-User-Id");
+    const url = new URL(request.url);
+    const coordinator = url.searchParams.get("coordinator_id");
+    const status = url.searchParams.get("status");
+    const active = ["under_review", "awaiting_clarification", "approved", "planning", "confirmed"];
+    if (status && !active.includes(status)) return error(422, "INVALID_STATUS_FILTER", { status });
+    const rows = db.requests
+      .filter(
+        (r) =>
+          r.coordinator !== null &&
+          active.includes(r.status) &&
+          db.assignments[r.id]?.[0]?.assigned_by.id === caller &&
+          (!coordinator || r.coordinator.id === coordinator) &&
+          (!status || r.status === status),
+      )
+      .map((r) => ({ ...r, event_date: r.preferred_dates?.[0] ?? null }));
+    return HttpResponse.json({ event_requests: rows });
+  }),
+
   route("get", "/api/v1/coordinators", ({ request }) => {
     const role = userRole(request);
     if (!role) return error(401, "UNAUTHENTICATED");
