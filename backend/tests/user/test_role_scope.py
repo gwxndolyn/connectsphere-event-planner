@@ -4,6 +4,7 @@ requests assigned to them (D48), organisers only on their own (D47), attendees o
 assignments (AC 7), and no one decides a record they created (D51). Venue Staff no longer read
 event requests (decided 25 Oct). See docs/testing/US16b-role-based-access.md."""
 
+import re
 import uuid
 from collections.abc import Iterator
 from datetime import timedelta
@@ -236,50 +237,94 @@ ROUTES = [
     ("POST", "/api/v1/event-requests", {ORGANISER}),
     ("GET", "/api/v1/me/event-requests", {ORGANISER}),
     ("GET", "/api/v1/event-requests", {COORDINATOR, LEAD}),
-    ("GET", f"/api/v1/event-requests/{ID}", {ORGANISER, COORDINATOR, LEAD}),
-    ("PATCH", f"/api/v1/event-requests/{ID}", {ORGANISER}),
-    ("POST", f"/api/v1/event-requests/{ID}/submit", {ORGANISER}),
+    ("GET", "/api/v1/event-requests/{request_id}", {ORGANISER, COORDINATOR, LEAD}),
+    ("PATCH", "/api/v1/event-requests/{request_id}", {ORGANISER}),
+    ("POST", "/api/v1/event-requests/{request_id}/submit", {ORGANISER}),
     ("GET", "/api/v1/event-requests/unassigned", {LEAD}),
     ("GET", "/api/v1/event-requests/assigned", {LEAD}),
     ("GET", "/api/v1/coordinators", {LEAD}),
-    ("POST", f"/api/v1/event-requests/{ID}/assignment", {LEAD}),
-    ("GET", f"/api/v1/event-requests/{ID}/assignment-history", {LEAD}),
-    ("POST", f"/api/v1/event-requests/{ID}/clarifications", {COORDINATOR}),
-    ("GET", f"/api/v1/event-requests/{ID}/clarifications", {ORGANISER, COORDINATOR, LEAD}),
-    ("POST", f"/api/v1/event-requests/{ID}/clarifications/response", {ORGANISER}),
+    ("POST", "/api/v1/event-requests/{request_id}/assignment", {LEAD}),
+    ("GET", "/api/v1/event-requests/{request_id}/assignment-history", {LEAD}),
+    ("POST", "/api/v1/event-requests/{request_id}/approve", {COORDINATOR}),
+    ("POST", "/api/v1/event-requests/{request_id}/reject", {COORDINATOR}),
+    ("POST", "/api/v1/event-requests/{request_id}/clarifications", {COORDINATOR}),
+    ("GET", "/api/v1/event-requests/{request_id}/clarifications", {ORGANISER, COORDINATOR, LEAD}),
+    ("POST", "/api/v1/event-requests/{request_id}/clarifications/response", {ORGANISER}),
     ("GET", "/api/v1/venues/available", {COORDINATOR, VENUE_STAFF}),
     ("POST", "/api/v1/venues", {VENUE_STAFF}),
-    ("PATCH", f"/api/v1/venues/{ID}", {VENUE_STAFF}),
-    ("POST", f"/api/v1/venues/{ID}/deactivate", {VENUE_STAFF}),
-    ("POST", f"/api/v1/venues/{ID}/reactivate", {VENUE_STAFF}),
+    ("PATCH", "/api/v1/venues/{venue_id}", {VENUE_STAFF}),
+    ("POST", "/api/v1/venues/{venue_id}/deactivate", {VENUE_STAFF}),
+    ("POST", "/api/v1/venues/{venue_id}/reactivate", {VENUE_STAFF}),
     ("POST", "/api/v1/venue-bookings", {COORDINATOR}),
-    ("POST", f"/api/v1/venue-bookings/{ID}/withdraw", {COORDINATOR}),
+    ("POST", "/api/v1/venue-bookings/{booking_id}/withdraw", {COORDINATOR}),
     ("GET", "/api/v1/venue-bookings/pending", {VENUE_STAFF}),
-    ("GET", f"/api/v1/venue-bookings/{ID}/evaluation", {VENUE_STAFF}),
-    ("POST", f"/api/v1/venue-bookings/{ID}/approve", {VENUE_STAFF}),
-    ("POST", f"/api/v1/venue-bookings/{ID}/reject", {VENUE_STAFF}),
-    ("GET", f"/api/v1/events/{ID}/venue-bookings", {COORDINATOR, VENUE_STAFF}),
+    ("GET", "/api/v1/venue-bookings/{booking_id}/evaluation", {VENUE_STAFF}),
+    ("POST", "/api/v1/venue-bookings/{booking_id}/approve", {VENUE_STAFF}),
+    ("POST", "/api/v1/venue-bookings/{booking_id}/reject", {VENUE_STAFF}),
+    ("GET", "/api/v1/events/{event_id}/venue-bookings", {COORDINATOR, VENUE_STAFF}),
     ("GET", "/api/v1/me/equipment-events", {COORDINATOR}),
-    ("GET", f"/api/v1/events/{ID}/equipment-lines", {COORDINATOR}),
-    ("POST", f"/api/v1/events/{ID}/equipment-lines", {COORDINATOR}),
-    ("PATCH", f"/api/v1/equipment-lines/{ID}", {COORDINATOR}),
-    ("DELETE", f"/api/v1/equipment-lines/{ID}", {COORDINATOR}),
+    ("GET", "/api/v1/events/{event_id}/equipment-lines", {COORDINATOR}),
+    ("POST", "/api/v1/events/{event_id}/equipment-lines", {COORDINATOR}),
+    ("PATCH", "/api/v1/equipment-lines/{line_id}", {COORDINATOR}),
+    ("DELETE", "/api/v1/equipment-lines/{line_id}", {COORDINATOR}),
     ("GET", "/api/v1/equipment-lines", {TECH_SUPPORT}),
-    ("POST", f"/api/v1/equipment-lines/{ID}/review", {TECH_SUPPORT}),
+    ("POST", "/api/v1/equipment-lines/{line_id}/review", {TECH_SUPPORT}),
+    ("GET", "/api/v1/events/{event_id}/registrations", {ORGANISER, COORDINATOR}),
+    ("GET", "/api/v1/me/managed-events", {ORGANISER, COORDINATOR}),
 ]
+# Every other route, by who may call it, so that a new route fails the test below until someone decides
+# which list it belongs in (PR #88 review).
+SIGNED_IN_ROUTES = {
+    ("GET", "/api/v1/me"),
+    ("GET", "/api/v1/venues"),
+    ("GET", "/api/v1/venues/{venue_id}"),
+    ("GET", "/api/v1/equipment-types"),
+}
+ATTENDEE_ROUTES = {
+    ("GET", "/api/v1/events/available"),
+    ("GET", "/api/v1/me/registrations"),
+    ("POST", "/api/v1/events/{event_id}/registrations"),
+    ("POST", "/api/v1/registrations/{registration_id}/withdraw"),
+    ("POST", "/api/v1/registrations/{registration_id}/expire-offer"),
+    ("POST", "/api/v1/registrations/{registration_id}/decline"),
+    ("POST", "/api/v1/registrations/{registration_id}/accept"),
+}
+# No users row needed: the health check, joining a waitlist by email (D7), and sign-up's profile (token only).
+OPEN_ROUTES = {
+    ("GET", "/api/events/health"),
+    ("POST", "/api/v1/events/{event_id}/waitlist"),
+    ("POST", "/api/v1/auth/profile"),
+}
+
+
+def app_routes() -> set[tuple[str, str]]:
+    return {
+        (method.upper(), path)
+        for path, operations in app.openapi()["paths"].items()
+        for method in operations
+    }
+
+
+def test_tc_us16b_14_every_route_is_in_the_matrix_or_named_as_open_to_all() -> None:
+    """A route added later without choosing its roles fails here, not quietly in production."""
+    classified = {(method, path) for method, path, _ in ROUTES} | SIGNED_IN_ROUTES | ATTENDEE_ROUTES | OPEN_ROUTES
+
+    assert app_routes() - classified == set(), "add each new route to ROUTES (with its roles) or another list"
+    assert classified - app_routes() == set(), "a listed route no longer exists"
 
 
 @pytest.mark.parametrize(("method", "path", "allowed"), ROUTES, ids=[f"{m} {p}" for m, p, _ in ROUTES])
 async def test_tc_us16b_14_each_route_allows_only_the_roles_it_names(
     client: AsyncClient, db: Session, method: str, path: str, allowed: set[UserRole]
 ) -> None:
+    url = re.sub(r"\{[a-z_]+\}", str(ID), path)
     body = {} if method in ("POST", "PATCH") else None
 
-    anonymous = await client.request(method, path, json=body)
+    anonymous = await client.request(method, url, json=body)
     assert (anonymous.status_code, anonymous.json()) == (401, {"code": "UNAUTHENTICATED"})
 
     for role in ROLES:
-        response = await client.request(method, path, headers=auth(make_user(db, role)), json=body)
+        response = await client.request(method, url, headers=auth(make_user(db, role)), json=body)
         if role in allowed:
             assert response.status_code not in (401, 403), role
         else:
@@ -444,6 +489,109 @@ async def test_tc_us16b_28_a_request_cant_be_assigned_to_its_creator(client: Asy
     event = db.get(Event, request_id)
     db.refresh(event)
     assert (event.coordinator_id, event.status) == (None, EventStatus.SUBMITTED)
+
+
+# --- TC-US16B-25, 28 every decision route refuses its creator (D51, PR #88 review) ---
+
+
+async def booking_by_its_decider(client: AsyncClient, db: Session) -> tuple[User, uuid.UUID, dict]:
+    both = make_user(db, UserRole.COORDINATOR, UserRole.VENUE_STAFF)
+    event = make_event(db, status=EventStatus.APPROVED, coordinator_id=both.id)
+    return both, make_venue_booking(db, event=event, venue=make_venue(db), user=both).id, {}
+
+
+async def line_by_its_reviewer(client: AsyncClient, db: Session) -> tuple[User, uuid.UUID, dict]:
+    both = make_user(db, UserRole.COORDINATOR, UserRole.TECH_SUPPORT)
+    event = make_event(db, coordinator_id=both.id)
+    line = make_line(db, event=event, equipment_type=make_type(db), requested_by=both)
+    return both, line.id, {"decision": "approved"}
+
+
+async def request_by_its_lead(client: AsyncClient, db: Session) -> tuple[User, uuid.UUID, dict]:
+    both = make_user(db, UserRole.ORGANISER, UserRole.COORDINATOR_LEAD)
+    coordinator = make_user(db, UserRole.COORDINATOR)
+    return both, await submitted_request(client, both), {"coordinator_id": str(coordinator.id)}
+
+
+async def request_by_its_coordinator(client: AsyncClient, db: Session) -> tuple[User, uuid.UUID, dict]:
+    both = make_user(db, UserRole.ORGANISER, UserRole.COORDINATOR)
+    request_id = await submitted_request(client, both)
+    # Assigning a request to its creator is refused (TC-US16B-28), so this one was assigned before D51.
+    event = assign(db, request_id, both)
+    event.status = EventStatus.UNDER_REVIEW
+    db.flush()
+    return both, request_id, {"reason": "Not for us."}
+
+
+DECISIONS = {
+    ("POST", "/api/v1/venue-bookings/{booking_id}/approve"): booking_by_its_decider,
+    ("POST", "/api/v1/venue-bookings/{booking_id}/reject"): booking_by_its_decider,
+    ("POST", "/api/v1/equipment-lines/{line_id}/review"): line_by_its_reviewer,
+    ("POST", "/api/v1/event-requests/{request_id}/assignment"): request_by_its_lead,
+    ("POST", "/api/v1/event-requests/{request_id}/approve"): request_by_its_coordinator,
+    ("POST", "/api/v1/event-requests/{request_id}/reject"): request_by_its_coordinator,
+}
+
+
+DECISION_VERBS = {"approve", "reject", "review", "assignment"}
+
+
+def test_tc_us16b_25_28_every_decision_route_is_tried() -> None:
+    """A new route that approves, rejects, reviews or assigns fails here until it's added to DECISIONS."""
+    decision_routes = {
+        (method, path) for method, path in app_routes() if path.rsplit("/", 1)[-1] in DECISION_VERBS
+    }
+
+    assert decision_routes == set(DECISIONS)
+
+
+
+@pytest.mark.parametrize(("route", "setup"), DECISIONS.items(), ids=[f"{m} {p}" for m, p in DECISIONS])
+async def test_tc_us16b_25_28_every_decision_route_refuses_its_creator(
+    client: AsyncClient, db: Session, route: tuple[str, str], setup
+) -> None:
+    method, path = route
+    decider, record_id, body = await setup(client, db)
+
+    url = re.sub(r"\{[a-z_]+\}", str(record_id), path)
+
+    response = await client.request(method, url, headers=auth(decider), json=body)
+
+    assert (response.status_code, response.json()) == (403, SELF_DECISION)
+
+
+# --- TC-US16B-31 a request whose coordinator is deactivated (D48, PR #88 review) ---
+
+
+async def test_tc_us16b_31_a_deactivated_coordinators_request_waits_for_the_lead(
+    client: AsyncClient, db: Session
+) -> None:
+    """Recorded behaviour, not a goal: only the Lead can still see the request, and nobody can act on it
+    until reassigning exists (SCRUM-83). Until then, claude_instructions.md §1a's runbook moves a
+    coordinator's events before they're deactivated."""
+    organiser = make_user(db, UserRole.ORGANISER)
+    coordinator_a = make_user(db, UserRole.COORDINATOR)
+    coordinator_b = make_user(db, UserRole.COORDINATOR)
+    lead = make_user(db, UserRole.COORDINATOR_LEAD)
+    request_id = await submitted_request(client, organiser)
+    assign(db, request_id, coordinator_a)
+    coordinator_a.is_active = False
+    db.flush()
+    details = f"/api/v1/event-requests/{request_id}"
+
+    as_a = await client.get(details, headers=auth(coordinator_a))
+    as_b = await client.get(details, headers=auth(coordinator_b))
+    b_clarifies = await client.post(f"{details}/clarifications", headers=auth(coordinator_b), json=QUESTION)
+    as_lead = await client.get(details, headers=auth(lead))
+    lead_reassigns = await client.post(
+        f"{details}/assignment", headers=auth(lead), json={"coordinator_id": str(coordinator_b.id)}
+    )
+
+    assert (as_a.status_code, as_a.json()) == (403, FORBIDDEN)
+    assert [(r.status_code, r.json()) for r in (as_b, b_clarifies)] == [(404, NOT_FOUND)] * 2
+    assert as_lead.status_code == 200
+    assert lead_reassigns.status_code == 409
+    assert lead_reassigns.json()["code"] == "ASSIGNMENT_NOT_ALLOWED"
 
 
 # --- TC-US16B-29 the database refuses a self-decision too (D51) ---
