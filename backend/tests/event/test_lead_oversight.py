@@ -210,6 +210,12 @@ async def test_tc_us19_11_the_lead_has_no_approve_reject_or_confirm_routes(
     client: AsyncClient, db: Session, organiser: User, lead: User, casey: User
 ) -> None:
     event = owned(db, organiser, lead, casey)
-    for action in ("approve", "reject", "confirm", "approval"):
+    # US17 (SCRUM-84) added approve and reject for the assigned coordinator only; the Lead is refused.
+    for action in ("approve", "reject"):
+        response = await client.post(f"/api/v1/event-requests/{event.id}/{action}", json={}, headers=auth(lead))
+        assert (response.status_code, response.json()["code"]) == (403, "FORBIDDEN")
+    for action in ("confirm", "approval"):
         response = await client.post(f"/api/v1/event-requests/{event.id}/{action}", headers=auth(lead))
         assert response.status_code in (404, 405)
+    db.refresh(event)
+    assert event.status == EventStatus.UNDER_REVIEW
