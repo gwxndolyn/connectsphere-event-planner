@@ -69,9 +69,11 @@ describe("coordinator decides a request (US17)", () => {
     seedRequest({ name: "Waiting on organiser", status: "awaiting_clarification", coordinator: CASEY });
     const user = userEvent.setup();
 
-    await openRequest(user, "Someone else's");
+    // Another coordinator's request isn't in this coordinator's queue at all (US16b D48).
+    await openRequest(user, "Waiting on organiser");
     expect(screen.queryByRole("region", { name: "Decision" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Back to review queue" }));
+    expect(screen.queryByRole("button", { name: /Someone else's/ })).not.toBeInTheDocument();
     await user.click(await screen.findByRole("button", { name: /Waiting on organiser/ }));
     await screen.findByRole("heading", { name: "Review request" });
     expect(screen.queryByRole("region", { name: "Decision" })).not.toBeInTheDocument();

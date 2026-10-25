@@ -19,6 +19,9 @@ startMockBackend();
 
 beforeEach(() => setDevRole("organiser"));
 
+// A coordinator sees only the requests assigned to them (US16b D48), so the flows' requests are.
+const MINE = { coordinator: { id: COORDINATOR_PERSON.id, name: COORDINATOR_PERSON.name } };
+
 async function openEventRequests(user: ReturnType<typeof userEvent.setup>) {
   render(<App />);
   await user.click(within(screen.getByRole("banner")).getByRole("button", { name: "Event requests" }));
@@ -154,7 +157,7 @@ describe("the fake backend follows SCRUM-120's access rules (US16b, TC-US16B-32)
 
 describe("coordinator: review queue and clarification (US8a)", () => {
   it("sends a clarification on chosen sections and the request moves to awaiting clarification", async () => {
-    const request = seedRequest({ name: "Clarification workshop", status: "submitted", expected_attendees: 40 });
+    const request = seedRequest({ name: "Clarification workshop", status: "submitted", expected_attendees: 40, ...MINE });
     const user = userEvent.setup();
     await openEventRequests(user);
     await actAs(user, "coordinator");
@@ -190,7 +193,7 @@ describe("coordinator: review queue and clarification (US8a)", () => {
   });
 
   it("disables the form for a request that can't take a clarification (D15)", async () => {
-    seedRequest({ name: "Waiting on organiser", status: "awaiting_clarification" });
+    seedRequest({ name: "Waiting on organiser", status: "awaiting_clarification", ...MINE });
     const user = userEvent.setup();
     setDevRole("coordinator");
     await openEventRequests(user);
@@ -212,7 +215,7 @@ describe("coordinator: review queue and clarification (US8a)", () => {
 
 describe("organiser answers, coordinator reads the thread (US8c, US8d)", () => {
   it("answers the open question, and the coordinator sees question then answer", async () => {
-    const request = seedRequest({ name: "Clarification workshop", status: "awaiting_clarification" });
+    const request = seedRequest({ name: "Clarification workshop", status: "awaiting_clarification", ...MINE });
     seedClarification(request, { sections: ["attendance", "layout"], comment: "Final headcount and layout?" });
     const user = userEvent.setup();
     await openEventRequests(user);

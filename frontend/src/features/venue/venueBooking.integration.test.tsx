@@ -116,20 +116,19 @@ describe("venue booking (US22)", () => {
     expect(callsTo("POST", /\/withdraw$/)).toHaveLength(1);
   });
 
-  it("on an approved event assigned to someone else, names them and offers no Request venue (D20)", async () => {
+  it("doesn't list an approved event assigned to someone else, so it can't be booked (D20, D48)", async () => {
     seedRequest({ status: "approved", name: "Someone Else's Event", coordinator: { id: "other-coordinator", name: "Pat Lim" } });
+    seedRequest({ status: "approved", name: "Venue Booking Demo", ...MINE });
     const user = userEvent.setup();
-    await openRequest(user, "Someone Else's Event");
+    await openRequest(user, "Venue Booking Demo");
+    await user.click(screen.getByRole("button", { name: "Back to review queue" }));
 
-    expect(
-      await bookings().findByText("Only Pat Lim, the coordinator assigned to this event, can request a venue for it."),
-    ).toBeInTheDocument();
-    expect(bookings().queryByRole("button", { name: "Request venue" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Someone Else's Event/ })).not.toBeInTheDocument();
     expect(callsTo("POST", "/api/v1/venue-bookings")).toHaveLength(0);
   });
 
   it("offers no venue booking on a request that isn't approved (AC 1)", async () => {
-    seedRequest({ status: "under_review", name: "Still Under Review" });
+    seedRequest({ status: "under_review", name: "Still Under Review", ...MINE });
     const user = userEvent.setup();
     await openRequest(user, "Still Under Review");
 
