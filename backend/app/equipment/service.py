@@ -18,6 +18,7 @@ from app.equipment.schemas import (
     LineEventOut,
 )
 from app.event.models import Event, EventStatus
+from app.event.self_decision import refuse_self_decision
 from app.notification.service import Notifier
 from app.user.models import User, UserRole
 
@@ -222,10 +223,9 @@ class EquipmentService:
         ).one_or_none()
         if line is None:
             raise DomainError(404, "NOT_FOUND")
-        # DECISION-PENDING: D51 — no one reviews a line they requested, or one for an event they now
-        # coordinate (even if a previous coordinator requested it). The first half is also a CHECK.
-        if line.requested_by_user_id == reviewer.id or db.get(Event, line.event_id).coordinator_id == reviewer.id:
-            raise DomainError(403, "SELF_DECISION_NOT_ALLOWED")
+        # D51: not a line they requested, nor one for an event they now coordinate. The first half is
+        # also a CHECK (equipment_request_lines_reviewer_not_requester).
+        refuse_self_decision(reviewer, created_by_user_id=line.requested_by_user_id, event=db.get(Event, line.event_id))
         if line.status != EquipmentLineStatus.PENDING:
             raise _not_pending(line)
 

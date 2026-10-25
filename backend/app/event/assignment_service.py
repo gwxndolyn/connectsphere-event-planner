@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.exceptions import DomainError
 from app.event.models import AssignmentKind, CoordinatorAssignment, Event, EventStatus
+from app.event.self_decision import refuse_self_decision
 from app.event.request_schemas import (
     AssignedRequestOut,
     AssignmentRecordOut,
@@ -147,10 +148,8 @@ class AssignmentService:
         # Drafts and finished events are invisible to staff (D11), so they 404, not 409.
         if event is None or event.status in NOT_A_REQUEST_STATUSES:
             raise DomainError(404, "NOT_FOUND")
-        # DECISION-PENDING: D51 — no one decides a record they created: a Lead who also organises
-        # can't assign their own request.
-        if event.created_by_user_id == lead.id:
-            raise DomainError(403, "SELF_DECISION_NOT_ALLOWED")
+        # D51: a Lead who also organises can't assign their own request.
+        refuse_self_decision(lead, created_by_user_id=event.created_by_user_id)
         if event.status != EventStatus.SUBMITTED or event.coordinator_id is not None:
             raise DomainError(409, "ASSIGNMENT_NOT_ALLOWED", status=event.status.value)
 

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.exceptions import DomainError
 from app.event.assignment_service import MISSING_NAME, MISSING_REFERENCE
 from app.event.models import Event, EventStatus
+from app.event.self_decision import refuse_self_decision
 from app.event.request_schemas import EventRequestOut, RequestRejectWrite
 from app.notification.service import Notifier, RequestDecision
 from app.user.models import User
@@ -55,9 +56,9 @@ class RequestDecisionService:
         # a draft or an unknown id is 404, never 403, as for other people's records (§1a).
         if event is None or event.status == EventStatus.DRAFT or event.coordinator_id != coordinator.id:
             raise DomainError(404, "NOT_FOUND")
-        # D51: no one decides a request they created, whatever roles they hold.
-        if event.created_by_user_id == coordinator.id:
-            raise DomainError(403, "SELF_DECISION_NOT_ALLOWED")
+        # D51: no one decides a request they created, whatever roles they hold. No `event`: the decider
+        # is meant to be this request's coordinator (D48).
+        refuse_self_decision(coordinator, created_by_user_id=event.created_by_user_id)
         return event
 
     def _check_decidable(self, event: Event) -> None:

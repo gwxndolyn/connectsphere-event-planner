@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.exceptions import DomainError
 from app.event.models import Event, EventStatus
+from app.event.self_decision import refuse_self_decision
 from app.notification.service import BookingDecision, Notifier
 from app.user.models import User, UserRole
 from app.venue.availability import Conflict, Evaluation, HoursBreach, Window, evaluate_booking, evaluate_window
@@ -426,10 +427,10 @@ class VenueBookingService:
         ).one_or_none()
         if booking is None:
             raise DomainError(404, "NOT_FOUND")
-        # DECISION-PENDING: D51 — no one decides a booking they requested, or one for an event they
-        # now coordinate (even if a previous coordinator requested it). The first half is also a CHECK.
-        if booking.requested_by_user_id == staff.id or db.get(Event, booking.event_id).coordinator_id == staff.id:
-            raise DomainError(403, "SELF_DECISION_NOT_ALLOWED")
+        # D51: not a booking they requested, nor one for an event they now coordinate. The first half
+        # is also a CHECK (venue_bookings_decider_not_requester).
+        event = db.get(Event, booking.event_id)
+        refuse_self_decision(staff, created_by_user_id=booking.requested_by_user_id, event=event)
         if booking.status != VenueBookingStatus.REQUESTED:
             raise DomainError(409, "BOOKING_NOT_PENDING", status=booking.status.value)
         return booking
