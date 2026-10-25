@@ -27,6 +27,8 @@ export function EquipmentQueue() {
   const [notice, setNotice] = useState<string | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [sending, setSending] = useState<string | null>(null);
+  // US16b D51: a line this user requested, or for an event they coordinate, says so on its row.
+  const [refusals, setRefusals] = useState<Record<string, string>>({});
 
   async function load() {
     try {
@@ -59,6 +61,11 @@ export function EquipmentQueue() {
   async function review(line: EquipmentLine, decision: EquipmentReviewWrite["decision"]) {
     setError(null);
     setNotice(null);
+    setRefusals((current) => {
+      const rest = { ...current };
+      delete rest[line.id];
+      return rest;
+    });
     setSending(line.id);
     const note = (notes[line.id] ?? "").trim();
     try {
@@ -80,6 +87,13 @@ export function EquipmentQueue() {
       setLines((current) => current.filter((l) => l.id !== line.id));
       setNotice(`${decision === "approved" ? "Approved" : "Rejected"}: ${lineName(line)}.`);
     } catch (reason) {
+      if (reason instanceof ApiError && reason.code === "SELF_DECISION_NOT_ALLOWED") {
+        setRefusals((current) => ({
+          ...current,
+          [line.id]: "Another Tech support user must review this line, because you requested it or coordinate its event.",
+        }));
+        return;
+      }
       setError(queueErrorMessage(reason));
       // LINE_NOT_PENDING: reviewed elsewhere meanwhile, so show the queue as it is now.
       await load();
@@ -121,6 +135,11 @@ export function EquipmentQueue() {
                 {line.event.start_at && <span>{formatEventDate({ startsAt: line.event.start_at, endsAt: line.event.start_at })}</span>}
                 <span>Quantity {line.quantity}</span>
                 {line.notes && <span>“{line.notes}”</span>}
+                {refusals[line.id] && (
+                  <span className="venue-booking-row__error" role="alert">
+                    {refusals[line.id]}
+                  </span>
+                )}
               </div>
               <div className="request-field">
                 <label htmlFor={`equipment-note-${line.id}`}>Note</label>

@@ -7,6 +7,7 @@ interface ImportMetaEnv {
   readonly VITE_DEV_LEAD_ID?: string;
   readonly VITE_DEV_VENUE_STAFF_ID?: string;
   readonly VITE_DEV_TECH_SUPPORT_ID?: string;
+  readonly VITE_DEV_SAFETY_OFFICER_ID?: string;
   readonly VITE_DEV_ATTENDEE_ID?: string;
   readonly VITE_DEV_AUTH?: string;
   readonly VITE_SUPABASE_URL?: string;

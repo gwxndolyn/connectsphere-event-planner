@@ -20,6 +20,7 @@ export const COORDINATOR_ID = "coordinator-id";
 export const LEAD_ID = "lead-id";
 export const VENUE_STAFF_ID = "venue-staff-id";
 export const TECH_SUPPORT_ID = "tech-support-id";
+export const SAFETY_OFFICER_ID = "safety-officer-id";
 export const ATTENDEE_ID = "attendee-id";
 export const ATTENDEE_EMAIL = "calvin.ng.2024@smu.edu.sg";
 
@@ -449,12 +450,13 @@ function byStart(a: FakeRegistration, b: FakeRegistration) {
   return ea.start_at.localeCompare(eb.start_at) || ea.name.localeCompare(eb.name);
 }
 
-const ROLES: Record<string, "organiser" | "coordinator" | "coordinator_lead" | "venue_staff" | "tech_support"> = {
+const ROLES: Record<string, "organiser" | "coordinator" | "coordinator_lead" | "venue_staff" | "tech_support" | "safety_officer"> = {
   [ORGANISER_ID]: "organiser",
   [COORDINATOR_ID]: "coordinator",
   [LEAD_ID]: "coordinator_lead",
   [VENUE_STAFF_ID]: "venue_staff",
   [TECH_SUPPORT_ID]: "tech_support",
+  [SAFETY_OFFICER_ID]: "safety_officer",
 };
 
 /** `get_current_user`: the role behind X-User-Id, or null for 401. */
@@ -483,11 +485,16 @@ function missingFields(request: EventRequest): string[] {
   });
 }
 
-// D11: owner always; coordinators once it's past draft.
+// D11 and D48 (SCRUM-120): the owner always; a Lead once it's past draft; a coordinator only the ones
+// assigned to them now.
 function visibleTo(request: EventRequest, role: string, userId: string) {
-  if (role !== "organiser") return request.status !== "draft";
-  return request.created_by_user_id === userId;
+  if (role === "organiser") return request.created_by_user_id === userId;
+  if (role === "coordinator") return request.status !== "draft" && request.coordinator?.id === userId;
+  return request.status !== "draft";
 }
+
+// Who may open a request and its thread at all (SCRUM-120, D54): other roles get 403.
+const REQUEST_READERS = new Set(["organiser", "coordinator", "coordinator_lead"]);
 
 // SCRUM-13: who the Lead can pick, as GET /api/v1/coordinators returns them.
 export const COORDINATOR_PERSON = { id: COORDINATOR_ID, name: "Casey Tan", email: "casey.tan@smu.edu.sg" };
@@ -795,6 +802,12 @@ const handlers = [
       if (role !== "venue_staff") return error(403, "FORBIDDEN");
       const booking = db.bookings.find((b) => b.id === params.id);
       if (!booking) return error(404, "NOT_FOUND");
+      // D51 (SCRUM-120): not a booking they requested, nor one for an event they coordinate.
+      const userId = request.headers.get("X-User-Id");
+      const event = db.requests.find((r) => r.id === booking.event.id);
+      if (booking.requested_by_user_id === userId || event?.coordinator?.id === userId) {
+        return error(403, "SELF_DECISION_NOT_ALLOWED");
+      }
       if (booking.status !== "requested") return error(409, "BOOKING_NOT_PENDING", { status: booking.status });
       const notes = (body ?? {}) as { reason?: string; alternative_suggestion?: string };
       Object.assign(booking, {
@@ -942,7 +955,9 @@ const handlers = [
     const role = userRole(request);
     if (!role) return error(401, "UNAUTHENTICATED");
     if (role !== "coordinator" && role !== "coordinator_lead") return error(403, "FORBIDDEN");
-    return HttpResponse.json({ event_requests: db.requests.filter((r) => r.status !== "draft") });
+    const userId = request.headers.get("X-User-Id")!;
+    // A Lead sees the whole queue; a coordinator only the requests assigned to them (D48).
+    return HttpResponse.json({ event_requests: db.requests.filter((r) => r.status !== "draft" && visibleTo(r, role, userId)) });
   }),
 
   route("post", "/api/v1/event-requests", ({ request, body }) => {
@@ -956,6 +971,7 @@ const handlers = [
   route("get", "/api/v1/event-requests/:id", ({ request, params }) => {
     const role = userRole(request);
     if (!role) return error(401, "UNAUTHENTICATED");
+    if (!REQUEST_READERS.has(role)) return error(403, "FORBIDDEN");
     const found = db.requests.find((r) => r.id === params.id);
     if (!found || !visibleTo(found, role, request.headers.get("X-User-Id")!)) return error(404, "NOT_FOUND");
     return HttpResponse.json(found);
@@ -992,6 +1008,7 @@ const handlers = [
   route("get", "/api/v1/event-requests/:id/clarifications", ({ request, params }) => {
     const role = userRole(request);
     if (!role) return error(401, "UNAUTHENTICATED");
+    if (!REQUEST_READERS.has(role)) return error(403, "FORBIDDEN");
     const found = db.requests.find((r) => r.id === params.id);
     if (!found || !visibleTo(found, role, request.headers.get("X-User-Id")!)) return error(404, "NOT_FOUND");
     const thread = db.clarifications
@@ -1005,7 +1022,8 @@ const handlers = [
     if (!role) return error(401, "UNAUTHENTICATED");
     if (role !== "coordinator") return error(403, "FORBIDDEN");
     const found = db.requests.find((r) => r.id === params.id);
-    if (!found || found.status === "draft") return error(404, "NOT_FOUND");
+    // Only the request's assigned coordinator asks (D48); anyone else's, or an unassigned one, is 404.
+    if (!found || !visibleTo(found, role, request.headers.get("X-User-Id")!)) return error(404, "NOT_FOUND");
     const { sections = [], comment = "" } = (body ?? {}) as { sections?: string[]; comment?: string };
     const missing = [...(sections.length === 0 ? ["sections"] : []), ...(comment.trim() ? [] : ["comment"])];
     if (missing.length > 0) return error(422, "MISSING_REQUIRED_FIELD", { fields: missing });
@@ -1154,6 +1172,12 @@ const handlers = [
     if (role !== "tech_support") return error(403, "FORBIDDEN");
     const line = db.equipmentLines.find((l) => l.id === params.id);
     if (!line) return error(404, "NOT_FOUND");
+    // D51 (SCRUM-120): not a line they requested, nor one for an event they coordinate.
+    const userId = request.headers.get("X-User-Id");
+    const lineEvent = db.equipmentEvents.find((e) => e.id === line.event.id);
+    if (line.requested_by_user_id === userId || lineEvent?.coordinator_id === userId) {
+      return error(403, "SELF_DECISION_NOT_ALLOWED");
+    }
     const { decision, note, ...rest } = (body ?? {}) as Record<string, unknown>;
     // Unknown fields (a quantity, AC 6) and other decisions are FastAPI's generic 422.
     if ((decision !== "approved" && decision !== "rejected") || Object.keys(rest).length > 0) {

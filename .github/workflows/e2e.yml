@@ -40,6 +40,8 @@ jobs:
       VITE_DEV_VENUE_STAFF_ID: 4e8d2398-4b1e-5e59-900e-4ddb311a243f
       # The seeded Tech Support user (SCRUM-108), for the equipment queue (SCRUM-110).
       VITE_DEV_TECH_SUPPORT_ID: 62bb62df-0d46-5129-896b-cf13d1b64705
+      # The seeded Safety officer (SCRUM-119), for Acting as (SCRUM-121).
+      VITE_DEV_SAFETY_OFFICER_ID: f7e95dc7-afcb-5db1-a3dd-17aa7ebc0c65
       VITE_DEV_ATTENDEE_ID: 83565d3f-e757-5c0e-8c6e-8dadb298ce18
     steps:
       - uses: actions/checkout@v4

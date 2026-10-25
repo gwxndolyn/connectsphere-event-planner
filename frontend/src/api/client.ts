@@ -4,7 +4,7 @@ const BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
 // Development identity stub (D12), used only in dev mode (VITE_DEV_AUTH=true) without a login: the app
 // acts as one of the seeded users and sends their id as X-User-Id. The header's "Acting as" switch picks which.
-export type DevRole = "organiser" | "coordinator" | "coordinator_lead" | "venue_staff" | "tech_support";
+export type DevRole = "organiser" | "coordinator" | "coordinator_lead" | "venue_staff" | "tech_support" | "safety_officer";
 
 export const DEV_USER_IDS: Record<DevRole, string | undefined> = {
   organiser: import.meta.env.VITE_DEV_USER_ID,
@@ -12,6 +12,8 @@ export const DEV_USER_IDS: Record<DevRole, string | undefined> = {
   coordinator_lead: import.meta.env.VITE_DEV_LEAD_ID,
   venue_staff: import.meta.env.VITE_DEV_VENUE_STAFF_ID,
   tech_support: import.meta.env.VITE_DEV_TECH_SUPPORT_ID,
+  // No screens yet (US16b): acting as one shows each screen's "not your role" message.
+  safety_officer: import.meta.env.VITE_DEV_SAFETY_OFFICER_ID,
 };
 
 // The Sprint 1 attendee routes (events board, register, withdraw, My Events) identify the caller
@@ -30,9 +32,7 @@ const DEV_ROLE_KEY = "connectsphere.devRole";
 function readStoredRole(): DevRole {
   try {
     const stored = localStorage.getItem(DEV_ROLE_KEY);
-    return stored === "coordinator" || stored === "coordinator_lead" || stored === "venue_staff" || stored === "tech_support"
-      ? stored
-      : "organiser";
+    return stored && Object.hasOwn(DEV_USER_IDS, stored) ? (stored as DevRole) : "organiser";
   } catch {
     return "organiser";
   }
