@@ -1,0 +1,81 @@
+/* Event registrations (US28). Buttons, fields, rows and alerts reuse eventRequests.css's request-* classes. */
+
+.registrations-when {
+  margin: 0 0 16px;
+  color: var(--text-muted);
+}
+
+.registrations-totals {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin: 0;
+  padding: 16px 0 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.registrations-totals dt {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.registrations-totals dd {
+  margin: 4px 0 0;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.registrations-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 16px 32px;
+  padding: 24px 0;
+}
+
+.registrations-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.registrations-toggle input {
+  accent-color: var(--accent);
+}
+
+.registrations-table-wrap {
+  overflow-x: auto;
+}
+
+.registrations-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.registrations-table th,
+.registrations-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.registrations-table th {
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.registrations-note {
+  display: block;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+@media (max-width: 720px) {
+  .registrations-totals {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

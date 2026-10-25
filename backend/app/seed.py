@@ -60,6 +60,8 @@ class EventSpec:
     join_link: str | None = None
     # US6a: off by default, as in the database.
     waitlist_enabled: bool = False
+    # US28: assigned to the seeded coordinator, so its Registrations view has an event (D52).
+    coordinator_assigned: bool = False
     # Emails of attendees holding a confirmed seat, in order.
     confirmed: list[str] = field(default_factory=list)
     # Emails on the waitlist, earliest first.
@@ -152,6 +154,7 @@ EVENTS = [
         join_link="https://smu-sg.zoom.us/j/88123345901",
         capacity=200,
         starts_in=timedelta(days=11),
+        coordinator_assigned=True,
         confirmed=["calvin.ng.2024@smu.edu.sg"],
     ),
     EventSpec(
@@ -475,7 +478,7 @@ def upsert_equipment_type(db: Session, name: str) -> EquipmentType:
     return equipment_type
 
 
-def upsert_event(db: Session, spec: EventSpec, now: datetime) -> Event:
+def upsert_event(db: Session, spec: EventSpec, now: datetime, organiser: User) -> Event:
     event_id = seed_id("event", spec.slug)
     start_at = now + spec.starts_in
     values = {
@@ -492,6 +495,8 @@ def upsert_event(db: Session, spec: EventSpec, now: datetime) -> Event:
         "room_number": spec.room_number,
         "join_link": spec.join_link,
         "waitlist_enabled": spec.waitlist_enabled,
+        # US28: the seeded organiser runs these, so it can view their registrations.
+        "created_by_user_id": organiser.id,
     }
     event = db.get(Event, event_id)
     if event is None:
@@ -584,8 +589,7 @@ def upsert_equipment_event(
     """The confirmed event the equipment screens add lines to, assigned to `coordinator`. Its lines are
     made through the app, and a reseed removes them all (SCRUM-110): an approved line can't be removed
     and D41 allows one live line per type, so E2E reruns (TC-US26-17) would otherwise use up the types."""
-    event = upsert_event(db, spec, now)
-    event.created_by_user_id = organiser.id
+    event = upsert_event(db, spec, now, organiser)
     event.coordinator_id = coordinator.id
     db.execute(delete(EquipmentRequestLine).where(EquipmentRequestLine.event_id == event.id))
     return event
@@ -709,7 +713,9 @@ def seed(db: Session, now: datetime | None = None) -> None:
     db.flush()
 
     for spec in EVENTS:
-        event = upsert_event(db, spec, now)
+        event = upsert_event(db, spec, now, organiser)
+        if spec.coordinator_assigned:
+            event.coordinator_id = coordinator.id
         db.flush()
         for email in spec.confirmed:
             upsert_registration(db, event, attendees[email], RegistrationStatus.CONFIRMED, now)
