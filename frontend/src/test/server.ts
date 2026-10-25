@@ -210,6 +210,9 @@ export function seedRequest(overrides: Partial<EventRequest> = {}): EventRequest
     request_reference: null,
     created_at: "2026-10-01T02:00:00Z",
     coordinator: null,
+    decided_at: null,
+    decided_by: null,
+    rejection_reason: null,
     ...overrides,
   };
   if (request.status !== "draft" && !request.request_reference) {
@@ -1031,6 +1034,30 @@ const handlers = [
     found.status = "under_review";
     return HttpResponse.json({ clarification, status: found.status }, { status: 201 });
   }),
+
+  // US17 (SCRUM-84): the assigned coordinator decides a request under review, as
+  // app/event/decision_service.py checks it: assigned (D48), not their own (D51), a reason to reject.
+  ...(["approve", "reject"] as const).map((action) =>
+    route("post", `/api/v1/event-requests/:id/${action}`, ({ request, params, body }) => {
+      const role = userRole(request);
+      if (!role) return error(401, "UNAUTHENTICATED");
+      if (role !== "coordinator") return error(403, "FORBIDDEN");
+      const userId = request.headers.get("X-User-Id")!;
+      const found = db.requests.find((r) => r.id === params.id);
+      if (!found || found.status === "draft" || !assignedTo(found, userId)) return error(404, "NOT_FOUND");
+      if (found.created_by_user_id === userId) return error(403, "SELF_DECISION_NOT_ALLOWED");
+      const reason = ((body ?? {}) as { reason?: string | null }).reason?.trim() ?? "";
+      if (action === "reject" && !reason) return error(422, "MISSING_REQUIRED_FIELD", { fields: ["reason"] });
+      if (found.status !== "under_review") return error(409, "REQUEST_NOT_DECIDABLE", { status: found.status });
+      Object.assign(found, {
+        status: action === "approve" ? "approved" : "rejected",
+        decided_at: "2026-10-02T03:00:00Z",
+        decided_by: found.coordinator,
+        rejection_reason: action === "reject" ? reason : null,
+      });
+      return HttpResponse.json(found);
+    }),
+  ),
 
   // US26 equipment (SCRUM-109, SCRUM-110). Identified by X-User-Id, like every role route.
   route("get", "/api/v1/equipment-types", ({ request }) => {

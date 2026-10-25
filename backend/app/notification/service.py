@@ -9,6 +9,8 @@ logger = logging.getLogger(__name__)
 AssignmentRecipient = Literal["coordinator", "organiser"]
 # What Venue Staff decided on a booking request (SCRUM-8).
 BookingDecision = Literal["approved", "rejected"]
+# What the coordinator decided on an event request (SCRUM-84).
+RequestDecision = Literal["approved", "rejected"]
 
 
 class Notifier(Protocol):
@@ -85,6 +87,16 @@ class Notifier(Protocol):
         quantity: int,
         decision: str,
         note: str | None,
+    ) -> None: ...
+
+    def request_decided(
+        self,
+        *,
+        email: str,
+        request_reference: str,
+        event_name: str,
+        decision: RequestDecision,
+        reason: str | None,
     ) -> None: ...
 
 
@@ -231,6 +243,25 @@ class LoggingNotifier:
             event_name,
             line_id,
             note or "none",
+        )
+
+    def request_decided(
+        self,
+        *,
+        email: str,
+        request_reference: str,
+        event_name: str,
+        decision: RequestDecision,
+        reason: str | None,
+    ) -> None:
+        # SCRUM-84 AC 4: the organiser hears the outcome, and why on a rejection.
+        logger.info(
+            "event request %s: %s, %s (%s); reason: %s",
+            decision,
+            email,
+            request_reference,
+            event_name,
+            reason or "none",
         )
 
 
