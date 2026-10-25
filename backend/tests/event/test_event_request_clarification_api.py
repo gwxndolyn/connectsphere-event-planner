@@ -22,7 +22,10 @@ def make_user(db: Session, role: UserRole, *, active: bool = True) -> User:
     return user
 
 
-def make_request(db: Session, organiser: User, status: EventStatus = EventStatus.SUBMITTED) -> Event:
+def make_request(
+    db: Session, organiser: User, status: EventStatus = EventStatus.SUBMITTED, *, coordinator: User | None = None
+) -> Event:
+    """`coordinator` is the one assigned: only they may ask for clarification (US16b D48)."""
     event = Event(
         name="Community design workshop",
         status=status,
@@ -30,6 +33,7 @@ def make_request(db: Session, organiser: User, status: EventStatus = EventStatus
         created_by_user_id=organiser.id,
         submitted_by_user_id=None if status == EventStatus.DRAFT else organiser.id,
         submitted_at=None if status == EventStatus.DRAFT else NOW - timedelta(days=1),
+        coordinator_id=coordinator.id if coordinator else None,
     )
     db.add(event)
     db.flush()
@@ -66,7 +70,7 @@ def coordinator(db: Session) -> User:
 async def test_tc_us8_09_coordinator_sends_from_submitted_or_under_review(
     client: AsyncClient, db: Session, organiser: User, coordinator: User, status: EventStatus
 ) -> None:
-    event = make_request(db, organiser, status)
+    event = make_request(db, organiser, status, coordinator=coordinator)
 
     response = await send(client, coordinator, event.id)
 
@@ -83,7 +87,7 @@ async def test_tc_us8_09_coordinator_sends_from_submitted_or_under_review(
 async def test_tc_us8_10_owner_sees_awaiting_clarification(
     client: AsyncClient, db: Session, organiser: User, coordinator: User
 ) -> None:
-    event = make_request(db, organiser)
+    event = make_request(db, organiser, coordinator=coordinator)
     await send(client, coordinator, event.id)
 
     response = await client.get(f"/api/v1/event-requests/{event.id}", headers=auth(organiser))
@@ -99,7 +103,7 @@ async def test_tc_us8_10_owner_sees_awaiting_clarification(
 async def test_tc_us8_11_refused_in_other_request_statuses(
     client: AsyncClient, db: Session, organiser: User, coordinator: User, status: EventStatus
 ) -> None:
-    event = make_request(db, organiser, status)
+    event = make_request(db, organiser, status, coordinator=coordinator)
 
     response = await send(client, coordinator, event.id)
 
@@ -130,7 +134,7 @@ async def test_tc_us8_13_only_active_coordinators_may_send(
     callers = {
         "no identity": (None, 401),
         "organiser": (organiser, 403),
-        "operations manager": (make_user(db, UserRole.VENUE_STAFF), 403),
+        "venue staff": (make_user(db, UserRole.VENUE_STAFF), 403),
         "attendee": (make_user(db, UserRole.ATTENDEE), 403),
         "inactive coordinator": (make_user(db, UserRole.COORDINATOR, active=False), 403),
     }
@@ -147,7 +151,7 @@ async def test_tc_us8_13_only_active_coordinators_may_send(
 async def test_tc_us8_14_invalid_body_leaves_the_request_unchanged(
     client: AsyncClient, db: Session, organiser: User, coordinator: User
 ) -> None:
-    event = make_request(db, organiser)
+    event = make_request(db, organiser, coordinator=coordinator)
 
     missing = await send(client, coordinator, event.id, {"sections": [], "comment": " "})
     unknown = await send(client, coordinator, event.id, {"sections": ["catering"], "comment": "Food?"})
@@ -164,8 +168,8 @@ async def test_tc_us8_14_invalid_body_leaves_the_request_unchanged(
 async def test_tc_us8_15_review_queue_lists_submitted_requests_oldest_first(
     client: AsyncClient, db: Session, organiser: User, coordinator: User
 ) -> None:
-    newer = make_request(db, organiser, EventStatus.UNDER_REVIEW)
-    older = make_request(db, organiser, EventStatus.AWAITING_CLARIFICATION)
+    newer = make_request(db, organiser, EventStatus.UNDER_REVIEW, coordinator=coordinator)
+    older = make_request(db, organiser, EventStatus.AWAITING_CLARIFICATION, coordinator=coordinator)
     older.submitted_at = NOW - timedelta(days=3)
     hidden = [make_request(db, organiser, EventStatus.DRAFT), make_event(db)]
     db.flush()
@@ -184,7 +188,8 @@ async def test_tc_us8_16_review_queue_is_staff_only(
     venue_staff = make_user(db, UserRole.VENUE_STAFF)
 
     assert (await client.get("/api/v1/event-requests", headers=auth(coordinator))).status_code == 200
-    assert (await client.get("/api/v1/event-requests", headers=auth(venue_staff))).status_code == 200
+    # Venue Staff read no event requests since US16b (SCRUM-120).
+    assert (await client.get("/api/v1/event-requests", headers=auth(venue_staff))).status_code == 403
     assert (await client.get("/api/v1/event-requests", headers=auth(organiser))).status_code == 403
     assert (await client.get("/api/v1/event-requests")).status_code == 401
 
@@ -196,7 +201,7 @@ async def test_tc_us8_25_sent_clarification_notifies_organiser_with_request_deta
     coordinator: User,
     notifier: FakeNotifier,
 ) -> None:
-    event = make_request(db, organiser)
+    event = make_request(db, organiser, coordinator=coordinator)
     event.request_reference = "ER-2026-000055"
 
     response = await send(
@@ -230,7 +235,7 @@ async def test_tc_us8_26_blocked_clarification_does_not_notify(
     notifier: FakeNotifier,
     status: EventStatus,
 ) -> None:
-    event = make_request(db, organiser, status)
+    event = make_request(db, organiser, status, coordinator=coordinator)
 
     response = await send(client, coordinator, event.id)
 
@@ -262,7 +267,7 @@ async def test_tc_us8_28_invalid_clarification_does_not_notify(
     coordinator: User,
     notifier: FakeNotifier,
 ) -> None:
-    event = make_request(db, organiser)
+    event = make_request(db, organiser, coordinator=coordinator)
 
     response = await send(client, coordinator, event.id, {"sections": [], "comment": "Question?"})
 
@@ -278,7 +283,7 @@ async def test_tc_us8_29_notifier_failure_does_not_undo_clarification(
     notifier: FakeNotifier,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    event = make_request(db, organiser)
+    event = make_request(db, organiser, coordinator=coordinator)
     event.request_reference = "ER-2026-000021"
     notifier.fail = True
 
@@ -303,7 +308,7 @@ async def test_tc_us8_30_missing_organiser_recipient_skips_notification_with_war
     caplog: pytest.LogCaptureFixture,
     missing_recipient: str,
 ) -> None:
-    event = make_request(db, organiser)
+    event = make_request(db, organiser, coordinator=coordinator)
     if missing_recipient == "owner":
         event.created_by_user_id = None
     else:
@@ -332,7 +337,7 @@ def assert_refused_without_side_effects(
 async def test_tc_us8_33_open_round_blocks_another_question(
     client: AsyncClient, db: Session, organiser: User, coordinator: User, notifier: FakeNotifier
 ) -> None:
-    event = make_request(db, organiser)
+    event = make_request(db, organiser, coordinator=coordinator)
     event.request_reference = "ER-2026-000056"
     assert (await send(client, coordinator, event.id)).status_code == 201
     rows_before, notified_before = stored(db, event), list(notifier.clarifications)
@@ -355,7 +360,7 @@ async def test_tc_us8_34_decided_requests_refuse_clarification(
     notifier: FakeNotifier,
     status: EventStatus,
 ) -> None:
-    event = make_request(db, organiser, status)
+    event = make_request(db, organiser, status, coordinator=coordinator)
     rows_before, notified_before = stored(db, event), list(notifier.clarifications)
 
     response = await send(client, coordinator, event.id)

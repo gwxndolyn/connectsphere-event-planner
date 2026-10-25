@@ -351,19 +351,25 @@ async def test_tc_us1_14_submitted_visibility_and_draft_privacy(
     submitted = await submit(client, owner, submitted_draft["id"])
     private_draft = await create_draft(client, owner, name="Still private")
     confirmed_event = make_event(db)
+    # Only its assigned coordinator reads a submitted request (US16b D48).
+    db.get(Event, uuid.UUID(submitted_draft["id"])).coordinator_id = coordinator.id
+    db.flush()
 
-    for reader in (owner, coordinator, venue_staff):
+    for reader in (owner, coordinator):
         response = await client.get(
             f"/api/v1/event-requests/{submitted_draft['id']}", headers=auth(reader)
         )
         assert response.status_code == 200
         assert response.json()["request_reference"] == submitted["request_reference"]
 
-    for reader in (coordinator, venue_staff, other_organiser):
+    for reader in (coordinator, other_organiser):
         response = await client.get(
             f"/api/v1/event-requests/{private_draft['id']}", headers=auth(reader)
         )
         assert response.status_code == 404
+    # Venue Staff hold no role that reads requests (US16b, SCRUM-120).
+    staff_read = await client.get(f"/api/v1/event-requests/{submitted_draft['id']}", headers=auth(venue_staff))
+    assert staff_read.status_code == 403
 
     other_read = await client.get(
         f"/api/v1/event-requests/{submitted_draft['id']}", headers=auth(other_organiser)

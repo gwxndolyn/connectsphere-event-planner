@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.exceptions import DomainError
 from app.event.models import AssignmentKind, CoordinatorAssignment, Event, EventStatus
+from app.event.self_decision import refuse_self_decision
 from app.event.request_schemas import (
     AssignedRequestOut,
     AssignmentRecordOut,
@@ -147,10 +148,12 @@ class AssignmentService:
         # Drafts and finished events are invisible to staff (D11), so they 404, not 409.
         if event is None or event.status in NOT_A_REQUEST_STATUSES:
             raise DomainError(404, "NOT_FOUND")
+        # D51: a Lead who also organises can't assign their own request.
+        refuse_self_decision(lead, created_by_user_id=event.created_by_user_id)
         if event.status != EventStatus.SUBMITTED or event.coordinator_id is not None:
             raise DomainError(409, "ASSIGNMENT_NOT_ALLOWED", status=event.status.value)
 
-        coordinator = self._eligible_coordinator(db, lead, coordinator_id)
+        coordinator = self._eligible_coordinator(db, lead, coordinator_id, event)
         event.coordinator = coordinator
         # SCRUM-69 AC 1: the record commits or rolls back with the assignment itself.
         db.add(
@@ -197,6 +200,8 @@ class AssignmentService:
         event = db.scalars(select(Event).where(Event.id == request_id).with_for_update()).one_or_none()
         if event is None or event.status == EventStatus.DRAFT:
             raise DomainError(404, "NOT_FOUND")
+        # D51: a Lead who also organises can't reassign their own request, as for assigning it.
+        refuse_self_decision(lead, created_by_user_id=event.created_by_user_id)
         if event.coordinator_id is None or event.status not in REASSIGNABLE_STATUSES:
             raise DomainError(409, "REASSIGNMENT_NOT_ALLOWED", status=event.status.value)
         reason = (reason or "").strip()
@@ -205,7 +210,7 @@ class AssignmentService:
         if coordinator_id == event.coordinator_id:
             raise DomainError(422, "INVALID_COORDINATOR", reason="same_coordinator")
 
-        coordinator = self._eligible_coordinator(db, lead, coordinator_id)
+        coordinator = self._eligible_coordinator(db, lead, coordinator_id, event)
         previous = event.coordinator
         event.coordinator = coordinator
         db.add(
@@ -374,13 +379,16 @@ class AssignmentService:
             except Exception:
                 logger.exception("could not send the %s assignment notice for request %s", recipient, request_id)
 
-    def _eligible_coordinator(self, db: Session, lead: User, coordinator_id: uuid.UUID) -> User:
+    def _eligible_coordinator(self, db: Session, lead: User, coordinator_id: uuid.UUID, event: Event) -> User:
         """AC 4 and 7: say why a pick is refused; the caller changes nothing when this raises."""
         if coordinator_id == lead.id:
             raise DomainError(422, "INVALID_COORDINATOR", reason="self_assignment")
         coordinator = db.get(User, coordinator_id)
         if coordinator is None:
             raise DomainError(422, "INVALID_COORDINATOR", reason="unknown_user")
+        # D51: nobody coordinates, and so clarifies, a request they created.
+        if coordinator.id == event.created_by_user_id:
+            raise DomainError(422, "INVALID_COORDINATOR", reason="created_the_request")
         if not coordinator.holds(UserRole.COORDINATOR):
             raise DomainError(422, "INVALID_COORDINATOR", reason="not_a_coordinator")
         if not coordinator.is_active:
