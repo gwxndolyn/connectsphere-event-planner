@@ -98,6 +98,8 @@ interface Db {
   requests: EventRequest[];
   // SCRUM-69: each request's Assignment History, newest first.
   assignments: Record<string, AssignmentRecord[]>;
+  // Who GET /coordinators offers beyond Casey (SCRUM-83 needs a second one to move an event to).
+  otherCoordinators: { id: string; name: string; email: string }[];
   clarifications: Clarification[];
   // US22 venue bookings (SCRUM-113).
   bookings: VenueBooking[];
@@ -123,6 +125,7 @@ function emptyDb(): Db {
     registrations: [],
     requests: [],
     assignments: {},
+    otherCoordinators: [],
     clarifications: [],
     managedEvents: { organiser: [], coordinator: [] },
     bookings: [],
@@ -900,7 +903,43 @@ const handlers = [
     const planning_count = db.requests.filter(
       (r) => r.coordinator?.id === COORDINATOR_PERSON.id && WORKLOAD_STATUSES.has(r.status),
     ).length;
-    return HttpResponse.json({ coordinators: [{ ...COORDINATOR_PERSON, planning_count }] });
+    const others = db.otherCoordinators.map((person) => ({
+      ...person,
+      planning_count: db.requests.filter((r) => r.coordinator?.id === person.id && WORKLOAD_STATUSES.has(r.status)).length,
+    }));
+    return HttpResponse.json({ coordinators: [{ ...COORDINATOR_PERSON, planning_count }, ...others] });
+  }),
+
+  // SCRUM-83: the Lead moves an event to a different coordinator, with a reason.
+  route("post", "/api/v1/event-requests/:id/reassignment", ({ request, params, body }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "coordinator_lead") return error(403, "FORBIDDEN");
+    const found = db.requests.find((r) => r.id === params.id);
+    if (!found || found.status === "draft") return error(404, "NOT_FOUND");
+    const active = ["under_review", "awaiting_clarification", "approved", "planning", "confirmed"];
+    if (found.coordinator === null || !active.includes(found.status)) {
+      return error(409, "REASSIGNMENT_NOT_ALLOWED", { status: found.status });
+    }
+    const { coordinator_id: target, reason } = (body as { coordinator_id?: string; reason?: string } | null) ?? {};
+    if (!reason?.trim()) return error(422, "MISSING_REQUIRED_FIELD", { fields: ["reason"] });
+    if (target === found.coordinator.id) return error(422, "INVALID_COORDINATOR", { reason: "same_coordinator" });
+    const people = [COORDINATOR_PERSON, ...db.otherCoordinators];
+    const picked = people.find((person) => person.id === target);
+    if (!picked) return error(422, "INVALID_COORDINATOR", { reason: target === LEAD_ID ? "self_assignment" : "not_a_coordinator" });
+    found.coordinator = { id: picked.id, name: picked.name };
+    db.assignments[found.id] = [
+      {
+        id: newId("assignment"),
+        kind: "reassignment",
+        assigned_by: LEAD_PERSON,
+        coordinator: picked,
+        reason: reason.trim(),
+        created_at: "2026-10-27T03:15:00Z",
+      },
+      ...(db.assignments[found.id] ?? []),
+    ];
+    return HttpResponse.json(found);
   }),
 
   route("post", "/api/v1/event-requests/:id/assignment", ({ request, params, body }) => {
