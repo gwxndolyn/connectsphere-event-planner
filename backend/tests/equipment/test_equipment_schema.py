@@ -83,7 +83,7 @@ def test_tc_us26_01_a_user_can_hold_the_tech_support_role(db: Session) -> None:
     db.flush()
     db.expire(user)
 
-    assert db.get(User, user.id).role is UserRole.TECH_SUPPORT
+    assert list(db.get(User, user.id).roles) == [UserRole.TECH_SUPPORT]
 
 
 def test_tc_us26_01_migrations_have_one_head() -> None:

@@ -69,7 +69,7 @@ async def test_tc_us16a_18_an_organiser_profile_takes_its_identity_from_the_toke
     assert (user.auth_user_id, user.email, list(user.roles), user.full_name) == (
         sub,
         email,
-        UserRole.ORGANISER,
+        [UserRole.ORGANISER],
         "Olivia Organiser",
     )
     assert db.get(Attendee, user.id) is None

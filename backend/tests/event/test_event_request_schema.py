@@ -78,7 +78,7 @@ def test_tc_us1_16_request_schema_is_installed(db: Session, engine) -> None:
 
     attendee = make_attendee(db)
     assert db.execute(
-        text("select count(*) from users where id = :id and email = :email and role = 'attendee'"),
+        text("select count(*) from users where id = :id and email = :email and roles = '{attendee}'"),
         {"id": attendee.id, "email": attendee.email},
     ).scalar_one() == 1
 
