@@ -85,6 +85,7 @@ class FakeNotifier:
         self.queued: list[dict[str, object]] = []
         self.assignments: list[dict[str, object]] = []
         self.equipment_reviews: list[dict[str, object]] = []
+        self.request_decisions: list[dict[str, object]] = []
         self.fail = False
 
     def waitlist_offer(
@@ -215,6 +216,11 @@ class FakeNotifier:
         )
         if self.fail:
             raise RuntimeError("mail server unavailable")
+
+    def request_decided(self, **call: object) -> None:
+        if self.fail:
+            raise RuntimeError("mail server unavailable")
+        self.request_decisions.append(call)
 
 
 @pytest.fixture

@@ -82,6 +82,13 @@ class Event(Base):
             name="events_final_fields_required",
         ),
         UniqueConstraint("request_reference", name="events_request_reference_key"),
+        CheckConstraint(
+            "status::text = 'rejected' OR rejection_reason IS NULL", name="events_rejection_reason_only_when_rejected"
+        ),
+        CheckConstraint(
+            "decided_by_user_id IS NULL OR created_by_user_id IS NULL OR decided_by_user_id <> created_by_user_id",
+            name="events_decider_not_creator",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, server_default=text("gen_random_uuid()"))
@@ -124,6 +131,11 @@ class Event(Base):
     coordinator_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), index=True)
     coordinator: Mapped["User | None"] = relationship(foreign_keys=[coordinator_id])
     created_by: Mapped["User | None"] = relationship(foreign_keys=[created_by_user_id], viewonly=True)
+    # US17 (SCRUM-84): the coordinator's approval or rejection (AC 5) and a rejection's reason (AC 3).
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    decided_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    decided_by: Mapped["User | None"] = relationship(foreign_keys=[decided_by_user_id], viewonly=True)
+    rejection_reason: Mapped[str | None] = mapped_column(Text)
 
 
 class EventRegistrationField(Base):

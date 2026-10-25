@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { ApiError, apiClient } from "../../api/client";
 import { ClarificationThreadView } from "./ClarificationThreadView";
+import { DecisionOutcome } from "./RequestDecision";
 import { sectionLabel, statusLabel } from "./clarificationSections";
 import type {
   Clarification,
@@ -580,6 +581,7 @@ export function EventRequestsPage() {
             <span>Tracking reference</span>
             <code>{activeRequest.request_reference}</code>
           </div>
+          <DecisionOutcome request={activeRequest} />
           <button className="request-button request-button--primary" type="button" onClick={backToList}>
             Back to my requests
           </button>

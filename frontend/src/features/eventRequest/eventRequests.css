@@ -399,3 +399,27 @@
     flex: 1 1 100%;
   }
 }
+/* US17 (SCRUM-84): the coordinator's decision and its recorded outcome. */
+.request-decision {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.request-decision h2 {
+  margin: 0 0 12px;
+  font-size: 17px;
+}
+
+.request-outcome {
+  margin: 16px 0;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  text-align: left;
+}
+
+.request-outcome__reason {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+}

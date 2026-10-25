@@ -62,8 +62,15 @@ def test_tc_us10a_04_seed_adds_two_active_leads_and_leaves_events_unassigned(db:
     # AC 8: organisers see a name, so the seeded coordinator and Leads have one.
     assert all(lead.full_name for lead in leads)
     assert db.scalars(select(User).where(User.roles.any(UserRole.COORDINATOR), User.full_name.is_(None))).first() is None
-    # Seeded events start unassigned, except US22's Venue Booking Demo and US26's Equipment Request
-    # Demo: only the assigned coordinator may book a venue or add equipment (D20), so the seed assigns
-    # the dev coordinator to both for their screens and E2E.
+    # Seeded events start unassigned, except US22's Venue Booking Demo, US26's Equipment Request
+    # Demo and US28's Intro to Supabase: only the assigned coordinator may book a venue, add equipment
+    # (D20) or view registrations (D52), so the seed assigns the dev coordinator to all three for their
+    # screens and E2E.
     assigned = db.scalars(select(Event.id).where(Event.coordinator_id.is_not(None))).all()
-    assert sorted(assigned) == sorted([seed_id("event", BOOKABLE_EVENT.slug), seed_id("event", EQUIPMENT_EVENT.slug)])
+    assert sorted(assigned) == sorted(
+        [
+            seed_id("event", BOOKABLE_EVENT.slug),
+            seed_id("event", EQUIPMENT_EVENT.slug),
+            seed_id("event", "supabase-live-coding"),
+        ]
+    )

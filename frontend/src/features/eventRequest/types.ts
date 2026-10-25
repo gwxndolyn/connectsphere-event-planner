@@ -40,6 +40,10 @@ export interface EventRequest extends EventRequestWrite {
   created_at: string;
   // null = unassigned (SCRUM-13).
   coordinator: AssignedCoordinator | null;
+  // SCRUM-84 (US17): who approved or rejected it and when, and a rejection's reason. Null until decided.
+  decided_at: string | null;
+  decided_by: AssignedCoordinator | null;
+  rejection_reason: string | null;
 }
 
 export interface QueuePerson {

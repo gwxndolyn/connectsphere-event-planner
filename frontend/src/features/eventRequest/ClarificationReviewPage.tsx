@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { ApiError, apiClient } from "../../api/client";
 import { EventVenueBookings } from "../venue/EventVenueBookings";
 import { ClarificationThreadView } from "./ClarificationThreadView";
+import { DecisionOutcome, RequestDecisionPanel } from "./RequestDecision";
 import { SECTIONS, displayValue, sectionLabel, statusLabel } from "./clarificationSections";
 import type {
   Clarification,
@@ -29,7 +30,12 @@ function errorMessage(error: unknown): string {
   return `The backend rejected the request (${error.status}).`;
 }
 
-export function ClarificationReviewPage() {
+interface ClarificationReviewPageProps {
+  // The coordinator using the screen: only their own assigned requests offer Approve and Reject (US17).
+  userId?: string;
+}
+
+export function ClarificationReviewPage({ userId }: ClarificationReviewPageProps) {
   const [requests, setRequests] = useState<EventRequest[]>([]);
   const [screen, setScreen] = useState<Screen>("queue");
   const [activeRequest, setActiveRequest] = useState<EventRequest | null>(null);
@@ -122,6 +128,13 @@ export function ClarificationReviewPage() {
   }
 
   const canClarify = activeRequest !== null && CLARIFIABLE_STATUSES.has(activeRequest.status);
+  const canDecide =
+    activeRequest !== null && activeRequest.status === "under_review" && activeRequest.coordinator?.id === userId;
+
+  function recordDecision(decided: EventRequest) {
+    setRequests((current) => current.map((request) => (request.id === decided.id ? decided : request)));
+    setActiveRequest(decided);
+  }
   const sectionsInvalid = invalidFields.includes("sections");
   const commentInvalid = invalidFields.includes("comment");
 
@@ -234,6 +247,11 @@ export function ClarificationReviewPage() {
             </p>
           )}
         </form>
+      )}
+
+      {screen === "review" && activeRequest && <DecisionOutcome request={activeRequest} />}
+      {screen === "review" && activeRequest && canDecide && (
+        <RequestDecisionPanel key={activeRequest.id} request={activeRequest} onDecided={recordDecision} />
       )}
 
       {/* US22 (SCRUM-113): an approved request can have a venue requested for it (D20). */}

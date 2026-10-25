@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
-import { ApiError, apiClient, getDevRole, setDevRole, type DevRole } from "./api/client";
+import { ApiError, DEV_USER_IDS, apiClient, getDevRole, setDevRole, type DevRole } from "./api/client";
 import { LoginPage } from "./auth/LoginPage";
 import { accountErrorMessage } from "./auth/messages";
 import { SignUpPage } from "./auth/SignUpPage";
@@ -11,6 +11,7 @@ import { SiteHeader, type View } from "./components/SiteHeader";
 import { EquipmentQueue } from "./features/equipment/EquipmentQueue";
 import { EventEquipment } from "./features/equipment/EventEquipment";
 import { EventHealthCheck } from "./features/event/EventHealthCheck";
+import { EventRegistrationsPage } from "./features/eventRegistrations/EventRegistrationsPage";
 import { AssignmentQueuePage } from "./features/eventRequest/AssignmentQueuePage";
 import { ClarificationReviewPage } from "./features/eventRequest/ClarificationReviewPage";
 import { EventRequestsPage } from "./features/eventRequest/EventRequestsPage";
@@ -29,7 +30,7 @@ interface Me {
 
 // The last screen, so a refresh comes back to it (TC-US16A-35).
 const VIEW_KEY = "connectsphere.view";
-const VIEWS: View[] = ["discovery", "my-events", "event-requests", "venues", "equipment"];
+const VIEWS: View[] = ["discovery", "my-events", "event-requests", "registrations", "venues", "equipment"];
 
 function storedView(): View {
   try {
@@ -200,7 +201,7 @@ function Workspace({ me, view, onNavigate, onLogOut }: WorkspaceProps) {
         <VenuesPage key={role} staff={role === "venue_staff"} canSearch={role === "coordinator" || role === "venue_staff"} />
       ) : shown === "event-requests" ? (
         role === "coordinator" ? (
-          <ClarificationReviewPage key="coordinator" />
+          <ClarificationReviewPage key="coordinator" userId={me?.id ?? DEV_USER_IDS.coordinator} />
         ) : role === "coordinator_lead" ? (
           <AssignmentQueuePage key="coordinator_lead" />
         ) : role === "venue_staff" || role === "tech_support" ? (
@@ -221,6 +222,14 @@ function Workspace({ me, view, onNavigate, onLogOut }: WorkspaceProps) {
         ) : (
           <main className="request-page">
             <p className="request-empty">Equipment requests are for Coordinators and Tech support. Switch Acting as to see them.</p>
+          </main>
+        )
+      ) : shown === "registrations" ? (
+        role === "organiser" || role === "coordinator" ? (
+          <EventRegistrationsPage key={role} />
+        ) : (
+          <main className="request-page">
+            <p className="request-empty">Registrations are for organisers and coordinators. Switch Acting as to see them.</p>
           </main>
         )
       ) : shown === "discovery" ? (

@@ -1,6 +1,7 @@
 import { http, HttpResponse, type JsonBodyType } from "msw";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll } from "vitest";
+import type { EventRegistrations } from "../features/eventRegistrations/types";
 import type { AssignmentRecord, Clarification, EventRequest, EventRequestWrite } from "../features/eventRequest/types";
 import type { BookingEvaluation, VenueBooking } from "../features/venue/bookingTypes";
 import type { Venue } from "../features/venue/types";
@@ -106,6 +107,8 @@ interface Db {
   equipmentTypes: FakeEquipmentType[];
   equipmentEvents: FakeEquipmentEvent[];
   equipmentLines: FakeEquipmentLine[];
+  // US28: the events each managing role sees, and what each event's registrations call returns.
+  managedEvents: Record<"organiser" | "coordinator", EventRegistrations[]>;
   calls: RecordedCall[];
   nextId: number;
   nextReference: number;
@@ -121,6 +124,7 @@ function emptyDb(): Db {
     requests: [],
     assignments: {},
     clarifications: [],
+    managedEvents: { organiser: [], coordinator: [] },
     bookings: [],
     evaluations: {},
     equipmentTypes: [],
@@ -206,6 +210,9 @@ export function seedRequest(overrides: Partial<EventRequest> = {}): EventRequest
     request_reference: null,
     created_at: "2026-10-01T02:00:00Z",
     coordinator: null,
+    decided_at: null,
+    decided_by: null,
+    rejection_reason: null,
     ...overrides,
   };
   if (request.status !== "draft" && !request.request_reference) {
@@ -349,6 +356,29 @@ export function seedEquipmentLine(
 /** The venues the next search returns, in that order: the API decides which venues fit, not the fake. */
 export function nextSearchResult(venues: Venue[]) {
   db.searchResult = venues;
+}
+
+/** An event the given managing roles see (US28), with what its registrations call returns. */
+export function seedManagedEvent(
+  overrides: Partial<EventRegistrations> = {},
+  roles: ("organiser" | "coordinator")[] = ["organiser", "coordinator"],
+): EventRegistrations {
+  const managed: EventRegistrations = {
+    event: {
+      id: newId("event"),
+      name: "Design Sprint Bootcamp",
+      start_at: "2026-10-05T14:00:00+08:00",
+      end_at: "2026-10-05T16:00:00+08:00",
+      status: "confirmed",
+      capacity: 2,
+    },
+    totals: { confirmed: 0, waitlisted: 0, offered: 0, seats_remaining: 2 },
+    registration_fields: [],
+    registrations: [],
+    ...overrides,
+  };
+  roles.forEach((role) => db.managedEvents[role].push(managed));
+  return managed;
 }
 
 /** Calls the screens made, optionally narrowed by method and path. */
@@ -692,6 +722,26 @@ const handlers = [
     });
   }),
 
+  // Event registrations (US28, SCRUM-96), identified by X-User-Id. Like search, no rules here: who
+  // manages which event and which rows a filter shows are the API's job, proven by
+  // backend/tests/registration/test_event_registrations.py. These return what a test seeds with
+  // `seedManagedEvent`, so integration tests check what the screen sends and shows.
+  route("get", "/api/v1/me/managed-events", ({ request }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "organiser" && role !== "coordinator") return error(403, "FORBIDDEN");
+    return HttpResponse.json({ events: db.managedEvents[role].map((managed) => managed.event) });
+  }),
+
+  route("get", "/api/v1/events/:eventId/registrations", ({ request, params }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "organiser" && role !== "coordinator") return error(403, "FORBIDDEN");
+    const managed = db.managedEvents[role].find((m) => m.event.id === params.eventId);
+    if (!managed) return error(404, "NOT_FOUND");
+    return HttpResponse.json(managed);
+  }),
+
   // US22 venue bookings (SCRUM-89), identified by X-User-Id. The contract and identity rules only:
   // overlap, capacity and venue warnings are the API's (backend/tests/venue/test_booking_api.py), so
   // a test queues a refusal or warnings with server.use(...).
@@ -984,6 +1034,30 @@ const handlers = [
     found.status = "under_review";
     return HttpResponse.json({ clarification, status: found.status }, { status: 201 });
   }),
+
+  // US17 (SCRUM-84): the assigned coordinator decides a request under review, as
+  // app/event/decision_service.py checks it: assigned (D48), not their own (D51), a reason to reject.
+  ...(["approve", "reject"] as const).map((action) =>
+    route("post", `/api/v1/event-requests/:id/${action}`, ({ request, params, body }) => {
+      const role = userRole(request);
+      if (!role) return error(401, "UNAUTHENTICATED");
+      if (role !== "coordinator") return error(403, "FORBIDDEN");
+      const userId = request.headers.get("X-User-Id")!;
+      const found = db.requests.find((r) => r.id === params.id);
+      if (!found || found.status === "draft" || !assignedTo(found, userId)) return error(404, "NOT_FOUND");
+      if (found.created_by_user_id === userId) return error(403, "SELF_DECISION_NOT_ALLOWED");
+      const reason = ((body ?? {}) as { reason?: string | null }).reason?.trim() ?? "";
+      if (action === "reject" && !reason) return error(422, "MISSING_REQUIRED_FIELD", { fields: ["reason"] });
+      if (found.status !== "under_review") return error(409, "REQUEST_NOT_DECIDABLE", { status: found.status });
+      Object.assign(found, {
+        status: action === "approve" ? "approved" : "rejected",
+        decided_at: "2026-10-02T03:00:00Z",
+        decided_by: found.coordinator,
+        rejection_reason: action === "reject" ? reason : null,
+      });
+      return HttpResponse.json(found);
+    }),
+  ),
 
   // US26 equipment (SCRUM-109, SCRUM-110). Identified by X-User-Id, like every role route.
   route("get", "/api/v1/equipment-types", ({ request }) => {

@@ -74,6 +74,21 @@ class EventRequestOut(BaseModel):
     created_at: datetime
     # null = unassigned; the screens show "Unassigned" (SCRUM-13 AC 8)
     coordinator: CoordinatorOut | None
+    # SCRUM-84 AC 5: who approved or rejected it and when, and a rejection's reason. Null until decided,
+    # and for events made before US17.
+    decided_at: datetime | None = None
+    decided_by: CoordinatorOut | None = None
+    rejection_reason: str | None = None
+
+
+class RequestRejectWrite(BaseModel):
+    """Reject body (SCRUM-84 AC 3). Optional here so a missing reason is the API's own
+    `MISSING_REQUIRED_FIELD`, like a blank one, not FastAPI's generic 422."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Stored, logged and shown to the organiser, so kept to a readable length, as US4's notes are.
+    reason: str | None = Field(default=None, max_length=1000)
 
 
 class UnassignedRequestOut(EventRequestOut):

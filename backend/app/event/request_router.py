@@ -15,6 +15,7 @@ from app.event.clarification_schemas import (
 )
 from app.event.clarification_service import clarification_service
 from app.event.assignment_service import assignment_service
+from app.event.decision_service import request_decision_service
 from app.event.models import EventStatus
 from app.event.request_schemas import (
     AssignedRequestsOut,
@@ -24,6 +25,7 @@ from app.event.request_schemas import (
     EventRequestOut,
     EventRequestWrite,
     EventRequestsOut,
+    RequestRejectWrite,
     UnassignedRequestsOut,
 )
 from app.event.request_service import event_request_service
@@ -148,6 +150,30 @@ def assign_coordinator(
     notifier: Notifier = Depends(get_notifier),
 ) -> EventRequestOut:
     return assignment_service.assign(db, request_id, lead, body.coordinator_id, notifier)
+
+
+# SCRUM-84 (US17): the assigned coordinator decides a request under review. No body on approve.
+@router.post("/{request_id}/approve", response_model=EventRequestOut)
+def approve_request(
+    request_id: uuid.UUID,
+    coordinator: Coordinator,
+    db: Session = Depends(get_db),
+    now: datetime = Depends(get_now),
+    notifier: Notifier = Depends(get_notifier),
+) -> EventRequestOut:
+    return request_decision_service.approve(db, coordinator, request_id, now, notifier)
+
+
+@router.post("/{request_id}/reject", response_model=EventRequestOut)
+def reject_request(
+    request_id: uuid.UUID,
+    body: RequestRejectWrite,
+    coordinator: Coordinator,
+    db: Session = Depends(get_db),
+    now: datetime = Depends(get_now),
+    notifier: Notifier = Depends(get_notifier),
+) -> EventRequestOut:
+    return request_decision_service.reject(db, coordinator, request_id, body, now, notifier)
 
 
 @router.post("/{request_id}/clarifications", status_code=201, response_model=ClarificationSentOut)

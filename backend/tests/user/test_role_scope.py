@@ -29,7 +29,7 @@ from tests.factories import NOW, make_attendee, make_event, make_registration, m
 
 pytestmark = pytest.mark.anyio
 
-REVISION = "20261028_1200_us16b_d51_checks"
+REVISION = "20261030_1200_us16b_d51_checks"
 QUESTION = {"sections": ["attendance"], "comment": "How many people are coming?"}
 FORBIDDEN = {"code": "FORBIDDEN"}
 NOT_FOUND = {"code": "NOT_FOUND"}

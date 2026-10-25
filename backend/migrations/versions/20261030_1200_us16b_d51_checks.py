@@ -1,8 +1,8 @@
 """no one decides a venue booking or equipment line they requested
 
-Revision ID: 20261028_1200_us16b_d51_checks
-Revises: 20261027_1200_us16b_roles
-Create Date: 2026-10-28
+Revision ID: 20261030_1200_us16b_d51_checks
+Revises: 20261029_1200_us17_decisions
+Create Date: 2026-10-30
 
 """
 from typing import Sequence, Union
@@ -10,8 +10,8 @@ from typing import Sequence, Union
 from alembic import op
 
 
-revision: str = "20261028_1200_us16b_d51_checks"
-down_revision: Union[str, None] = "20261027_1200_us16b_roles"
+revision: str = "20261030_1200_us16b_d51_checks"
+down_revision: Union[str, None] = "20261029_1200_us17_decisions"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
