@@ -147,10 +147,14 @@ class AssignmentService:
         # Drafts and finished events are invisible to staff (D11), so they 404, not 409.
         if event is None or event.status in NOT_A_REQUEST_STATUSES:
             raise DomainError(404, "NOT_FOUND")
+        # DECISION-PENDING: D51 — no one decides a record they created: a Lead who also organises
+        # can't assign their own request.
+        if event.created_by_user_id == lead.id:
+            raise DomainError(403, "SELF_DECISION_NOT_ALLOWED")
         if event.status != EventStatus.SUBMITTED or event.coordinator_id is not None:
             raise DomainError(409, "ASSIGNMENT_NOT_ALLOWED", status=event.status.value)
 
-        coordinator = self._eligible_coordinator(db, lead, coordinator_id)
+        coordinator = self._eligible_coordinator(db, lead, coordinator_id, event)
         event.coordinator = coordinator
         # SCRUM-69 AC 1: the record commits or rolls back with the assignment itself.
         db.add(
@@ -229,13 +233,16 @@ class AssignmentService:
             except Exception:
                 logger.exception("could not send the %s assignment notice for request %s", recipient, request_id)
 
-    def _eligible_coordinator(self, db: Session, lead: User, coordinator_id: uuid.UUID) -> User:
+    def _eligible_coordinator(self, db: Session, lead: User, coordinator_id: uuid.UUID, event: Event) -> User:
         """AC 4 and 7: say why a pick is refused; the caller changes nothing when this raises."""
         if coordinator_id == lead.id:
             raise DomainError(422, "INVALID_COORDINATOR", reason="self_assignment")
         coordinator = db.get(User, coordinator_id)
         if coordinator is None:
             raise DomainError(422, "INVALID_COORDINATOR", reason="unknown_user")
+        # D51: nobody coordinates, and so clarifies, a request they created.
+        if coordinator.id == event.created_by_user_id:
+            raise DomainError(422, "INVALID_COORDINATOR", reason="created_the_request")
         if not coordinator.holds(UserRole.COORDINATOR):
             raise DomainError(422, "INVALID_COORDINATOR", reason="not_a_coordinator")
         if not coordinator.is_active:

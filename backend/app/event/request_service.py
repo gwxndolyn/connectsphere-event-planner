@@ -40,6 +40,11 @@ def format_request_reference(year: int, sequence: int) -> str:
     return f"ER-{year}-{sequence:06d}"
 
 
+def is_assigned_coordinator(event: Event, user: User) -> bool:
+    """Whether `user` is the event's current coordinator (D48): the only coordinator who works on it."""
+    return user.holds(UserRole.COORDINATOR) and event.coordinator_id == user.id
+
+
 class EventRequestService:
     def create_draft(
         self, db: Session, owner: User, fields: EventRequestWrite
@@ -65,14 +70,14 @@ class EventRequestService:
         ).all()
         return [EventRequestOut.model_validate(event) for event in events]
 
-    def list_for_review(self, db: Session) -> list[EventRequestOut]:
-        """Staff review queue: every submitted request still at the request stage (D11),
-        oldest submission first so nothing waits behind newer work."""
-        events = db.scalars(
-            select(Event)
-            .where(Event.status.in_(SUBMITTED_REQUEST_STATUSES))
-            .order_by(Event.submitted_at, Event.id)
-        ).all()
+    def list_for_review(self, db: Session, reviewer: User) -> list[EventRequestOut]:
+        """The review queue: submitted requests still at the request stage (D11), oldest submission
+        first so nothing waits behind newer work. A Lead sees every one; a coordinator only those
+        assigned to them (D48)."""
+        query = select(Event).where(Event.status.in_(SUBMITTED_REQUEST_STATUSES))
+        if not reviewer.holds(UserRole.COORDINATOR_LEAD):
+            query = query.where(Event.coordinator_id == reviewer.id)
+        events = db.scalars(query.order_by(Event.submitted_at, Event.id)).all()
         return [EventRequestOut.model_validate(event) for event in events]
 
     def get(self, db: Session, request_id: uuid.UUID, reader: User) -> EventRequestOut:
@@ -181,11 +186,12 @@ class EventRequestService:
             return True
         if event.status == EventStatus.DRAFT:
             return False
-        # DECISION-PENDING: SCRUM-20 — submitted requests are visible to coordinators and
-        # Venue Staff so US8/US10 can proceed; SCRUM-120 narrows this (D48).
-        return event.status in SUBMITTED_REQUEST_STATUSES and reader.holds(
-            UserRole.COORDINATOR, UserRole.COORDINATOR_LEAD, UserRole.VENUE_STAFF
-        )
+        if event.status not in SUBMITTED_REQUEST_STATUSES:
+            return False
+        # DECISION-PENDING: D48 — Leads read every submitted request (they assign from the queue); a
+        # coordinator only the ones assigned to them now, so a reassignment hands the request and its
+        # thread to the new coordinator. Everyone else, other organisers included (D47), gets 404.
+        return reader.holds(UserRole.COORDINATOR_LEAD) or is_assigned_coordinator(event, reader)
 
     def _validate_save_fields(self, fields: EventRequestWrite) -> None:
         self._validate_save_values(fields.model_dump())

@@ -130,6 +130,8 @@ class VenueBooking(Base):
             "status = 'rejected' OR (rejection_reason IS NULL AND alternative_suggestion IS NULL)",
             name="venue_bookings_rejection_notes_only_when_rejected",
         ),
+        # DECISION-PENDING: D51 — no one decides a booking they requested (US16b, SCRUM-120).
+        CheckConstraint("decided_by_user_id <> requested_by_user_id", name="venue_bookings_decider_not_requester"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, server_default=text("gen_random_uuid()"))

@@ -19,7 +19,7 @@ from app.event.models import (
     EventRequestClarification,
     EventStatus,
 )
-from app.event.request_service import SUBMITTED_REQUEST_STATUSES, event_request_service
+from app.event.request_service import SUBMITTED_REQUEST_STATUSES, event_request_service, is_assigned_coordinator
 from app.notification.service import Notifier
 from app.user.models import User
 
@@ -53,8 +53,13 @@ class ClarificationService:
         event = db.scalars(
             select(Event).where(Event.id == request_id).with_for_update()
         ).one_or_none()
-        # Drafts and finished events are invisible to coordinators (D11), so they 404, not 409.
-        if event is None or event.status not in SUBMITTED_REQUEST_STATUSES:
+        # Drafts and finished events are invisible to coordinators (D11), and so is a request that
+        # isn't assigned to this one (D48, retiring D14), so they 404, not 409.
+        if (
+            event is None
+            or event.status not in SUBMITTED_REQUEST_STATUSES
+            or not is_assigned_coordinator(event, coordinator)
+        ):
             raise DomainError(404, "NOT_FOUND")
         if event.status not in CLARIFIABLE_STATUSES:
             raise DomainError(409, "CLARIFICATION_NOT_ALLOWED", status=event.status.value)
@@ -181,7 +186,8 @@ class ClarificationService:
         return result
 
     def read_thread(self, db: Session, request_id: uuid.UUID, reader: User) -> list[ClarificationOut]:
-        """The thread for anyone who may read the request itself: owner, or staff per D11."""
+        """The thread for anyone who may read the request itself: its owner, a Lead, or its
+        assigned coordinator (D48)."""
         event_request_service.get(db, request_id, reader)  # raises 404 when not readable
         return self.list_thread(db, request_id)
 

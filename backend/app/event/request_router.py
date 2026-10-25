@@ -28,7 +28,7 @@ from app.event.request_schemas import (
 )
 from app.event.request_service import event_request_service
 from app.notification.service import Notifier, get_notifier
-from app.user.dependencies import get_current_user, require_user_roles
+from app.user.dependencies import require_user_roles
 from app.user.models import User, UserRole
 
 router = APIRouter(prefix="/api/v1/event-requests", tags=["event-requests"])
@@ -37,12 +37,14 @@ coordinators_router = APIRouter(prefix="/api/v1/coordinators", tags=["event-requ
 
 Organiser = Annotated[User, Depends(require_user_roles(UserRole.ORGANISER))]
 Coordinator = Annotated[User, Depends(require_user_roles(UserRole.COORDINATOR))]
-Staff = Annotated[
-    User,
-    Depends(require_user_roles(UserRole.COORDINATOR, UserRole.COORDINATOR_LEAD, UserRole.VENUE_STAFF)),
+# DECISION-PENDING: D48 — the review queue is the coordinator's (their assigned requests) and the
+# Lead's (all of them). Venue Staff read no event requests since SCRUM-120.
+Reviewer = Annotated[User, Depends(require_user_roles(UserRole.COORDINATOR, UserRole.COORDINATOR_LEAD))]
+# Who may open a request and its thread at all; which requests each may open is the service's (D47, D48).
+Reader = Annotated[
+    User, Depends(require_user_roles(UserRole.ORGANISER, UserRole.COORDINATOR, UserRole.COORDINATOR_LEAD))
 ]
-# DECISION-PENDING: SCRUM-82 owns role checks; until it lands, the seeded `coordinator_lead` role is
-# the only one that assigns (SCRUM-13 AC 6).
+# Only a Coordinator Lead assigns (SCRUM-13 AC 6).
 Lead = Annotated[User, Depends(require_user_roles(UserRole.COORDINATOR_LEAD))]
 
 
@@ -57,10 +59,10 @@ def create_draft(
 
 @router.get("", response_model=EventRequestsOut)
 def list_for_review(
-    _: Staff,
+    reviewer: Reviewer,
     db: Session = Depends(get_db),
 ) -> EventRequestsOut:
-    return EventRequestsOut(event_requests=event_request_service.list_for_review(db))
+    return EventRequestsOut(event_requests=event_request_service.list_for_review(db, reviewer))
 
 
 @me_router.get("/event-requests", response_model=EventRequestsOut)
@@ -101,7 +103,7 @@ def list_coordinators(
 @router.get("/{request_id}", response_model=EventRequestOut)
 def get_request(
     request_id: uuid.UUID,
-    reader: User = Depends(get_current_user),
+    reader: Reader,
     db: Session = Depends(get_db),
 ) -> EventRequestOut:
     return event_request_service.get(db, request_id, reader)
@@ -163,7 +165,7 @@ def send_clarification(
 @router.get("/{request_id}/clarifications", response_model=ClarificationThreadOut)
 def read_clarification_thread(
     request_id: uuid.UUID,
-    reader: User = Depends(get_current_user),
+    reader: Reader,
     db: Session = Depends(get_db),
 ) -> ClarificationThreadOut:
     return ClarificationThreadOut(clarifications=clarification_service.read_thread(db, request_id, reader))
