@@ -116,7 +116,7 @@ async def test_tc_us10b_06_inactive_coordinators_and_other_roles_are_not_listed_
 ) -> None:
     inactive = make_user(db, UserRole.COORDINATOR, active=False)
     give(db, organiser, inactive, EventStatus.PLANNING)
-    make_user(db, UserRole.OPERATIONS_MANAGER)
+    make_user(db, UserRole.VENUE_STAFF)
     coordinator = make_user(db, UserRole.COORDINATOR)
 
     result = await counts(client, lead)

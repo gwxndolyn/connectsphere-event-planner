@@ -679,7 +679,7 @@ async def test_tc_us26_14_a_refused_review_notifies_nobody(
 
 @pytest.mark.parametrize(
     "role",
-    [UserRole.ORGANISER, UserRole.COORDINATOR_LEAD, UserRole.OPERATIONS_MANAGER, UserRole.ATTENDEE, UserRole.TECH_SUPPORT],
+    [UserRole.ORGANISER, UserRole.COORDINATOR_LEAD, UserRole.VENUE_STAFF, UserRole.ATTENDEE, UserRole.TECH_SUPPORT],
 )
 async def test_tc_us26_15_only_coordinators_manage_lines(
     client: AsyncClient, db: Session, event: Event, projector: EquipmentType, line: EquipmentRequestLine, role: UserRole
@@ -702,7 +702,7 @@ async def test_tc_us26_15_only_coordinators_manage_lines(
 
 @pytest.mark.parametrize(
     "role",
-    [UserRole.ORGANISER, UserRole.COORDINATOR, UserRole.COORDINATOR_LEAD, UserRole.OPERATIONS_MANAGER, UserRole.ATTENDEE],
+    [UserRole.ORGANISER, UserRole.COORDINATOR, UserRole.COORDINATOR_LEAD, UserRole.VENUE_STAFF, UserRole.ATTENDEE],
 )
 async def test_tc_us26_15_only_tech_support_opens_the_queue_and_reviews(
     client: AsyncClient, db: Session, line: EquipmentRequestLine, role: UserRole

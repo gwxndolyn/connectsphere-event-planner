@@ -16,7 +16,7 @@ pytestmark = pytest.mark.anyio
 
 
 def make_user(db: Session, role: UserRole, *, active: bool = True) -> User:
-    user = User(email=f"{uuid.uuid4().hex}@smu.edu.sg", role=role, is_active=active)
+    user = User(email=f"{uuid.uuid4().hex}@smu.edu.sg", roles=[role], is_active=active)
     db.add(user)
     db.flush()
     return user
@@ -130,7 +130,7 @@ async def test_tc_us8_13_only_active_coordinators_may_send(
     callers = {
         "no identity": (None, 401),
         "organiser": (organiser, 403),
-        "operations manager": (make_user(db, UserRole.OPERATIONS_MANAGER), 403),
+        "operations manager": (make_user(db, UserRole.VENUE_STAFF), 403),
         "attendee": (make_user(db, UserRole.ATTENDEE), 403),
         "inactive coordinator": (make_user(db, UserRole.COORDINATOR, active=False), 403),
     }
@@ -181,10 +181,10 @@ async def test_tc_us8_15_review_queue_lists_submitted_requests_oldest_first(
 async def test_tc_us8_16_review_queue_is_staff_only(
     client: AsyncClient, db: Session, organiser: User, coordinator: User
 ) -> None:
-    operations_manager = make_user(db, UserRole.OPERATIONS_MANAGER)
+    venue_staff = make_user(db, UserRole.VENUE_STAFF)
 
     assert (await client.get("/api/v1/event-requests", headers=auth(coordinator))).status_code == 200
-    assert (await client.get("/api/v1/event-requests", headers=auth(operations_manager))).status_code == 200
+    assert (await client.get("/api/v1/event-requests", headers=auth(venue_staff))).status_code == 200
     assert (await client.get("/api/v1/event-requests", headers=auth(organiser))).status_code == 403
     assert (await client.get("/api/v1/event-requests")).status_code == 401
 

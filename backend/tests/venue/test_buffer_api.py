@@ -68,8 +68,7 @@ def coordinator(db: Session) -> User:
 
 @pytest.fixture
 def staff(db: Session) -> User:
-    # DECISION-PENDING: D19 — operations_manager stands in for Venue Staff until US16b.
-    return make_user(db, UserRole.OPERATIONS_MANAGER)
+        return make_user(db, UserRole.VENUE_STAFF)
 
 
 @pytest.fixture
@@ -582,7 +581,7 @@ def committed(engine: Engine) -> Generator[dict[str, object], None, None]:
     """Committed rows, so separate sessions can see them: two coordinators, each with their own
     assigned event, and one 30/45 venue. Deleted afterwards."""
     with Session(engine) as setup:
-        coordinators = [User(email=f"{uuid.uuid4().hex}@smu.edu.sg", role=UserRole.COORDINATOR) for _ in range(2)]
+        coordinators = [User(email=f"{uuid.uuid4().hex}@smu.edu.sg", roles=[UserRole.COORDINATOR]) for _ in range(2)]
         setup.add_all(coordinators)
         setup.flush()
         events = {

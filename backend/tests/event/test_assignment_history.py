@@ -162,7 +162,7 @@ async def test_tc_us10d_09_only_the_lead_can_read_the_history(
     event = make_request(db, organiser, EventStatus.SUBMITTED)
     await assign(client, lead, event.id, coordinator.id)
 
-    for user in (organiser, coordinator, make_user(db, UserRole.OPERATIONS_MANAGER), make_user(db, UserRole.ATTENDEE)):
+    for user in (organiser, coordinator, make_user(db, UserRole.VENUE_STAFF), make_user(db, UserRole.ATTENDEE)):
         assert (await client.get(history_url(event.id), headers=auth(user))).status_code == 403
     assert (await client.get(history_url(event.id))).status_code == 401
 

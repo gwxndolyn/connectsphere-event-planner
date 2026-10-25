@@ -20,7 +20,7 @@ from tests.tokens import ISSUER, OTHER_KEY, api_client, bearer, make_token
 pytestmark = pytest.mark.anyio
 
 def make_user(db: Session, role: UserRole = UserRole.ORGANISER, **fields) -> User:
-    user = User(email=f"{uuid.uuid4().hex[:12]}@smu.edu.sg", role=role, **fields)
+    user = User(email=f"{uuid.uuid4().hex[:12]}@smu.edu.sg", roles=[role], **fields)
     db.add(user)
     db.flush()
     return user
@@ -87,7 +87,7 @@ async def test_tc_us16a_06_email_match_ignores_case(token_client: AsyncClient, d
     assert organiser.auth_user_id == sub
 
 
-@pytest.mark.parametrize("role", [UserRole.COORDINATOR, UserRole.OPERATIONS_MANAGER])
+@pytest.mark.parametrize("role", [UserRole.COORDINATOR, UserRole.VENUE_STAFF])
 async def test_tc_us16a_06_staff_rows_are_never_linked_by_email(
     token_client: AsyncClient, db: Session, role: UserRole
 ) -> None:

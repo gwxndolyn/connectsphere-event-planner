@@ -28,7 +28,7 @@ def make_type(db: Session, name: str | None = None) -> EquipmentType:
 
 
 def make_coordinator(db: Session) -> User:
-    user = User(email=f"{uuid.uuid4().hex[:12]}@smu.edu.sg", role=UserRole.COORDINATOR)
+    user = User(email=f"{uuid.uuid4().hex[:12]}@smu.edu.sg", roles=[UserRole.COORDINATOR])
     db.add(user)
     db.flush()
     return user
@@ -78,7 +78,7 @@ def test_tc_us26_01_schema_is_installed(db: Session, engine) -> None:
 
 
 def test_tc_us26_01_a_user_can_hold_the_tech_support_role(db: Session) -> None:
-    user = User(email=f"{uuid.uuid4().hex[:12]}@smu.edu.sg", role=UserRole.TECH_SUPPORT)
+    user = User(email=f"{uuid.uuid4().hex[:12]}@smu.edu.sg", roles=[UserRole.TECH_SUPPORT])
     db.add(user)
     db.flush()
     db.expire(user)
@@ -153,7 +153,7 @@ def test_tc_us26_04_only_the_three_statuses_are_allowed(db: Session) -> None:
 
 
 def make_reviewer(db: Session) -> User:
-    user = User(email=f"{uuid.uuid4().hex[:12]}@smu.edu.sg", role=UserRole.TECH_SUPPORT)
+    user = User(email=f"{uuid.uuid4().hex[:12]}@smu.edu.sg", roles=[UserRole.TECH_SUPPORT])
     db.add(user)
     db.flush()
     return user
@@ -228,7 +228,7 @@ def test_tc_us26_05_seed_adds_the_catalogue_and_a_tech_support_user(db: Session)
 
     assert sorted(t.name for t in types) == sorted(EQUIPMENT_TYPES)
     staff = db.get(User, seed_id("user", "tech-support"))
-    assert (staff.email, staff.role, staff.is_active) == (TECH_SUPPORT_EMAIL, UserRole.TECH_SUPPORT, True)
+    assert (staff.email, list(staff.roles), staff.is_active) == (TECH_SUPPORT_EMAIL, [UserRole.TECH_SUPPORT], True)
     # A name, so the coordinator sees who reviewed a line, not an email (as #68 did for the others).
     assert staff.full_name == TECH_SUPPORT_NAME
 

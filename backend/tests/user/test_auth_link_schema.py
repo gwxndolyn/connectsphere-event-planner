@@ -41,7 +41,7 @@ def migration_connection(engine: Engine) -> Generator[Connection, None, None]:
 
 
 def make_user(db: Session, **fields) -> User:
-    user = User(email=f"{uuid.uuid4().hex}@smu.edu.sg", role=UserRole.ORGANISER, **fields)
+    user = User(email=f"{uuid.uuid4().hex}@smu.edu.sg", roles=[UserRole.ORGANISER], **fields)
     db.add(user)
     db.flush()
     return user
@@ -70,10 +70,11 @@ def test_tc_us16a_01_existing_users_are_unchanged_by_the_upgrade(migration_conne
     command.upgrade(config, "head")
 
     row = migration_connection.execute(
-        text("select email, role::text, is_active, auth_user_id, full_name from users where id = :id"),
+        text("select email, roles::text[], is_active, auth_user_id, full_name from users where id = :id"),
         {"id": user_id},
     ).one()
-    assert tuple(row) == ("existing@smu.edu.sg", "coordinator", True, None, None)
+    # US16b (SCRUM-119) later turns the one role into a list of one.
+    assert tuple(row) == ("existing@smu.edu.sg", ["coordinator"], True, None, None)
 
 
 def test_tc_us16a_01_migrations_have_one_head() -> None:
@@ -115,7 +116,7 @@ def test_tc_us16a_03_downgrade_refuses_to_discard_account_data(
 ) -> None:
     value = uuid.uuid4() if column == "auth_user_id" else "Calvin Ng"
     migration_connection.execute(
-        text(f"insert into users (email, role, {column}) values ('linked@smu.edu.sg', 'attendee', :value)"),
+        text(f"insert into users (email, roles, {column}) values ('linked@smu.edu.sg', '{{attendee}}', :value)"),
         {"value": value},
     )
 
