@@ -61,7 +61,8 @@ class RequestDecisionService:
         return event
 
     def _check_decidable(self, event: Event) -> None:
-        # AC 1, 6: only Under Review. Awaiting Clarification waits for the organiser's answer; Approved,
+        # DECISION-PENDING: D53 — approve leaves the request Approved and reject Rejected; neither moves
+        # it on to Planning, which no AC times. AC 1, 6: only Under Review. Awaiting Clarification waits for the organiser's answer; Approved,
         # Rejected and Cancelled are already decided; the request is left unchanged.
         if event.status != EventStatus.UNDER_REVIEW:
             raise DomainError(409, "REQUEST_NOT_DECIDABLE", status=event.status.value)
