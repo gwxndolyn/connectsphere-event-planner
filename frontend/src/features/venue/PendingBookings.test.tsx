@@ -243,6 +243,36 @@ describe("PendingBookings buffers and conflicts (US13, SCRUM-116)", () => {
     expect(within(row).getByRole("button", { name: "Approve" })).toBeEnabled();
   });
 
+  it("lists two closures that start at the same time as two conflicts (PR #83 review)", async () => {
+    const consoleError = vi.spyOn(console, "error");
+    const block = (ends_at: string, note: string) => ({
+      kind: "block" as const,
+      reference: null,
+      note,
+      starts_at: "2026-11-20T01:00:00Z",
+      ends_at,
+      occupied: { starts_at: "2026-11-20T01:00:00Z", ends_at },
+      overlap: { starts_at: "2026-11-20T01:30:00Z", ends_at },
+    });
+    vi.spyOn(bookingApi, "pending").mockResolvedValue([booking()]);
+    evaluation.mockResolvedValue(
+      evaluated({
+        clear: false,
+        conflicts: [block("2026-11-20T02:00:00Z", "Aircon repair"), block("2026-11-20T03:00:00Z", "Carpet cleaning")],
+      }),
+    );
+    render(<PendingBookings />);
+
+    const row = await screen.findByRole("listitem", { name: "Venue Booking Demo at Hall A" });
+    const conflicts = await within(row).findByRole("list", { name: "Conflicts" });
+    expect(within(conflicts).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+      "Venue closure (Aircon repair), Fri, Nov 20, 9:00 AM – 10:00 AM: overlap 9:30 AM – 10:00 AM",
+      "Venue closure (Carpet cleaning), Fri, Nov 20, 9:00 AM – 11:00 AM: overlap 9:30 AM – 11:00 AM",
+    ]);
+    // React reports a duplicate key on console.error.
+    expect(consoleError.mock.calls.flat().join(" ")).not.toContain("same key");
+  });
+
   it("says when a request couldn't be checked, and can still be decided", async () => {
     vi.spyOn(bookingApi, "pending").mockResolvedValue([booking()]);
     evaluation.mockRejectedValue(new ApiError(500, "INTERNAL"));

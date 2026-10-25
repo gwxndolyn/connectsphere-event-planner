@@ -53,8 +53,9 @@ function EvaluationSummary({ evaluation }: { evaluation: EvaluationState | undef
           turnaround
         </li>
       )}
-      {evaluation.conflicts.map((conflict) => (
-        <li key={`${conflict.kind}-${conflict.reference ?? conflict.starts_at}`}>{conflictText(conflict)}</li>
+      {/* The index too: two blocks can start, or even end, at the same time. */}
+      {evaluation.conflicts.map((conflict, index) => (
+        <li key={`${conflict.kind}-${conflict.reference ?? conflict.starts_at}-${index}`}>{conflictText(conflict)}</li>
       ))}
     </ul>
   );
