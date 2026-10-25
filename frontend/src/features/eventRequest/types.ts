@@ -86,6 +86,8 @@ export interface AssignmentRecord {
   kind: "assignment" | "reassignment";
   assigned_by: QueuePerson;
   coordinator: QueuePerson;
+  // The Lead's reason for a reassignment (SCRUM-83); null for an assignment.
+  reason?: string | null;
   created_at: string;
 }
 

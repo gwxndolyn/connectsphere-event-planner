@@ -5,8 +5,10 @@ from typing import Literal, Protocol
 
 logger = logging.getLogger(__name__)
 
-# Who an assignment notice is for (SCRUM-68). Reassignment (SCRUM-83) adds more.
+# Who an assignment notice is for (SCRUM-68).
 AssignmentRecipient = Literal["coordinator", "organiser"]
+# Who a reassignment notice is for (SCRUM-83 and SCRUM-68's last AC).
+ReassignmentRecipient = Literal["new_coordinator", "previous_coordinator", "organiser"]
 # What Venue Staff decided on a booking request (SCRUM-8).
 BookingDecision = Literal["approved", "rejected"]
 # What the coordinator decided on an event request (SCRUM-84).
@@ -75,6 +77,29 @@ class Notifier(Protocol):
         event_name: str,
         coordinator_name: str,
         event_dates: list[date],
+    ) -> None: ...
+
+    def event_reassigned(
+        self,
+        *,
+        email: str,
+        recipient: ReassignmentRecipient,
+        request_reference: str,
+        event_name: str,
+        previous_coordinator_name: str,
+        new_coordinator_name: str,
+        event_dates: list[date],
+        reason: str,
+    ) -> None: ...
+
+    def transfer_requested(
+        self,
+        *,
+        email: str,
+        request_reference: str,
+        event_name: str,
+        coordinator_name: str,
+        reason: str,
     ) -> None: ...
 
     def equipment_line_reviewed(
@@ -220,6 +245,50 @@ class LoggingNotifier:
             event_name,
             coordinator_name,
             ", ".join(day.isoformat() for day in event_dates),
+        )
+
+    def event_reassigned(
+        self,
+        *,
+        email: str,
+        recipient: ReassignmentRecipient,
+        request_reference: str,
+        event_name: str,
+        previous_coordinator_name: str,
+        new_coordinator_name: str,
+        event_dates: list[date],
+        reason: str,
+    ) -> None:
+        # SCRUM-83 and SCRUM-68's last AC: the organiser and both coordinators hear the event moved.
+        logger.info(
+            "event reassigned (%s notice): %s, %s (%s), from %s to %s, dates %s; reason: %s",
+            recipient,
+            email,
+            request_reference,
+            event_name,
+            previous_coordinator_name,
+            new_coordinator_name,
+            ", ".join(day.isoformat() for day in event_dates),
+            reason,
+        )
+
+    def transfer_requested(
+        self,
+        *,
+        email: str,
+        request_reference: str,
+        event_name: str,
+        coordinator_name: str,
+        reason: str,
+    ) -> None:
+        # SCRUM-83 AC 6: a Lead hears a coordinator wants an event moved.
+        logger.info(
+            "transfer requested: %s, %s (%s) by coordinator %s; reason: %s",
+            email,
+            request_reference,
+            event_name,
+            coordinator_name,
+            reason,
         )
 
     def equipment_line_reviewed(
