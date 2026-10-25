@@ -21,7 +21,7 @@ from tests.factories import NOW
 
 
 def make_user(db: Session, role: UserRole) -> User:
-    user = User(email=f"{uuid.uuid4().hex}@smu.edu.sg", role=role)
+    user = User(email=f"{uuid.uuid4().hex}@smu.edu.sg", roles=[role])
     db.add(user)
     db.flush()
     return user
@@ -221,5 +221,5 @@ def test_tc_us8_08_seed_creates_an_active_coordinator(db: Session) -> None:
 
     coordinator = db.get(User, seed_id("user", "event-coordinator"))
     assert coordinator is not None
-    assert coordinator.role == UserRole.COORDINATOR
+    assert list(coordinator.roles) == [UserRole.COORDINATOR]
     assert coordinator.is_active is True

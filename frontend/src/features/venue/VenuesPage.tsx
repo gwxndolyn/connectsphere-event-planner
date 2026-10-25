@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { venueApi, venueErrorMessage } from "./api";
 import { ACCESSIBILITY_FEATURES, FACILITIES, tagLabel } from "./tags";
 import type { ActiveFilter, Venue, VenueFilters } from "./types";
+import { PendingBookings } from "./PendingBookings";
 import { VenueForm } from "./VenueForm";
 import { VenueSearch } from "./VenueSearch";
 import "../eventRequest/eventRequests.css";
@@ -121,6 +122,7 @@ export function VenuesPage({ staff, canSearch = false }: VenuesPageProps) {
         </div>
       )}
 
+      {staff && <PendingBookings />}
       {canSearch && <VenueSearch />}
 
       {canSearch && <h2 className="venue-catalogue__title">All venues</h2>}

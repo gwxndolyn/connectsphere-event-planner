@@ -7,6 +7,8 @@ logger = logging.getLogger(__name__)
 
 # Who an assignment notice is for (SCRUM-68). Reassignment (SCRUM-83) adds more.
 AssignmentRecipient = Literal["coordinator", "organiser"]
+# What Venue Staff decided on a booking request (SCRUM-8).
+BookingDecision = Literal["approved", "rejected"]
 
 
 class Notifier(Protocol):
@@ -25,6 +27,31 @@ class Notifier(Protocol):
         round: int,
         sections: list[str],
         comment: str,
+    ) -> None: ...
+
+    def venue_booking_requested(
+        self,
+        *,
+        email: str,
+        booking_id: uuid.UUID,
+        event_name: str,
+        venue_name: str,
+        starts_at: datetime,
+        ends_at: datetime,
+    ) -> None: ...
+
+    def venue_booking_decided(
+        self,
+        *,
+        email: str,
+        booking_id: uuid.UUID,
+        decision: BookingDecision,
+        event_name: str,
+        venue_name: str,
+        starts_at: datetime,
+        ends_at: datetime,
+        reason: str | None,
+        alternative_suggestion: str | None,
     ) -> None: ...
 
     def request_queued(
@@ -46,6 +73,18 @@ class Notifier(Protocol):
         event_name: str,
         coordinator_name: str,
         event_dates: list[date],
+    ) -> None: ...
+
+    def equipment_line_reviewed(
+        self,
+        *,
+        email: str,
+        line_id: uuid.UUID,
+        event_name: str,
+        equipment_type: str,
+        quantity: int,
+        decision: str,
+        note: str | None,
     ) -> None: ...
 
 
@@ -82,6 +121,53 @@ class LoggingNotifier:
             round,
             ", ".join(sections),
             comment,
+        )
+
+    def venue_booking_requested(
+        self,
+        *,
+        email: str,
+        booking_id: uuid.UUID,
+        event_name: str,
+        venue_name: str,
+        starts_at: datetime,
+        ends_at: datetime,
+    ) -> None:
+        logger.info(
+            "venue booking requested: %s, %r at %r from %s to %s (booking %s)",
+            email,
+            event_name,
+            venue_name,
+            starts_at,
+            ends_at,
+            booking_id,
+        )
+
+    def venue_booking_decided(
+        self,
+        *,
+        email: str,
+        booking_id: uuid.UUID,
+        decision: BookingDecision,
+        event_name: str,
+        venue_name: str,
+        starts_at: datetime,
+        ends_at: datetime,
+        reason: str | None,
+        alternative_suggestion: str | None,
+    ) -> None:
+        # SCRUM-8 AC 6: the coordinator hears whether the venue is theirs; a rejection says why if given.
+        logger.info(
+            "venue booking %s: %s, %r at %r from %s to %s (booking %s); reason: %s; alternative: %s",
+            decision,
+            email,
+            event_name,
+            venue_name,
+            starts_at,
+            ends_at,
+            booking_id,
+            reason or "none given",
+            alternative_suggestion or "none given",
         )
 
     def request_queued(
@@ -122,6 +208,29 @@ class LoggingNotifier:
             event_name,
             coordinator_name,
             ", ".join(day.isoformat() for day in event_dates),
+        )
+
+    def equipment_line_reviewed(
+        self,
+        *,
+        email: str,
+        line_id: uuid.UUID,
+        event_name: str,
+        equipment_type: str,
+        quantity: int,
+        decision: str,
+        note: str | None,
+    ) -> None:
+        # US26 AC 5: the coordinator who asked hears Tech Support's decision on the line.
+        logger.info(
+            "equipment line %s: %s, %d x %s for %r (line %s), note: %s",
+            decision,
+            email,
+            quantity,
+            equipment_type,
+            event_name,
+            line_id,
+            note or "none",
         )
 
 

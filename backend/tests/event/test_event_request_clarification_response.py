@@ -17,7 +17,7 @@ ANSWER = {"comment": "Yes, 40 including speakers."}
 
 
 def make_user(db: Session, role: UserRole) -> User:
-    user = User(email=f"{uuid.uuid4().hex}@smu.edu.sg", role=role)
+    user = User(email=f"{uuid.uuid4().hex}@smu.edu.sg", roles=[role])
     db.add(user)
     db.flush()
     return user
@@ -110,7 +110,7 @@ async def test_tc_us8_18_thread_shows_the_question_above_the_answer(
 ) -> None:
     await answer(client, organiser, awaiting.id)
 
-    for reader in (coordinator, organiser, make_user(db, UserRole.OPERATIONS_MANAGER)):
+    for reader in (coordinator, organiser, make_user(db, UserRole.VENUE_STAFF)):
         response = await thread(client, reader, awaiting.id)
         assert response.status_code == 200
         messages = response.json()["clarifications"]

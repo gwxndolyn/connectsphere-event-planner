@@ -39,11 +39,11 @@ def create_profile(db: Session, claims: TokenClaims, body: ProfileWrite) -> User
     if conflicting_user(db, claims) is not None:
         raise DomainError(409, "EMAIL_ALREADY_REGISTERED")
 
-    user = User(email=claims.email, role=SIGN_UP_ROLES[role], full_name=full_name, auth_user_id=claims.sub)
+    user = User(email=claims.email, roles=[SIGN_UP_ROLES[role]], full_name=full_name, auth_user_id=claims.sub)
     db.add(user)
     try:
         db.flush()
-        if user.role is UserRole.ATTENDEE:
+        if user.holds(UserRole.ATTENDEE):
             # Every attendee has a users row with the same id (§2).
             db.add(Attendee(id=user.id, email=user.email))
         db.commit()

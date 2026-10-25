@@ -6,15 +6,15 @@ from datetime import datetime, timedelta
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import inspect, text
+from sqlalchemy import func, inspect, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.event.models import Event, EventStatus
 from app.user.models import User, UserRole
 from app.venue import service as venue_service_module
-from app.venue.models import Venue, VenueBooking, VenueBookingStatus
-from tests.factories import NOW, make_event, make_user, make_venue
+from app.venue.models import Venue, VenueBooking, VenueBookingStatus, occupied_window
+from tests.factories import NOW, make_event, make_user, make_venue, make_venue_booking
 
 AGREED_COLUMNS = {
     "id",
@@ -32,6 +32,15 @@ AGREED_COLUMNS = {
     "created_at",
     "updated_at",
     "withdrawn_at",
+    # US13 (SCRUM-114): the occupied window and the booking reference.
+    "occupied_starts_at",
+    "occupied_ends_at",
+    "reference",
+    # US4 (SCRUM-8): Venue Staff's decision.
+    "decided_at",
+    "decided_by_user_id",
+    "rejection_reason",
+    "alternative_suggestion",
 }
 # Every refused overlap names this constraint (AC 3 and 7).
 NO_OVERLAP = "venue_bookings_no_overlap"
@@ -56,33 +65,11 @@ def venue(db: Session) -> Venue:
     return make_venue(db)
 
 
-def make_venue_booking(
-    db: Session,
-    *,
-    event: Event,
-    venue: Venue,
-    user: User,
-    starts_at: datetime = START,
-    ends_at: datetime = END,
-    status: VenueBookingStatus = VenueBookingStatus.REQUESTED,
-    **overrides: object,
-) -> VenueBooking:
-    fields: dict[str, object] = {
-        "event_id": event.id,
-        "venue_id": venue.id,
-        "requested_by_user_id": user.id,
-        "starts_at": starts_at,
-        "ends_at": ends_at,
-        "expected_attendees": 30,
-        "room_layout": "theatre",
-        "status": status,
-        # venue_bookings_withdrawn_consistent: a withdrawn booking always carries its timestamp.
-        "withdrawn_at": NOW if status == VenueBookingStatus.WITHDRAWN else None,
-    }
-    booking = VenueBooking(**(fields | overrides))
-    db.add(booking)
-    db.flush()
-    return booking
+@pytest.fixture
+def plain_venue(db: Session) -> Venue:
+    # No setup or turnaround (US13), so these tests keep proving the plain [) rule; the buffered
+    # rule is TC-US13-03 (test_buffer_schema.py).
+    return make_venue(db, name="Plain Room", setup_minutes=0, turnaround_minutes=0)
 
 
 def refused_constraint(db: Session, **booking: object) -> str:
@@ -138,12 +125,15 @@ def test_tc_us22_01_tags_and_requirements_are_optional(
 
 
 def test_tc_us22_01_new_bookings_start_as_requested(db: Session, event: Event, venue: Venue, coordinator: User) -> None:
+    occupied_starts_at, occupied_ends_at = occupied_window(venue, START, END)  # US13: required
     booking = VenueBooking(
         event_id=event.id,
         venue_id=venue.id,
         requested_by_user_id=coordinator.id,
         starts_at=START,
         ends_at=END,
+        occupied_starts_at=occupied_starts_at,
+        occupied_ends_at=occupied_ends_at,
         expected_attendees=10,
         room_layout="theatre",
     )
@@ -165,6 +155,9 @@ def test_tc_us22_01_booking_schema_is_installed(db: Session, engine) -> None:
         "venue_bookings_required_facilities_known",
         "venue_bookings_required_accessibility_features_known",
         "venue_bookings_withdrawn_consistent",
+        "venue_bookings_occupied_covers_window",
+        "venue_bookings_decided_consistent",  # US4
+        "venue_bookings_rejection_notes_only_when_rejected",  # US4
     }
     exclusions = db.scalars(
         text("select conname from pg_constraint where conrelid = 'venue_bookings'::regclass and contype = 'x'")
@@ -210,6 +203,21 @@ def test_tc_us22_01_withdrawing_without_a_timestamp_is_refused(
     assert raised.value.orig.diag.constraint_name == "venue_bookings_withdrawn_consistent"
 
 
+def test_tc_us22_01_updated_at_changes_on_update(db: Session, event: Event, venue: Venue, coordinator: User) -> None:
+    """PR #64 review: any update stamps updated_at. The test transaction's now() is the same at
+    insert and update, so the booking starts with an older updated_at to see it move."""
+    earlier = NOW - timedelta(days=1)
+    booking = make_venue_booking(db, event=event, venue=venue, user=coordinator, updated_at=earlier)
+    assert booking.updated_at == earlier
+
+    booking.expected_attendees = 35
+    db.flush()
+    db.refresh(booking)
+
+    assert booking.updated_at == db.scalar(select(func.now()))
+    assert booking.updated_at > earlier
+
+
 def test_tc_us22_01_bookings_have_no_buffer_columns(engine) -> None:
     """TC-US20-07's booking half: setup and turnaround belong to the venue, so a booking can't
     carry its own."""
@@ -248,15 +256,15 @@ def test_tc_us22_01_database_rejects_invalid_bookings(
 
 @pytest.mark.parametrize("existing", [VenueBookingStatus.REQUESTED, VenueBookingStatus.APPROVED])
 def test_tc_us22_02_overlapping_live_booking_is_refused(
-    db: Session, event: Event, venue: Venue, coordinator: User, existing: VenueBookingStatus
+    db: Session, event: Event, plain_venue: Venue, coordinator: User, existing: VenueBookingStatus
 ) -> None:
-    # DECISION-PENDING: D21 — a Requested booking blocks the window too, so AC 7's first request wins.
-    make_venue_booking(db, event=event, venue=venue, user=coordinator, status=existing)
+    # D21 (decided): a Requested booking blocks the window too, so AC 7's first request wins.
+    make_venue_booking(db, event=event, venue=plain_venue, user=coordinator, status=existing)
 
     constraint = refused_constraint(
         db,
         event=event,
-        venue=venue,
+        venue=plain_venue,
         user=make_user(db, UserRole.COORDINATOR),
         starts_at=START + timedelta(minutes=30),
         ends_at=END + timedelta(minutes=30),
@@ -276,25 +284,25 @@ def test_tc_us22_02_overlapping_live_booking_is_refused(
     ids=["one second into the end", "one second into the start", "inside", "around"],
 )
 def test_tc_us22_02_any_overlap_is_refused(
-    db: Session, event: Event, venue: Venue, coordinator: User, starts_at: datetime, ends_at: datetime
+    db: Session, event: Event, plain_venue: Venue, coordinator: User, starts_at: datetime, ends_at: datetime
 ) -> None:
-    make_venue_booking(db, event=event, venue=venue, user=coordinator)
+    make_venue_booking(db, event=event, venue=plain_venue, user=coordinator)
 
     constraint = refused_constraint(
-        db, event=event, venue=venue, user=coordinator, starts_at=starts_at, ends_at=ends_at
+        db, event=event, venue=plain_venue, user=coordinator, starts_at=starts_at, ends_at=ends_at
     )
 
     assert constraint == NO_OVERLAP
 
 
 def test_tc_us22_02_back_to_back_bookings_are_allowed(
-    db: Session, event: Event, venue: Venue, coordinator: User
+    db: Session, event: Event, plain_venue: Venue, coordinator: User
 ) -> None:
-    make_venue_booking(db, event=event, venue=venue, user=coordinator)
+    make_venue_booking(db, event=event, venue=plain_venue, user=coordinator)
 
-    after = make_venue_booking(db, event=event, venue=venue, user=coordinator, starts_at=END, ends_at=END + timedelta(hours=1))
+    after = make_venue_booking(db, event=event, venue=plain_venue, user=coordinator, starts_at=END, ends_at=END + timedelta(hours=1))
     before = make_venue_booking(
-        db, event=event, venue=venue, user=coordinator, starts_at=START - timedelta(hours=1), ends_at=START
+        db, event=event, venue=plain_venue, user=coordinator, starts_at=START - timedelta(hours=1), ends_at=START
     )
 
     assert after.id and before.id
@@ -302,22 +310,22 @@ def test_tc_us22_02_back_to_back_bookings_are_allowed(
 
 @pytest.mark.parametrize("existing", [VenueBookingStatus.WITHDRAWN, VenueBookingStatus.REJECTED])
 def test_tc_us22_02_withdrawn_and_rejected_bookings_do_not_block(
-    db: Session, event: Event, venue: Venue, coordinator: User, existing: VenueBookingStatus
+    db: Session, event: Event, plain_venue: Venue, coordinator: User, existing: VenueBookingStatus
 ) -> None:
-    make_venue_booking(db, event=event, venue=venue, user=coordinator, status=existing)
+    make_venue_booking(db, event=event, venue=plain_venue, user=coordinator, status=existing)
 
-    booking = make_venue_booking(db, event=event, venue=venue, user=coordinator)
+    booking = make_venue_booking(db, event=event, venue=plain_venue, user=coordinator)
 
     assert booking.status == VenueBookingStatus.REQUESTED
 
 
-def test_tc_us22_02_withdrawing_frees_the_window(db: Session, event: Event, venue: Venue, coordinator: User) -> None:
-    first = make_venue_booking(db, event=event, venue=venue, user=coordinator)
+def test_tc_us22_02_withdrawing_frees_the_window(db: Session, event: Event, plain_venue: Venue, coordinator: User) -> None:
+    first = make_venue_booking(db, event=event, venue=plain_venue, user=coordinator)
     first.status = VenueBookingStatus.WITHDRAWN
     first.withdrawn_at = NOW
     db.flush()
 
-    second = make_venue_booking(db, event=event, venue=venue, user=coordinator)
+    second = make_venue_booking(db, event=event, venue=plain_venue, user=coordinator)
 
     assert second.status == VenueBookingStatus.REQUESTED
 
@@ -401,7 +409,7 @@ async def test_tc_us22_03_buffer_lock_triggers_without_forcing_it(
 ) -> None:
     """TC-US20-02 against a real Approved booking, not the forced stub."""
     make_venue_booking(db, event=event, venue=venue, user=coordinator, status=VenueBookingStatus.APPROVED)
-    staff = make_user(db, UserRole.OPERATIONS_MANAGER)  # D19: stands in for Venue Staff until US16b
+    staff = make_user(db, UserRole.VENUE_STAFF)
 
     response = await client.patch(
         f"/api/v1/venues/{venue.id}", headers={"X-User-Id": str(staff.id)}, json={"setup_minutes": 45}

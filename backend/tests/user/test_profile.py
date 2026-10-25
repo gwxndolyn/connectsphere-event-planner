@@ -41,7 +41,7 @@ def users_with(db: Session, email: str) -> int:
 
 
 def make_user(db: Session, role: UserRole, **fields) -> User:
-    user = User(email=new_email(), role=role, **fields)
+    user = User(email=new_email(), roles=[role], **fields)
     db.add(user)
     db.flush()
     return user
@@ -58,12 +58,18 @@ async def test_tc_us16a_18_an_organiser_profile_takes_its_identity_from_the_toke
 
     assert response.status_code == 201
     body = response.json()
-    assert body == {"id": body["id"], "email": email, "full_name": "Olivia Organiser", "role": "organiser"}
+    assert body == {
+        "id": body["id"],
+        "email": email,
+        "full_name": "Olivia Organiser",
+        "roles": ["organiser"],
+        "role": "organiser",
+    }
     user = db.get(User, uuid.UUID(body["id"]))
-    assert (user.auth_user_id, user.email, user.role, user.full_name) == (
+    assert (user.auth_user_id, user.email, list(user.roles), user.full_name) == (
         sub,
         email,
-        UserRole.ORGANISER,
+        [UserRole.ORGANISER],
         "Olivia Organiser",
     )
     assert db.get(Attendee, user.id) is None
@@ -109,7 +115,7 @@ async def test_tc_us16a_21_a_seeded_staff_email_is_refused_and_left_unlinked(cli
     assert response.status_code == 409
     assert response.json() == {"code": "EMAIL_ALREADY_REGISTERED"}
     db.refresh(coordinator)
-    assert (coordinator.role, coordinator.auth_user_id, coordinator.full_name) == (UserRole.COORDINATOR, None, None)
+    assert (list(coordinator.roles), coordinator.auth_user_id, coordinator.full_name) == ([UserRole.COORDINATOR], None, None)
 
 
 async def test_tc_us16a_22_any_existing_email_is_refused_ignoring_case(client: AsyncClient, db: Session) -> None:

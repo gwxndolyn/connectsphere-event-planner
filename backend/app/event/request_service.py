@@ -144,7 +144,7 @@ class EventRequestService:
         try:
             leads = db.scalars(
                 select(User)
-                .where(User.role == UserRole.COORDINATOR_LEAD, User.is_active.is_(True))
+                .where(User.roles.any(UserRole.COORDINATOR_LEAD), User.is_active.is_(True))
                 .order_by(User.email)
             ).all()
         except Exception:
@@ -182,11 +182,9 @@ class EventRequestService:
         if event.status == EventStatus.DRAFT:
             return False
         # DECISION-PENDING: SCRUM-20 — submitted requests are visible to coordinators and
-        # operations managers so US8/US10 can proceed; confirm this access policy with the team.
-        return (
-            event.status in SUBMITTED_REQUEST_STATUSES
-            and reader.role
-            in (UserRole.COORDINATOR, UserRole.COORDINATOR_LEAD, UserRole.OPERATIONS_MANAGER)
+        # Venue Staff so US8/US10 can proceed; SCRUM-120 narrows this (D48).
+        return event.status in SUBMITTED_REQUEST_STATUSES and reader.holds(
+            UserRole.COORDINATOR, UserRole.COORDINATOR_LEAD, UserRole.VENUE_STAFF
         )
 
     def _validate_save_fields(self, fields: EventRequestWrite) -> None:

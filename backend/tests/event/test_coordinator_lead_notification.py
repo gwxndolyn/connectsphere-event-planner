@@ -53,7 +53,7 @@ async def test_tc_us10a_28_only_active_leads_are_told(
     lead = make_user(db, UserRole.COORDINATOR_LEAD)
     make_user(db, UserRole.COORDINATOR_LEAD, active=False)
     make_user(db, UserRole.COORDINATOR)
-    make_user(db, UserRole.OPERATIONS_MANAGER)
+    make_user(db, UserRole.VENUE_STAFF)
 
     await submit(client, organiser)
 

@@ -1,0 +1,14 @@
+/* Sign-up field errors (SCRUM-106), styled like the venue form's. */
+.auth-field-error {
+  color: var(--badge-text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.auth-roles {
+  border: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}

@@ -33,9 +33,10 @@ def auth(user: User) -> dict[str, str]:
     return {"X-User-Id": str(user.id)}
 
 
-def owned_event(db: Session, organiser: User, **overrides) -> Event:
+def owned_event(db: Session, organiser: User, *, coordinator: User | None = None, **overrides) -> Event:
     event = make_event(db, **overrides)
     event.created_by_user_id = organiser.id
+    event.coordinator_id = coordinator.id if coordinator else None
     db.flush()
     return event
 
@@ -76,17 +77,48 @@ async def test_tc_us28_03_a_coordinator_sees_any_event_until_assignment_exists(
     client: AsyncClient, db: Session
 ) -> None:
     coordinator = make_user(db, UserRole.COORDINATOR)
-    event = owned_event(db, make_user(db, UserRole.ORGANISER))
+    event = owned_event(db, make_user(db, UserRole.ORGANISER), coordinator=coordinator)
     make_registration(db, event, make_attendee(db))
 
     response = await client.get(url(event), headers=auth(coordinator))
 
-    # D30: any coordinator, until the follow-up narrows it to the assigned one.
+    # D52: the event's assigned coordinator.
     assert response.status_code == 200
     assert len(response.json()["registrations"]) == 1
 
 
-@pytest.mark.parametrize("role", [UserRole.ATTENDEE, UserRole.OPERATIONS_MANAGER])
+async def test_tc_us28_03b_another_coordinators_or_an_unassigned_event_is_not_found(
+    client: AsyncClient, db: Session
+) -> None:
+    coordinator = make_user(db, UserRole.COORDINATOR)
+    organiser = make_user(db, UserRole.ORGANISER)
+    theirs = owned_event(db, organiser, coordinator=make_user(db, UserRole.COORDINATOR))
+    unassigned = owned_event(db, organiser)
+
+    for event in (theirs, unassigned):
+        response = await client.get(url(event), headers=auth(coordinator))
+        assert response.status_code == 404
+        assert response.json() == {"code": "NOT_FOUND"}
+
+
+async def test_tc_us28_03c_one_user_with_both_roles_manages_by_either(client: AsyncClient, db: Session) -> None:
+    both = make_user(db, UserRole.ORGANISER, UserRole.COORDINATOR)
+    created = owned_event(db, both)
+    assigned = owned_event(db, make_user(db, UserRole.ORGANISER), coordinator=both)
+    neither = owned_event(db, make_user(db, UserRole.ORGANISER))
+
+    # D46: every held role counts.
+    assert (await client.get(url(created), headers=auth(both))).status_code == 200
+    assert (await client.get(url(assigned), headers=auth(both))).status_code == 200
+    assert (await client.get(url(neither), headers=auth(both))).status_code == 404
+    managed = (await client.get(MANAGED_URL, headers=auth(both))).json()["events"]
+    assert {event["id"] for event in managed} == {str(created.id), str(assigned.id)}
+
+
+@pytest.mark.parametrize(
+    "role",
+    [UserRole.ATTENDEE, UserRole.COORDINATOR_LEAD, UserRole.VENUE_STAFF, UserRole.TECH_SUPPORT, UserRole.SAFETY_OFFICER],
+)
 async def test_tc_us28_04_other_roles_are_forbidden(client: AsyncClient, db: Session, role: UserRole) -> None:
     event = owned_event(db, make_user(db, UserRole.ORGANISER))
 
@@ -109,9 +141,11 @@ async def test_tc_us28_05_a_request_that_is_not_yet_an_event_is_not_found(
     client: AsyncClient, db: Session, status: EventStatus
 ) -> None:
     organiser = make_user(db, UserRole.ORGANISER)
-    event = owned_event(db, organiser, status=status)
+    coordinator = make_user(db, UserRole.COORDINATOR)
+    event = owned_event(db, organiser, coordinator=coordinator, status=status)
 
-    for user in (organiser, make_user(db, UserRole.COORDINATOR)):
+    # Even its own organiser and its assigned coordinator: a request has no registrations.
+    for user in (organiser, coordinator):
         response = await client.get(url(event), headers=auth(user))
         assert response.status_code == 404
 
@@ -310,29 +344,30 @@ async def test_tc_us28_13_managed_events_are_the_organisers_own_events_only(
     assert first["start_at"] and first["end_at"]
 
 
-async def test_tc_us28_14_a_coordinator_manages_every_event_and_others_are_refused(
+async def test_tc_us28_14_a_coordinator_manages_only_their_assigned_events_and_others_are_refused(
     client: AsyncClient, db: Session
 ) -> None:
-    mine = owned_event(db, make_user(db, UserRole.ORGANISER))
-    theirs = owned_event(db, make_user(db, UserRole.ORGANISER))
-    request = owned_event(db, make_user(db, UserRole.ORGANISER), status=EventStatus.UNDER_REVIEW)
+    coordinator = make_user(db, UserRole.COORDINATOR)
+    organiser = make_user(db, UserRole.ORGANISER)
+    mine = owned_event(db, organiser, coordinator=coordinator)
+    owned_event(db, organiser, coordinator=make_user(db, UserRole.COORDINATOR))
+    owned_event(db, organiser)
+    owned_event(db, organiser, coordinator=coordinator, status=EventStatus.UNDER_REVIEW)
 
-    coordinator_ids = {
-        event["id"]
-        for event in (await client.get(MANAGED_URL, headers=auth(make_user(db, UserRole.COORDINATOR)))).json()[
-            "events"
-        ]
-    }
+    managed = (await client.get(MANAGED_URL, headers=auth(coordinator))).json()["events"]
     refused = await client.get(MANAGED_URL, headers=auth(make_user(db, UserRole.ATTENDEE)))
 
-    assert {str(mine.id), str(theirs.id)} <= coordinator_ids
-    assert str(request.id) not in coordinator_ids
+    # Not another coordinator's, an unassigned one, or their own still at the request stage.
+    assert [event["id"] for event in managed] == [str(mine.id)]
     assert refused.status_code == 403
 
 
-def test_tc_us28_15_the_seeded_organiser_owns_the_seeded_events(db: Session) -> None:
+def test_tc_us28_15_the_seeded_organiser_owns_the_seeded_events_and_the_coordinator_has_one(db: Session) -> None:
     seed(db, now=NOW)
 
-    event = db.get(Event, seed_id("event", "design-sprint-bootcamp"))
+    bootcamp = db.get(Event, seed_id("event", "design-sprint-bootcamp"))
+    online = db.get(Event, seed_id("event", "supabase-live-coding"))
 
-    assert event.created_by_user_id == seed_id("user", "event-organiser")
+    assert bootcamp.created_by_user_id == seed_id("user", "event-organiser")
+    assert bootcamp.coordinator_id is None
+    assert online.coordinator_id == seed_id("user", "event-coordinator")

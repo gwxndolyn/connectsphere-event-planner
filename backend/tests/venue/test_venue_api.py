@@ -19,15 +19,14 @@ NON_STAFF_ROLES = (UserRole.ORGANISER, UserRole.COORDINATOR, UserRole.ATTENDEE)
 
 
 def make_user(db: Session, role: UserRole, *, active: bool = True) -> User:
-    user = User(email=f"{uuid.uuid4().hex}@smu.edu.sg", role=role, is_active=active)
+    user = User(email=f"{uuid.uuid4().hex}@smu.edu.sg", roles=[role], is_active=active)
     db.add(user)
     db.flush()
     return user
 
 
 def make_staff(db: Session) -> User:
-    # DECISION-PENDING: D19 — operations_manager stands in for Venue Staff until US16b.
-    return make_user(db, UserRole.OPERATIONS_MANAGER)
+        return make_user(db, UserRole.VENUE_STAFF)
 
 
 def auth(user: User) -> dict[str, str]:
@@ -284,7 +283,7 @@ async def test_tc_us20_06_other_roles_cannot_change_venues(client: AsyncClient, 
 
 
 async def test_tc_us20_06_inactive_staff_member_cannot_write(client: AsyncClient, db: Session) -> None:
-    staff = make_user(db, UserRole.OPERATIONS_MANAGER, active=False)
+    staff = make_user(db, UserRole.VENUE_STAFF, active=False)
 
     response = await client.post("/api/v1/venues", headers=auth(staff), json=venue_body())
 

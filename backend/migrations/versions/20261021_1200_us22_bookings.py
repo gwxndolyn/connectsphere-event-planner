@@ -96,7 +96,7 @@ def upgrade() -> None:
     # US22 AC 3 and 7: no two live bookings at one venue may overlap, even by one second. '[)'
     # includes the start and excludes the end, so back-to-back is allowed. A concurrent second
     # insert waits for the first to commit and then fails, so the first request wins.
-    # DECISION-PENDING: D21 — Requested blocks as well as Approved (LIVE_BOOKING_STATUSES).
+    # D21 (decided): Requested blocks as well as Approved (LIVE_BOOKING_STATUSES).
     # DECISION-PENDING: D22 — plain start to end; US13 adds the venue's setup and turnaround.
     op.execute(
         "ALTER TABLE venue_bookings ADD CONSTRAINT venue_bookings_no_overlap "

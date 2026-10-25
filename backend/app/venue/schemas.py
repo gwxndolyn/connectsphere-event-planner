@@ -1,7 +1,10 @@
 import uuid
-from datetime import date, time
+from datetime import date, datetime, time
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.event.models import EventStatus
+from app.venue.models import VenueBookingStatus
 
 
 class VenueWrite(BaseModel):
@@ -42,6 +45,141 @@ class VenueOut(BaseModel):
 
 class VenuesOut(BaseModel):
     venues: list[VenueOut]
+
+
+class VenueBookingWrite(BaseModel):
+    """Booking request body (US22). Optional here so the service lists every missing field at once.
+    Unknown fields are rejected, so a booking can't send its own setup or turnaround (US20 AC 7)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    event_id: uuid.UUID | None = None
+    venue_id: uuid.UUID | None = None
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+    expected_attendees: int | None = None
+    room_layout: str | None = None
+    required_facilities: list[str] | None = None
+    required_accessibility_features: list[str] | None = None
+    special_requirements: str | None = None
+
+
+class BookingEventOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str | None
+    request_reference: str | None
+    status: EventStatus
+
+
+class BookingVenueOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    location: str
+    capacity: int
+
+
+class VenueBookingOut(BaseModel):
+    id: uuid.UUID
+    event: BookingEventOut
+    venue: BookingVenueOut
+    requested_by_user_id: uuid.UUID
+    reference: str  # US13 D33
+    starts_at: datetime
+    ends_at: datetime
+    # US13: [starts_at - setup, ends_at + turnaround), as the overlap guard holds it.
+    occupied_starts_at: datetime
+    occupied_ends_at: datetime
+    expected_attendees: int
+    room_layout: str
+    required_facilities: list[str]
+    required_accessibility_features: list[str]
+    special_requirements: str | None
+    status: VenueBookingStatus
+    created_at: datetime
+    updated_at: datetime
+    withdrawn_at: datetime | None
+    # US4 (SCRUM-8): Venue Staff's decision, null while pending or once withdrawn.
+    decided_at: datetime | None
+    decided_by_user_id: uuid.UUID | None
+    rejection_reason: str | None
+    alternative_suggestion: str | None
+
+
+class BookingApproveWrite(BaseModel):
+    """Approve body (US4). A request is approved as a whole (AC 7), so there is nothing to send:
+    any field, such as a different layout or time, is an unknown field and refused."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
+NOTE_MAX_LENGTH = 1000
+
+
+class BookingRejectWrite(BaseModel):
+    """Reject body (US4 AC 5): both optional; blank is the same as leaving it out."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Stored, logged and shown to the coordinator, so kept to a readable length (PR #73 review).
+    reason: str | None = Field(default=None, max_length=NOTE_MAX_LENGTH)
+    alternative_suggestion: str | None = Field(default=None, max_length=NOTE_MAX_LENGTH)
+
+
+class BookingWarning(BaseModel):
+    """Something the request needs that the venue lacks (AC 3): the request still saves."""
+
+    field: str
+    item: str
+    message: str
+
+
+class VenueBookingCreatedOut(VenueBookingOut):
+    warnings: list[BookingWarning]
+
+
+class VenueBookingsOut(BaseModel):
+    bookings: list[VenueBookingOut]
+
+
+class WindowOut(BaseModel):
+    starts_at: datetime
+    ends_at: datetime
+
+
+class BookingConflictOut(BaseModel):
+    """US13 AC 4: something occupying part of the booking's window. starts_at/ends_at are the
+    clashing booking's own times or the block's; `occupied` adds that booking's buffers."""
+
+    kind: str  # "booking" or "block"
+    reference: str | None
+    note: str | None
+    starts_at: datetime
+    ends_at: datetime
+    occupied: WindowOut
+    overlap: WindowOut
+
+
+class BookingHoursOut(BaseModel):
+    """US13 AC 5: the occupied window runs outside these hours; `fields` names the end."""
+
+    opens_at: time
+    closes_at: time
+    fields: list[str]
+
+
+class BookingEvaluationOut(BaseModel):
+    """GET /api/v1/venue-bookings/{id}/evaluation (D36): what stands in the way of the booking now."""
+
+    booking_id: uuid.UUID
+    reference: str
+    occupied: WindowOut
+    conflicts: list[BookingConflictOut]
+    outside_hours: BookingHoursOut | None
+    clear: bool
 
 
 class VenueSearchCriteria(BaseModel):

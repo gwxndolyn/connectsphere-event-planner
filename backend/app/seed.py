@@ -8,6 +8,9 @@ rather than inserting duplicates.
 
     python -m app.seed          # against a local database
     python -m app.seed --yes    # required when DATABASE_URL is not localhost
+
+Reseeding also deletes every equipment line on Equipment Request Demo, approved ones included, so E2E
+reruns start clean (SCRUM-110); other events' lines are untouched.
 """
 
 import sys
@@ -16,16 +19,18 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import SessionLocal
+from app.equipment.models import EquipmentRequestLine, EquipmentType
 from app.event.models import DeliveryMode, Event, EventStatus
 from app.registration.models import ACTIVE_STATUSES, Registration, RegistrationStatus
 from app.user.models import Attendee, User, UserRole
-from app.venue.models import Venue, VenueBlock, VenueBooking, VenueBookingStatus
+from app.user.supabase_admin import SupabaseAdmin, SupabaseAdminError
+from app.venue.models import Venue, VenueBlock, VenueBooking, VenueBookingStatus, occupied_window
 
 # Fixed namespace so slugs map to the same UUIDs on every machine and every run.
 SEED_NAMESPACE = uuid.UUID("3f2b0c54-9b1a-4f3e-9a7e-2c0d1b8e5a41")
@@ -55,6 +60,8 @@ class EventSpec:
     join_link: str | None = None
     # US6a: off by default, as in the database.
     waitlist_enabled: bool = False
+    # US28: assigned to the seeded coordinator, so its Registrations view has an event (D52).
+    coordinator_assigned: bool = False
     # Emails of attendees holding a confirmed seat, in order.
     confirmed: list[str] = field(default_factory=list)
     # Emails on the waitlist, earliest first.
@@ -67,15 +74,55 @@ ATTENDEES = [
     "arjun.rao.2024@smu.edu.sg",
     "sofia.lim.2024@smu.edu.sg",
 ]
+# Every seeded user has a full name (TC-US16B-04).
+ATTENDEE_NAMES = {
+    "calvin.ng.2024@smu.edu.sg": "Calvin Ng",
+    "mei.tan.2024@smu.edu.sg": "Mei Tan",
+    "arjun.rao.2024@smu.edu.sg": "Arjun Rao",
+    "sofia.lim.2024@smu.edu.sg": "Sofia Lim",
+}
 EVENT_ORGANISER_EMAIL = "event.organiser@smu.edu.sg"
 EVENT_ORGANISER_NAME = "Olivia Organiser"
 EVENT_COORDINATOR_EMAIL = "event.coordinator@smu.edu.sg"
 # Seeded users get a full name, so what organisers see (SCRUM-13 AC 8) is a name, not an email.
 EVENT_COORDINATOR_NAME = "Casey Tan"
 VENUE_STAFF_EMAIL = "venue.staff@smu.edu.sg"
+VENUE_STAFF_NAME = "Vera Goh"
 # SCRUM-82 AC 7: more than one Lead, never a single hard-coded one.
 EVENT_COORDINATOR_LEAD_EMAILS = ("lead.one@smu.edu.sg", "lead.two@smu.edu.sg")
 EVENT_COORDINATOR_LEAD_NAMES = {"lead.one@smu.edu.sg": "Lena Lim", "lead.two@smu.edu.sg": "Leo Lee"}
+TECH_SUPPORT_EMAIL = "tech.support@smu.edu.sg"
+TECH_SUPPORT_NAME = "Terry Ong"
+# US16b (SCRUM-119): the Safety officer has no screens yet, but has a login (TC-US16B-04, 21).
+SAFETY_OFFICER_EMAIL = "safety.officer@smu.edu.sg"
+SAFETY_OFFICER_NAME = "Sam Koh"
+# DECISION-PENDING: D50 — one user holding two roles, for the role switcher (SCRUM-121) and the
+# held-role checks.
+MULTI_ROLE_EMAIL = "multi.role@smu.edu.sg"
+MULTI_ROLE_NAME = "Morgan Lau"
+# Everyone the seed creates a Supabase login for (SCRUM-104). Staff can't sign up (US16a AC 7), so this
+# is how the coordinator, venue staff, Tech Support, the Safety officer, the two-role user and Leads get one.
+SEEDED_LOGIN_EMAILS = [
+    EVENT_ORGANISER_EMAIL,
+    EVENT_COORDINATOR_EMAIL,
+    VENUE_STAFF_EMAIL,
+    TECH_SUPPORT_EMAIL,
+    SAFETY_OFFICER_EMAIL,
+    MULTI_ROLE_EMAIL,
+    *EVENT_COORDINATOR_LEAD_EMAILS,
+    *ATTENDEES,
+]
+# US26 (SCRUM-108): the equipment catalogue a request line picks from.
+EQUIPMENT_TYPES = [
+    "Projector",
+    "Projector screen",
+    "Wireless microphone",
+    "Speaker system",
+    "Laptop",
+    "HDMI cable",
+    "Extension cord",
+    "Webcam",
+]
 
 EVENTS = [
     EventSpec(
@@ -107,6 +154,7 @@ EVENTS = [
         join_link="https://smu-sg.zoom.us/j/88123345901",
         capacity=200,
         starts_in=timedelta(days=11),
+        coordinator_assigned=True,
         confirmed=["calvin.ng.2024@smu.edu.sg"],
     ),
     EventSpec(
@@ -309,6 +357,34 @@ VENUE_BOOKINGS = [
         room_layout="theatre",
     ),
 ]
+
+
+@dataclass
+class BookableEventSpec:
+    """An approved event with no bookings, for the US22 booking screens to book (SCRUM-113)."""
+
+    slug: str
+    name: str
+    expected_attendees: int
+
+
+# US22 (SCRUM-89): the dev coordinator requests venues for it, locally and in
+# e2e/tests/venue-booking.spec.ts. The organiser owns it and it's assigned to the seeded coordinator
+# (VITE_DEV_COORDINATOR_ID), because only the assigned coordinator may book it (US10a, D20).
+# Approved straight away (D24).
+BOOKABLE_EVENT = BookableEventSpec(slug="bookable-venue-booking-demo", name="Venue Booking Demo", expected_attendees=40)
+
+# US26 (SCRUM-109): the dev coordinator adds equipment lines to it (SCRUM-110, TC-US26-16). Only a
+# planning or confirmed event takes them, from its assigned coordinator (D20), and no other seeded
+# event is both. Registration is off, so it stays off the attendees' events board.
+EQUIPMENT_EVENT = EventSpec(
+    slug="equipment-request-demo",
+    name="Equipment Request Demo",
+    note="confirmed, assigned to the seeded coordinator, registration off (US26)",
+    registration_enabled=False,
+    starts_in=timedelta(days=14),
+)
+
 VENUE_BLOCKS = [
     VenueBlockSpec(
         slug="connexion-maintenance",
@@ -324,9 +400,12 @@ def upsert_attendee(db: Session, email: str) -> Attendee:
     attendee_id = seed_id("attendee", email)
     user = db.get(User, attendee_id)
     if user is None:
-        user = User(id=attendee_id, email=email, role=UserRole.ATTENDEE)
+        user = User(id=attendee_id, email=email, full_name=ATTENDEE_NAMES[email], roles=[UserRole.ATTENDEE])
         db.add(user)
         db.flush()
+    else:
+        user.full_name = ATTENDEE_NAMES[email]
+        user.roles = [UserRole.ATTENDEE]
     attendee = db.get(Attendee, attendee_id)
     if attendee is None:
         attendee = Attendee(id=attendee_id, email=email)
@@ -334,89 +413,69 @@ def upsert_attendee(db: Session, email: str) -> Attendee:
     return attendee
 
 
+def upsert_staff_user(db: Session, slug: str, email: str, full_name: str, roles: list[UserRole]) -> User:
+    """A seeded user other than an attendee, reset to its seeded email, name and roles on every run."""
+    user_id = seed_id("user", slug)
+    user = db.get(User, user_id)
+    if user is None:
+        user = User(id=user_id)
+        db.add(user)
+    user.email = email
+    user.full_name = full_name
+    user.roles = roles
+    user.is_active = True
+    return user
+
+
 def upsert_event_organiser(db: Session) -> User:
-    organiser_id = seed_id("user", "event-organiser")
-    organiser = db.get(User, organiser_id)
-    if organiser is None:
-        organiser = User(
-            id=organiser_id,
-            email=EVENT_ORGANISER_EMAIL,
-            full_name=EVENT_ORGANISER_NAME,
-            role=UserRole.ORGANISER,
-            is_active=True,
-        )
-        db.add(organiser)
-    else:
-        organiser.email = EVENT_ORGANISER_EMAIL
-        organiser.full_name = EVENT_ORGANISER_NAME
-        organiser.role = UserRole.ORGANISER
-        organiser.is_active = True
-    return organiser
+    return upsert_staff_user(db, "event-organiser", EVENT_ORGANISER_EMAIL, EVENT_ORGANISER_NAME, [UserRole.ORGANISER])
 
 
 def upsert_event_coordinator(db: Session) -> User:
     """US8 reviews requests as a coordinator; the organiser can't stand in for one."""
-    coordinator_id = seed_id("user", "event-coordinator")
-    coordinator = db.get(User, coordinator_id)
-    if coordinator is None:
-        coordinator = User(
-            id=coordinator_id,
-            email=EVENT_COORDINATOR_EMAIL,
-            full_name=EVENT_COORDINATOR_NAME,
-            role=UserRole.COORDINATOR,
-            is_active=True,
-        )
-        db.add(coordinator)
-    else:
-        coordinator.email = EVENT_COORDINATOR_EMAIL
-        coordinator.full_name = EVENT_COORDINATOR_NAME
-        coordinator.role = UserRole.COORDINATOR
-        coordinator.is_active = True
-    return coordinator
+    return upsert_staff_user(
+        db, "event-coordinator", EVENT_COORDINATOR_EMAIL, EVENT_COORDINATOR_NAME, [UserRole.COORDINATOR]
+    )
 
 
 def upsert_venue_staff(db: Session) -> User:
     """US20 venue catalogue writes need Venue Staff."""
-    # DECISION-PENDING: D19 — operations_manager stands in for Venue Staff until US16b adds the role.
-    staff_id = seed_id("user", "venue-staff")
-    staff = db.get(User, staff_id)
-    if staff is None:
-        staff = User(
-            id=staff_id,
-            email=VENUE_STAFF_EMAIL,
-            role=UserRole.OPERATIONS_MANAGER,
-            is_active=True,
-        )
-        db.add(staff)
-    else:
-        staff.email = VENUE_STAFF_EMAIL
-        staff.role = UserRole.OPERATIONS_MANAGER
-        staff.is_active = True
-    return staff
+    return upsert_staff_user(db, "venue-staff", VENUE_STAFF_EMAIL, VENUE_STAFF_NAME, [UserRole.VENUE_STAFF])
+
+
+def upsert_tech_support(db: Session) -> User:
+    """US26 reviews equipment requests as Technical Support Staff."""
+    return upsert_staff_user(db, "tech-support", TECH_SUPPORT_EMAIL, TECH_SUPPORT_NAME, [UserRole.TECH_SUPPORT])
+
+
+def upsert_safety_officer(db: Session) -> User:
+    return upsert_staff_user(
+        db, "safety-officer", SAFETY_OFFICER_EMAIL, SAFETY_OFFICER_NAME, [UserRole.SAFETY_OFFICER]
+    )
+
+
+def upsert_multi_role(db: Session) -> User:
+    """D50: Coordinator and Venue Staff, the pair US16b's switcher and held-role checks are tried with."""
+    return upsert_staff_user(
+        db, "multi-role", MULTI_ROLE_EMAIL, MULTI_ROLE_NAME, [UserRole.COORDINATOR, UserRole.VENUE_STAFF]
+    )
 
 
 def upsert_coordinator_leads(db: Session) -> list[User]:
     """US10a: the Event Coordinator Lead assigns coordinators; two exist so no one is special."""
-    leads = []
-    for email in EVENT_COORDINATOR_LEAD_EMAILS:
-        lead_id = seed_id("user", email)
-        lead = db.get(User, lead_id)
-        if lead is None:
-            lead = User(
-                id=lead_id,
-                email=email,
-                full_name=EVENT_COORDINATOR_LEAD_NAMES[email],
-                role=UserRole.COORDINATOR_LEAD,
-                is_active=True,
-            )
-            db.add(lead)
-        else:
-            lead.email = email
-            lead.full_name = EVENT_COORDINATOR_LEAD_NAMES[email]
-            lead.role = UserRole.COORDINATOR_LEAD
-            lead.is_active = True
-        leads.append(lead)
-    return leads
+    return [
+        upsert_staff_user(db, email, email, EVENT_COORDINATOR_LEAD_NAMES[email], [UserRole.COORDINATOR_LEAD])
+        for email in EVENT_COORDINATOR_LEAD_EMAILS
+    ]
+
+
+def upsert_equipment_type(db: Session, name: str) -> EquipmentType:
+    type_id = seed_id("equipment-type", name)
+    equipment_type = db.get(EquipmentType, type_id)
+    if equipment_type is None:
+        equipment_type = EquipmentType(id=type_id, name=name)
+        db.add(equipment_type)
+    return equipment_type
 
 
 def upsert_event(db: Session, spec: EventSpec, now: datetime, organiser: User) -> Event:
@@ -501,21 +560,67 @@ def upsert_booking_event(db: Session, spec: VenueBookingSpec, organiser: User) -
     return event
 
 
+def upsert_bookable_event(db: Session, spec: BookableEventSpec, organiser: User, coordinator: User) -> Event:
+    """The approved event the booking screens book, assigned to `coordinator`. Its bookings are made
+    through the app, so a reseed leaves them alone: the seed owns only the event row."""
+    event_id = seed_id("event", spec.slug)
+    values = {
+        "name": spec.name,
+        "status": EventStatus.APPROVED,
+        "event_category": "Workshop",
+        "purpose": "Seeded for requesting a venue (US22)",
+        "expected_attendees": spec.expected_attendees,
+        "created_by_user_id": organiser.id,
+        "coordinator_id": coordinator.id,
+    }
+    event = db.get(Event, event_id)
+    if event is None:
+        event = Event(id=event_id, **values)
+        db.add(event)
+    else:
+        for key, value in values.items():
+            setattr(event, key, value)
+    return event
+
+
+def upsert_equipment_event(
+    db: Session, spec: EventSpec, organiser: User, coordinator: User, now: datetime
+) -> Event:
+    """The confirmed event the equipment screens add lines to, assigned to `coordinator`. Its lines are
+    made through the app, and a reseed removes them all (SCRUM-110): an approved line can't be removed
+    and D41 allows one live line per type, so E2E reruns (TC-US26-17) would otherwise use up the types."""
+    event = upsert_event(db, spec, now, organiser)
+    event.coordinator_id = coordinator.id
+    db.execute(delete(EquipmentRequestLine).where(EquipmentRequestLine.event_id == event.id))
+    return event
+
+
 def upsert_venue_booking(
     db: Session, spec: VenueBookingSpec, event: Event, coordinator: User, now: datetime
 ) -> VenueBooking:
     booking_id = seed_id("venue-booking", spec.slug)
     day = _slot_day(now)
+    starts_at = datetime.combine(day, spec.starts, SEED_TIMEZONE)
+    ends_at = datetime.combine(day, spec.ends, SEED_TIMEZONE)
+    # US13: the window the venue's buffers make it occupy. The reference comes from the database.
+    occupied_starts_at, occupied_ends_at = occupied_window(db.get(Venue, seed_id("venue", spec.venue_slug)), starts_at, ends_at)
     values = {
         "event_id": event.id,
         "venue_id": seed_id("venue", spec.venue_slug),
         "requested_by_user_id": coordinator.id,
-        "starts_at": datetime.combine(day, spec.starts, SEED_TIMEZONE),
-        "ends_at": datetime.combine(day, spec.ends, SEED_TIMEZONE),
+        "starts_at": starts_at,
+        "ends_at": ends_at,
+        "occupied_starts_at": occupied_starts_at,
+        "occupied_ends_at": occupied_ends_at,
         "expected_attendees": spec.expected_attendees,
         "room_layout": spec.room_layout,
         "status": spec.status,
         "withdrawn_at": None,
+        # US4: an approved seeded booking was decided by the seeded Venue Staff member, when seeded.
+        "decided_at": now if spec.status == VenueBookingStatus.APPROVED else None,
+        "decided_by_user_id": seed_id("user", "venue-staff") if spec.status == VenueBookingStatus.APPROVED else None,
+        "rejection_reason": None,
+        "alternative_suggestion": None,
     }
     booking = db.get(VenueBooking, booking_id)
     if booking is None:
@@ -601,11 +706,16 @@ def seed(db: Session, now: datetime | None = None) -> None:
     coordinator = upsert_event_coordinator(db)
     upsert_venue_staff(db)
     upsert_coordinator_leads(db)
+    upsert_tech_support(db)
+    upsert_safety_officer(db)
+    upsert_multi_role(db)
     attendees = {email: upsert_attendee(db, email) for email in ATTENDEES}
     db.flush()
 
     for spec in EVENTS:
         event = upsert_event(db, spec, now, organiser)
+        if spec.coordinator_assigned:
+            event.coordinator_id = coordinator.id
         db.flush()
         for email in spec.confirmed:
             upsert_registration(db, event, attendees[email], RegistrationStatus.CONFIRMED, now)
@@ -625,17 +735,90 @@ def seed(db: Session, now: datetime | None = None) -> None:
         upsert_venue_booking(db, spec, event, coordinator, now)
     for spec in VENUE_BLOCKS:
         upsert_venue_block(db, spec, now)
+    upsert_bookable_event(db, BOOKABLE_EVENT, organiser, coordinator)
+    upsert_equipment_event(db, EQUIPMENT_EVENT, organiser, coordinator, now)
+    for name in EQUIPMENT_TYPES:
+        upsert_equipment_type(db, name)
     db.flush()
 
     db.commit()
 
 
+class SeedAuthError(Exception):
+    """A seeded user's Supabase login couldn't be created, found or linked. Nothing was linked."""
+
+
+# The seeded logins share one password and include staff, so a short one is refused (PR #56 review).
+MIN_SEED_PASSWORD_LENGTH = 12
+
+
+def missing_admin_settings() -> list[str]:
+    """Which of the two settings the Admin API needs are unset, by name, for the skip message."""
+    values = (
+        ("SUPABASE_URL", settings.supabase_url),
+        ("SUPABASE_SECRET_KEY", settings.supabase_secret_key.get_secret_value()),
+    )
+    return [name for name, value in values if not value]
+
+
+def seed_auth_logins(db: Session, admin: SupabaseAdmin | None, password: str | None) -> None:
+    """Create (or reuse) a confirmed Supabase login for every seeded user and link it by
+    `auth_user_id` (SCRUM-104). Every login is fetched and checked before any row changes, so a failure
+    for one email leaves no row half-linked. Prints emails only, never the key or password."""
+    missing = (missing_admin_settings() or ["SUPABASE_SECRET_KEY"]) if admin is None else []
+    if not password:
+        missing.append("SEED_AUTH_PASSWORD")
+    if missing:
+        print(f"\nSupabase Auth logins skipped: {', '.join(missing)} not set.")
+        return
+    if len(password) < MIN_SEED_PASSWORD_LENGTH:
+        raise SeedAuthError(f"SEED_AUTH_PASSWORD must be at least {MIN_SEED_PASSWORD_LENGTH} characters.")
+
+    auth_ids = {}
+    for email in SEEDED_LOGIN_EMAILS:
+        try:
+            auth_ids[email] = admin.ensure_user(email, password)
+        except SupabaseAdminError as error:
+            raise SeedAuthError(f"Couldn't create the Supabase login for {email}: {error}") from None
+
+    users = list(db.scalars(select(User).where(User.email.in_(SEEDED_LOGIN_EMAILS))))
+    # A row already linked to a different account (e.g. a real person signed up with a demo address and
+    # #55 linked it) is never re-pointed (PR #56 review).
+    for user in users:
+        if user.auth_user_id not in (None, auth_ids[user.email]):
+            raise SeedAuthError(f"{user.email} is already linked to a different Supabase account; nothing was linked.")
+    for user in users:
+        user.auth_user_id = auth_ids[user.email]
+    db.commit()
+
+    print("\nSupabase Auth logins (password: SEED_AUTH_PASSWORD in backend/.env):")
+    for email in SEEDED_LOGIN_EMAILS:
+        print(f"  {email}")
+
+
+def admin_from_settings() -> SupabaseAdmin | None:
+    if missing_admin_settings():
+        return None
+    return SupabaseAdmin(settings.supabase_url, settings.supabase_secret_key.get_secret_value())
+
+
+# PR #78 review: on a shared database these could be someone's real requests.
+REMOTE_RESEED_WARNING = (
+    "Reseeding also deletes every equipment line on Equipment Request Demo, approved ones included. "
+    "Other events' lines are untouched."
+)
+
+
 def main() -> int:
     host = make_url(settings.database_url).host or "localhost"
     is_local = host in {"localhost", "127.0.0.1", "::1"}
-    if not is_local and "--yes" not in sys.argv:
-        print(f"Refusing to seed a non-local database ({host}) without --yes.")
-        return 1
+    if not is_local:
+        if "--yes" not in sys.argv:
+            print(f"Refusing to seed a non-local database ({host}) without --yes.")
+            print(REMOTE_RESEED_WARNING)
+            return 1
+        # Said before anything is deleted, with --yes too (PR #78 review).
+        print(REMOTE_RESEED_WARNING)
 
     print(f"Seeding {host} ...")
     with SessionLocal() as db:
@@ -657,11 +840,20 @@ def main() -> int:
         for email in EVENT_COORDINATOR_LEAD_EMAILS:
             lead = db.get(User, seed_id("user", email))
             print(f"X-User-Id for {lead.email} (Coordinator Lead):\n  {lead.id}\n")
+        for slug in ("tech-support", "safety-officer", "multi-role"):
+            user = db.get(User, seed_id("user", slug))
+            print(f"X-User-Id for {user.email}:\n  {user.id}\n")
         print("Registrations you can withdraw:")
         mine = db.scalars(select(Registration).where(Registration.attendee_id == calvin.id))
         for registration in mine:
             event = db.get(Event, registration.event_id)
             print(f"  {registration.status.value:<11} {event.name:<34} {registration.id}")
+
+        try:
+            seed_auth_logins(db, admin_from_settings(), settings.seed_auth_password.get_secret_value())
+        except SeedAuthError as error:
+            print(f"\n{error}")
+            return 1
     return 0
 
 

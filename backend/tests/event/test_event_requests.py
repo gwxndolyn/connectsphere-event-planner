@@ -17,7 +17,7 @@ pytestmark = pytest.mark.anyio
 def make_user(db: Session, role: UserRole = UserRole.ORGANISER, *, active: bool = True) -> User:
     user = User(
         email=f"{uuid.uuid4().hex}@smu.edu.sg",
-        role=role,
+        roles=[role],
         is_active=active,
     )
     db.add(user)
@@ -346,20 +346,20 @@ async def test_tc_us1_14_submitted_visibility_and_draft_privacy(
     owner = make_user(db)
     other_organiser = make_user(db)
     coordinator = make_user(db, UserRole.COORDINATOR)
-    operations_manager = make_user(db, UserRole.OPERATIONS_MANAGER)
+    venue_staff = make_user(db, UserRole.VENUE_STAFF)
     submitted_draft = await create_draft(client, owner, **complete_request())
     submitted = await submit(client, owner, submitted_draft["id"])
     private_draft = await create_draft(client, owner, name="Still private")
     confirmed_event = make_event(db)
 
-    for reader in (owner, coordinator, operations_manager):
+    for reader in (owner, coordinator, venue_staff):
         response = await client.get(
             f"/api/v1/event-requests/{submitted_draft['id']}", headers=auth(reader)
         )
         assert response.status_code == 200
         assert response.json()["request_reference"] == submitted["request_reference"]
 
-    for reader in (coordinator, operations_manager, other_organiser):
+    for reader in (coordinator, venue_staff, other_organiser):
         response = await client.get(
             f"/api/v1/event-requests/{private_draft['id']}", headers=auth(reader)
         )

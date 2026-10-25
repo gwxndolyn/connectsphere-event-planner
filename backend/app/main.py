@@ -6,6 +6,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.exceptions import DomainError, domain_error_handler
+from app.equipment.router import events_router as equipment_events_router
+from app.equipment.router import me_router as equipment_me_router
+from app.equipment.router import router as equipment_router
+from app.equipment.router import types_router as equipment_types_router
 from app.event.router import router as event_router
 from app.event.router import v1_router as event_v1_router
 from app.event.request_router import coordinators_router as event_request_coordinators_router
@@ -17,8 +21,11 @@ from app.registration.roster_router import events_router as roster_events_router
 from app.registration.roster_router import me_router as roster_me_router
 from app.registration.router import router as registration_router
 from app.user.auth import warn_if_dev_headers_enabled
-from app.venue.router import router as venue_router
+from app.user.router import me_router as auth_me_router
 from app.user.router import router as auth_router
+from app.venue.booking_router import events_router as venue_booking_events_router
+from app.venue.booking_router import router as venue_booking_router
+from app.venue.router import router as venue_router
 
 
 @asynccontextmanager
@@ -48,4 +55,11 @@ app.include_router(event_request_router)
 app.include_router(event_request_me_router)
 app.include_router(event_request_coordinators_router)
 app.include_router(venue_router)
+app.include_router(venue_booking_router)
+app.include_router(venue_booking_events_router)
+app.include_router(equipment_types_router)
+app.include_router(equipment_router)
+app.include_router(equipment_events_router)
+app.include_router(equipment_me_router)
 app.include_router(auth_router)
+app.include_router(auth_me_router)

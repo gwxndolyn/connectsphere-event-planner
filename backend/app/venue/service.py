@@ -1,14 +1,18 @@
 import uuid
+from collections.abc import Callable
+from types import SimpleNamespace
 from datetime import date, datetime, time
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import Text, and_, cast, exists, func, literal, select
+from sqlalchemy import Date, DateTime, Text, and_, cast, exists, func, literal, select
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import DomainError
+from app.event.models import Event
 from app.user.models import User, UserRole
+from app.venue.availability import Window, hours_breach
 from app.venue.models import (
     ACCESSIBILITY_FEATURES,
     FACILITIES,
@@ -18,18 +22,17 @@ from app.venue.models import (
     VenueBlock,
     VenueBooking,
     VenueBookingStatus,
+    occupied_window,
 )
 from app.venue.schemas import VenueOut, VenueSearchCriteria, VenueSearchOut, VenueWrite
 
-# DECISION-PENDING: D19 — Venue Staff arrives with US16b (SCRUM-82), which adds the enum value.
-# Until then operations_manager stands in, so this user can also read the event-request queue
-# (D11). US16b changes this one line to (UserRole.VENUE_STAFF,).
-VENUE_STAFF_ROLES = (UserRole.OPERATIONS_MANAGER,)
+# DECISION-PENDING: D49 — US16b (SCRUM-119) made Venue Staff a real role, retiring D19's
+# operations_manager stand-in.
+VENUE_STAFF_ROLES = (UserRole.VENUE_STAFF,)
 
-# DECISION-PENDING: D25 — US2 is the Event Coordinator's story. Coordinators search, and so does
-# operations_manager, which stands in for Venue Staff (D19)
-# until US16b. Organisers and attendees get 403.
-VENUE_SEARCH_ROLES = (UserRole.COORDINATOR, UserRole.OPERATIONS_MANAGER)
+# DECISION-PENDING: D25 — US2 is the Event Coordinator's story. Coordinators search, and so do
+# Venue Staff. Organisers and attendees get 403.
+VENUE_SEARCH_ROLES = (UserRole.COORDINATOR, UserRole.VENUE_STAFF)
 SEARCH_REQUIRED_FIELDS = ("date", "start_time", "end_time", "attendees")
 # Every venue and requested time is Singapore wall-clock (D9, TC-X-01).
 VENUE_TIMEZONE = ZoneInfo("Asia/Singapore")
@@ -52,6 +55,11 @@ CONSTRAINT_FIELDS = {
     "venues_turnaround_minutes_non_negative": "turnaround_minutes",
 }
 BUFFERS_LOCKED_MESSAGE = "Setup and turnaround can't change while this venue has approved future bookings."
+BUFFERS_CONFLICT_MESSAGE = (
+    "With these setup and turnaround times, requested bookings at this venue would overlap or run outside "
+    "its opening hours. Change the times, or ask the coordinators to change or withdraw those requests."
+)
+NO_OVERLAP = "venue_bookings_no_overlap"
 
 
 def has_approved_future_bookings(db: Session, venue_id: uuid.UUID, now: datetime) -> bool:
@@ -68,13 +76,31 @@ def has_approved_future_bookings(db: Session, venue_id: uuid.UUID, now: datetime
     )
 
 
+def _has_live_booking_by(db: Session, venue_id: uuid.UUID, reader: User) -> bool:
+    """Whether an event assigned to the reader has a Requested or Approved booking at this venue,
+    so they can still open it after it's deactivated (US20's gap, closed in US22, TC-US22-16)."""
+    # DECISION-PENDING: D20 — since US10a (SCRUM-13), "whose event is booked here" is the event's
+    # assigned coordinator (events.coordinator_id), whoever made the request.
+    return db.scalar(
+        select(
+            exists().where(
+                VenueBooking.venue_id == venue_id,
+                VenueBooking.status.in_(LIVE_BOOKING_STATUSES),
+                Event.id == VenueBooking.event_id,
+                Event.coordinator_id == reader.id,
+            )
+        )
+    )
+
+
 def _invalid(errors: dict[str, str]) -> DomainError:
     return DomainError(422, "INVALID_VENUE", fields=list(errors), errors=errors)
 
 
-def _clean_tags(field: str, values: list[str], errors: dict[str, str]) -> list[str]:
-    """Trimmed, de-duplicated and in D18's order; the database doesn't reject duplicates."""
-    allowed, label = TAG_FIELDS[field]
+def _clean_tags(field: str, values: list[str], errors: dict[str, str], vocabulary: str | None = None) -> list[str]:
+    """Trimmed, de-duplicated and in D18's order; the database doesn't reject duplicates.
+    `vocabulary` names the TAG_FIELDS list when `field` isn't a venue column (a booking's tags)."""
+    allowed, label = TAG_FIELDS[vocabulary or field]
     given = list(dict.fromkeys(value.strip() for value in values))
     unknown = [value for value in given if value not in allowed]
     if unknown:
@@ -117,6 +143,11 @@ def _whole_number(value: int | str) -> int | None:
 def _slot(model: type[VenueBooking] | type[VenueBlock]):
     """A booking's or block's half-open time range, as its GiST index stores it."""
     return func.tstzrange(model.starts_at, model.ends_at, literal("[)"))
+
+
+def _occupied_slot():
+    """A booking's stored occupied window, as venue_bookings_no_overlap's GiST index stores it (US13)."""
+    return func.tstzrange(VenueBooking.occupied_starts_at, VenueBooking.occupied_ends_at, literal("[)"))
 
 
 def _escape_like(value: str) -> str:
@@ -172,32 +203,43 @@ class VenueService:
         starts_at = datetime.combine(on, start_time, VENUE_TIMEZONE)
         ends_at = datetime.combine(on, end_time, VENUE_TIMEZONE)
 
-        # Half-open, like venue_bookings_no_overlap: a booking ending at 10:00 doesn't clash with a
-        # search from 10:00. Requested blocks the window as well as approved (US22's D21).
-        # DECISION-PENDING: D26 — setup and turnaround buffers aren't added around either side here.
-        # US13 (SCRUM-16) owns buffer scheduling, and CR-01 says its conflicts are flagged, not hidden.
-        # Written as a range overlap (&&) on tstzrange(starts_at, ends_at, '[)'), the exact expression
-        # both GiST indexes hold: US22's venue_bookings_no_overlap and venue_blocks_venue_window.
-        # Two comparisons on starts_at and ends_at mean the same but can't use them (AC 8).
-        window = func.tstzrange(literal(starts_at), literal(ends_at), literal("[)"))
-        booked = exists().where(
-            and_(
+        # DECISION-PENDING: D26 — US13: a venue is offered only if the window its own buffers make it
+        # occupy for this time, [start - setup, end + turnaround), is free and inside its hours. Built
+        # per venue in SQL, so it's still one query (AC 8). Half-open like venue_bookings_no_overlap:
+        # windows that only touch don't clash. Requested blocks as well as approved (US22's D21).
+        # The overlap is written as && on ranges, the expressions both GiST indexes hold: a booking's
+        # stored occupied window (the exclusion constraint's) and a block's plain one (blocks have no
+        # buffers of their own). Two comparisons on the ends mean the same but can't use them.
+        # Cast, so the timestamp is typed even when the statement is rendered with its values inline.
+        occupied_from = cast(literal(starts_at), DateTime(timezone=True)) - func.make_interval(0, 0, 0, 0, 0, Venue.setup_minutes)
+        occupied_to = cast(literal(ends_at), DateTime(timezone=True)) + func.make_interval(0, 0, 0, 0, 0, Venue.turnaround_minutes)
+        window = func.tstzrange(occupied_from, occupied_to, literal("[)"))
+        # AC 5 as instants on the searched day, so a setup before midnight or a turnaround past it is
+        # outside the hours too (US20 hours can't cross midnight).
+        opens = func.timezone(literal("Asia/Singapore"), cast(literal(on), Date) + Venue.opens_at)
+        closes = func.timezone(literal("Asia/Singapore"), cast(literal(on), Date) + Venue.closes_at)
+        # OFFSET 0 keeps each EXISTS a per-venue subplan: the window depends on the venue's buffers, and
+        # flattened into an anti-join Postgres would scan every booking and block instead of using
+        # the GiST indexes for that venue (AC 8, TC-US2-08).
+        booked = exists(
+            select(VenueBooking.id)
+            .where(
                 VenueBooking.venue_id == Venue.id,
                 VenueBooking.status.in_(LIVE_BOOKING_STATUSES),
-                _slot(VenueBooking).op("&&")(window),
+                _occupied_slot().op("&&")(window),
             )
+            .offset(0)
         )
-        blocked = exists().where(
-            and_(
-                VenueBlock.venue_id == Venue.id,
-                _slot(VenueBlock).op("&&")(window),
-            )
+        blocked = exists(
+            select(VenueBlock.id)
+            .where(VenueBlock.venue_id == Venue.id, _slot(VenueBlock).op("&&")(window))
+            .offset(0)
         )
         query = select(Venue).where(
             Venue.is_active.is_(True),
             Venue.capacity >= attendees,
-            Venue.opens_at <= start_time,
-            Venue.closes_at >= end_time,
+            occupied_from >= opens,
+            occupied_to <= closes,
             ~booked,
             ~blocked,
         )
@@ -236,7 +278,7 @@ class VenueService:
         """Venues by name. Only staff see inactive ones; `active` narrows staff's list and is
         ignored for everyone else, who always get active venues."""
         query = select(Venue)
-        if reader.role not in VENUE_STAFF_ROLES:
+        if not reader.holds(*VENUE_STAFF_ROLES):
             query = query.where(Venue.is_active.is_(True))
         elif active is not None:
             query = query.where(Venue.is_active.is_(active))
@@ -266,7 +308,10 @@ class VenueService:
 
     def get(self, db: Session, venue_id: uuid.UUID, reader: User) -> VenueOut:
         venue = db.get(Venue, venue_id)
-        if venue is None or (not venue.is_active and reader.role not in VENUE_STAFF_ROLES):
+        visible = venue is not None and (
+            venue.is_active or reader.holds(*VENUE_STAFF_ROLES) or _has_live_booking_by(db, venue.id, reader)
+        )
+        if not visible:
             raise DomainError(404, "NOT_FOUND")
         return VenueOut.model_validate(venue)
 
@@ -304,10 +349,21 @@ class VenueService:
         buffer_edits = [field for field in BUFFER_FIELDS if field in changes and changes[field] != current[field]]
         if buffer_edits and has_approved_future_bookings(db, venue.id, now):
             raise DomainError(409, "VENUE_BUFFERS_LOCKED", fields=buffer_edits, message=BUFFERS_LOCKED_MESSAGE)
+        recomputed = self._recompute_windows(db, venue, cleaned, buffer_edits, now) if buffer_edits else {}
 
         for field in changes:
             setattr(venue, field, cleaned[field])
-        self._commit(db)
+        if recomputed:
+            # venue_bookings_no_overlap is checked row by row, so a new window can clash with another
+            # booking's old one (buffers swapping sides between touching bookings, PR #79 review).
+            # Shrink every recomputed window to its booking's own times first, which can't overlap
+            # (any overlap there would already overlap the stored windows), then widen them.
+            for booking in recomputed:
+                booking.occupied_starts_at, booking.occupied_ends_at = booking.starts_at, booking.ends_at
+            self._flush(db, buffer_edits)
+            for booking, (starts_at, ends_at) in recomputed.items():
+                booking.occupied_starts_at, booking.occupied_ends_at = starts_at, ends_at
+        self._commit(db, buffer_edits)
         db.refresh(venue)
         return VenueOut.model_validate(venue)
 
@@ -326,12 +382,69 @@ class VenueService:
             raise DomainError(404, "NOT_FOUND")
         return venue
 
-    def _commit(self, db: Session) -> None:
+    def _recompute_windows(
+        self, db: Session, venue: Venue, after: dict[str, object], buffer_edits: list[str], now: datetime
+    ) -> dict[VenueBooking, tuple[datetime, datetime]]:
+        """DECISION-PENDING: D31 — a buffer edit is allowed while only Requested future bookings
+        exist (AC 6 locks it for approved ones), so their stored occupied windows are recomputed with
+        the venue as it will be. The edit is refused, with nothing saved, if any would then overlap
+        another live booking or run outside opening hours (AC 3, 5). Past bookings keep their windows.
+        The venue row is already locked FOR UPDATE, so no request can slip in meanwhile."""
+        changed = SimpleNamespace(**after)  # occupied_window and hours_breach read only the buffers and hours
+        live = db.scalars(
+            select(VenueBooking)
+            .where(VenueBooking.venue_id == venue.id, VenueBooking.status.in_(LIVE_BOOKING_STATUSES))
+            .with_for_update()
+        ).all()
+        affected = [b for b in live if b.status == VenueBookingStatus.REQUESTED and b.ends_at > now]
+        windows = {b: occupied_window(changed, b.starts_at, b.ends_at) for b in affected}
+        current = {b: (b.occupied_starts_at, b.occupied_ends_at) for b in live if b not in windows}
+        every = {**current, **windows}
+
+        clashing: dict[VenueBooking, str] = {}
+        for booking, (starts_at, ends_at) in windows.items():
+            if hours_breach(changed, booking.starts_at, Window(starts_at, ends_at)) is not None:
+                clashing.setdefault(booking, "hours")
+            for other, (other_starts, other_ends) in every.items():
+                if other is not booking and starts_at < other_ends and other_starts < ends_at:
+                    clashing.setdefault(booking, "overlap")
+                    clashing.setdefault(other, "overlap")
+        if clashing:
+            raise DomainError(
+                409,
+                "VENUE_BUFFERS_CONFLICT",
+                fields=buffer_edits,
+                bookings=[
+                    {
+                        "reference": booking.reference,
+                        "starts_at": booking.starts_at.isoformat(),
+                        "ends_at": booking.ends_at.isoformat(),
+                        "occupied": Window(*every[booking]).as_json(),
+                        "reason": reason,
+                    }
+                    for booking, reason in sorted(clashing.items(), key=lambda item: item[0].starts_at)
+                ],
+                message=BUFFERS_CONFLICT_MESSAGE,
+            )
+        return windows
+
+    def _commit(self, db: Session, buffer_edits: list[str] | None = None) -> None:
+        self._write(db, db.commit, buffer_edits)
+
+    def _flush(self, db: Session, buffer_edits: list[str] | None = None) -> None:
+        self._write(db, db.flush, buffer_edits)
+
+    def _write(self, db: Session, write: Callable[[], None], buffer_edits: list[str] | None) -> None:
         try:
-            db.commit()
+            write()
         except IntegrityError as error:
             db.rollback()
             constraint = getattr(getattr(error.orig, "diag", None), "constraint_name", None)
+            if constraint == NO_OVERLAP:
+                # Backstop for _recompute_windows: the exclusion constraint refused a recomputed window.
+                raise DomainError(
+                    409, "VENUE_BUFFERS_CONFLICT", fields=buffer_edits or [], bookings=[], message=BUFFERS_CONFLICT_MESSAGE
+                ) from None
             field = CONSTRAINT_FIELDS.get(constraint)
             if field is None:
                 raise

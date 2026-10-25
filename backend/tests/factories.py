@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.event.models import DeliveryMode, Event, EventRegistrationField, EventStatus
 from app.registration.models import Registration, RegistrationStatus
 from app.user.models import Attendee, User, UserRole
-from app.venue.models import Venue
+from app.venue.models import Venue, VenueBlock, VenueBooking, VenueBookingStatus, occupied_window
 
 SGT = timezone(timedelta(hours=8))
 # Frozen "now" for every API test (spec §8: freeze time).
@@ -16,7 +16,7 @@ NOW = datetime(2026, 10, 1, 9, 0, tzinfo=SGT)
 def make_attendee(db: Session) -> Attendee:
     attendee_id = uuid.uuid4()
     email = f"{uuid.uuid4().hex[:8]}@smu.edu.sg"
-    user = User(id=attendee_id, email=email, role=UserRole.ATTENDEE)
+    user = User(id=attendee_id, email=email, roles=[UserRole.ATTENDEE])
     attendee = Attendee(id=attendee_id, email=email)
     db.add(user)
     db.flush()
@@ -43,6 +43,8 @@ def make_event(
     # True, unlike the column's default: like registration_enabled, the factory builds an event
     # that takes registrations and offers a waitlist when full. Pass False to test US6a AC 2.
     waitlist_enabled: bool = True,
+    # US10a (SCRUM-13): the coordinator assigned to the event; None leaves it unassigned.
+    coordinator_id: uuid.UUID | None = None,
 ) -> Event:
     start_at = start_at or NOW + timedelta(days=1)
     registration_opens_at = (
@@ -63,6 +65,7 @@ def make_event(
         room_number=room_number,
         join_link=join_link,
         waitlist_enabled=waitlist_enabled,
+        coordinator_id=coordinator_id,
     )
     db.add(event)
     db.flush()
@@ -112,8 +115,9 @@ def make_registration(
     return registration
 
 
-def make_user(db: Session, role: UserRole, *, active: bool = True) -> User:
-    user = User(email=f"{uuid.uuid4().hex}@smu.edu.sg", role=role, is_active=active)
+def make_user(db: Session, role: UserRole, *more_roles: UserRole, active: bool = True) -> User:
+    """A user holding `role`, plus any `more_roles` (US16b: one or more roles, D45)."""
+    user = User(email=f"{uuid.uuid4().hex}@smu.edu.sg", roles=[role, *more_roles], is_active=active)
     db.add(user)
     db.flush()
     return user
@@ -136,3 +140,47 @@ def make_venue(db: Session, **overrides: object) -> Venue:
     db.add(venue)
     db.flush()
     return venue
+
+
+def make_venue_booking(
+    db: Session,
+    *,
+    event: Event,
+    venue: Venue,
+    user: User,
+    starts_at: datetime | None = None,
+    ends_at: datetime | None = None,
+    status: VenueBookingStatus = VenueBookingStatus.REQUESTED,
+    **overrides: object,
+) -> VenueBooking:
+    starts_at = starts_at or NOW + timedelta(days=7)
+    ends_at = ends_at or starts_at + timedelta(hours=2)
+    # US13: the window the venue's buffers make it occupy; a test can override either end.
+    occupied_starts_at, occupied_ends_at = occupied_window(venue, starts_at, ends_at)
+    fields: dict[str, object] = {
+        "event_id": event.id,
+        "venue_id": venue.id,
+        "requested_by_user_id": user.id,
+        "starts_at": starts_at,
+        "ends_at": ends_at,
+        "occupied_starts_at": occupied_starts_at,
+        "occupied_ends_at": occupied_ends_at,
+        "expected_attendees": 30,
+        "room_layout": "theatre",
+        "status": status,
+        # venue_bookings_withdrawn_consistent: a withdrawn booking always carries its timestamp.
+        "withdrawn_at": NOW if status == VenueBookingStatus.WITHDRAWN else None,
+        # venue_bookings_decided_consistent: an approved or rejected booking carries its decision time.
+        "decided_at": NOW if status in (VenueBookingStatus.APPROVED, VenueBookingStatus.REJECTED) else None,
+    }
+    booking = VenueBooking(**(fields | overrides))
+    db.add(booking)
+    db.flush()
+    return booking
+
+def make_venue_block(db: Session, venue: Venue, starts_at: datetime, ends_at: datetime, note: str | None = None) -> VenueBlock:
+    """A time the venue is out of use with no event behind it (US2's venue_blocks)."""
+    block = VenueBlock(venue_id=venue.id, starts_at=starts_at, ends_at=ends_at, note=note)
+    db.add(block)
+    db.flush()
+    return block

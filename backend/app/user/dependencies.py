@@ -84,7 +84,8 @@ def _user_for_token(db: Session, verifier: TokenVerifier, token: str) -> User:
         if by_email is not None:
             if by_email.auth_user_id is not None:
                 raise _refuse("email belongs to another linked account")  # TC-US16A-07
-            if by_email.role not in EMAIL_LINKABLE_ROLES:
+            # Every held role must be linkable, or the email's owner would take a staff role (TC-US16B-08).
+            if not set(by_email.roles) <= set(EMAIL_LINKABLE_ROLES):
                 raise _refuse("staff rows are linked by the seed, not by email")  # TC-US16A-06
             if not claims.email_verified:
                 raise _refuse("email not verified")  # TC-US16A-06
@@ -150,7 +151,8 @@ def get_current_user(
 
 def require_user_roles(*allowed_roles: UserRole):
     def dependency(user: User = Depends(get_current_user)) -> User:
-        if user.role not in allowed_roles:
+        # DECISION-PENDING: D46 — any held role will do; the frontend's current role isn't sent.
+        if not user.holds(*allowed_roles):
             raise DomainError(403, "FORBIDDEN")
         return user
 

@@ -12,14 +12,18 @@ export default defineConfig({
     // Fixed values, so tests never depend on a developer's frontend/.env.
     env: {
       // Dev mode (SCRUM-105, #62): App skips the login page and apiClient sends the X-User-Id /
-      // X-Attendee-Id stubs only when this is "true". Does nothing before #62 merges.
+      // X-Attendee-Id stubs only when this is "true".
       VITE_DEV_AUTH: 'true',
+      // Blank, so a developer's Supabase project never makes App wait for a saved session.
+      VITE_SUPABASE_URL: '',
+      VITE_SUPABASE_PUBLISHABLE_KEY: '',
       VITE_API_BASE_URL: 'http://api.test',
       VITE_DEV_USER_ID: 'organiser-id',
       VITE_DEV_COORDINATOR_ID: 'coordinator-id',
       VITE_DEV_LEAD_ID: 'lead-id',
       VITE_DEV_ATTENDEE_ID: 'attendee-id',
       VITE_DEV_VENUE_STAFF_ID: 'venue-staff-id',
+      VITE_DEV_TECH_SUPPORT_ID: 'tech-support-id',
     },
     // Integration flows type through whole forms; CI runners are slower than a laptop.
     testTimeout: 15000,

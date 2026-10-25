@@ -57,8 +57,36 @@ export interface UnassignedRequestsResponse {
   event_requests: UnassignedRequest[];
 }
 
+// A picker row: the coordinator and how many events they are currently planning (SCRUM-67, D30).
+export interface CoordinatorOption extends QueuePerson {
+  planning_count: number;
+}
+
 export interface CoordinatorOptionsResponse {
-  coordinators: QueuePerson[];
+  coordinators: CoordinatorOption[];
+}
+
+// A row of the Lead's Assigned tab (SCRUM-86 AC 2): `event_date` is the start date, else the first
+// preferred date, null when neither is set.
+export interface AssignedRequest extends EventRequest {
+  event_date: string | null;
+}
+
+export interface AssignedRequestsResponse {
+  event_requests: AssignedRequest[];
+}
+
+// One Assignment History entry (SCRUM-69 AC 3), newest first as the API returns them.
+export interface AssignmentRecord {
+  id: string;
+  kind: "assignment" | "reassignment";
+  assigned_by: QueuePerson;
+  coordinator: QueuePerson;
+  created_at: string;
+}
+
+export interface AssignmentHistoryResponse {
+  assignments: AssignmentRecord[];
 }
 
 export interface EventRequestsResponse {

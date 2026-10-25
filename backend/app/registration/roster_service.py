@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import false, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import DomainError
@@ -48,18 +48,24 @@ STATUS_ORDER = {
 class RegistrationRosterService:
     """US28 (SCRUM-96): an Organiser or Coordinator sees who registered for an event they manage."""
 
+    # DECISION-PENDING: D52 — AC 1's "own or are assigned to": the Organiser who created the event and
+    # its assigned Coordinator, under whichever of the two roles the user holds (D46).
     def _manages(self, event: Event, user: User) -> bool:
-        if user.role == UserRole.ORGANISER:
-            return event.created_by_user_id == user.id
-        # DECISION-PENDING: D30 — any active coordinator manages every event. US10a (SCRUM-13) added
-        # `events.coordinator_id`; narrowing this to the assigned coordinator is a follow-up.
-        return user.role == UserRole.COORDINATOR
+        return (user.holds(UserRole.ORGANISER) and event.created_by_user_id == user.id) or (
+            user.holds(UserRole.COORDINATOR) and event.coordinator_id == user.id
+        )
 
     def list_managed_events(self, db: Session, user: User) -> list[ManagedEventOut]:
-        query = select(Event).where(Event.status.in_(MANAGED_EVENT_STATUSES))
-        if user.role == UserRole.ORGANISER:
-            query = query.where(Event.created_by_user_id == user.id)
-        events = db.scalars(query.order_by(Event.start_at, Event.id)).all()
+        managed = []
+        if user.holds(UserRole.ORGANISER):
+            managed.append(Event.created_by_user_id == user.id)
+        if user.holds(UserRole.COORDINATOR):
+            managed.append(Event.coordinator_id == user.id)
+        events = db.scalars(
+            select(Event)
+            .where(Event.status.in_(MANAGED_EVENT_STATUSES), or_(false(), *managed))
+            .order_by(Event.start_at, Event.id)
+        ).all()
         return [ManagedEventOut.model_validate(event, from_attributes=True) for event in events]
 
     def list_registrations(

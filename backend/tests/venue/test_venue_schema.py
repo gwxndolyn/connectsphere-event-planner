@@ -170,10 +170,10 @@ def test_tc_us20_09_seed_gives_us2_varied_venues(db: Session) -> None:
 
 
 def test_tc_us20_09_seed_has_a_venue_staff_user(db: Session) -> None:
-    # DECISION-PENDING: D19 — operations_manager stands in for Venue Staff until US16b (PR 2).
+    # Venue Staff is the real `venue_staff` role since US16b (SCRUM-119, D49).
     seed(db, now=NOW)
 
     staff = db.get(User, seed_id("user", "venue-staff"))
     assert staff is not None
-    assert staff.role == UserRole.OPERATIONS_MANAGER
+    assert list(staff.roles) == [UserRole.VENUE_STAFF]
     assert staff.is_active is True

@@ -1,15 +1,17 @@
+import { DEV_AUTH, accessToken } from "../auth/supabase";
+
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
-// Development identity stub (D12): no login until Supabase Auth, so the app acts as one of the
-// seeded users and sends their id as X-User-Id. The header's "Acting as" switch picks which.
-// Venue staff is operations_manager in the backend until US16b (D19).
-export type DevRole = "organiser" | "coordinator" | "coordinator_lead" | "venue_staff";
+// Development identity stub (D12), used only in dev mode (VITE_DEV_AUTH=true) without a login: the app
+// acts as one of the seeded users and sends their id as X-User-Id. The header's "Acting as" switch picks which.
+export type DevRole = "organiser" | "coordinator" | "coordinator_lead" | "venue_staff" | "tech_support";
 
 export const DEV_USER_IDS: Record<DevRole, string | undefined> = {
   organiser: import.meta.env.VITE_DEV_USER_ID,
   coordinator: import.meta.env.VITE_DEV_COORDINATOR_ID,
   coordinator_lead: import.meta.env.VITE_DEV_LEAD_ID,
   venue_staff: import.meta.env.VITE_DEV_VENUE_STAFF_ID,
+  tech_support: import.meta.env.VITE_DEV_TECH_SUPPORT_ID,
 };
 
 // The Sprint 1 attendee routes (events board, register, withdraw, My Events) identify the caller
@@ -28,7 +30,9 @@ const DEV_ROLE_KEY = "connectsphere.devRole";
 function readStoredRole(): DevRole {
   try {
     const stored = localStorage.getItem(DEV_ROLE_KEY);
-    return stored === "coordinator" || stored === "coordinator_lead" || stored === "venue_staff" ? stored : "organiser";
+    return stored === "coordinator" || stored === "coordinator_lead" || stored === "venue_staff" || stored === "tech_support"
+      ? stored
+      : "organiser";
   } catch {
     return "organiser";
   }
@@ -66,7 +70,13 @@ export class ApiError extends Error {
 async function request<T>(path: string, { identity = "user", ...options }: RequestOptions = {}): Promise<T> {
   const headers = new Headers(options.headers);
   if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
-  if (identity === "attendee") {
+  // Logged in: the Supabase token identifies the caller, never the dev stubs (TC-US16A-39).
+  const token = identity === "none" ? null : await accessToken();
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  } else if (!DEV_AUTH) {
+    // Not logged in and no dev stubs: send no identity.
+  } else if (identity === "attendee") {
     if (DEV_ATTENDEE_ID && !headers.has("X-Attendee-Id")) headers.set("X-Attendee-Id", DEV_ATTENDEE_ID);
   } else if (identity === "user") {
     const devUserId = DEV_USER_IDS[devRole];
@@ -102,4 +112,6 @@ export const apiClient = {
     request<T>(path, { method: "POST", body: JSON.stringify(body), identity }),
   patch: <T>(path: string, body: unknown, identity?: Identity) =>
     request<T>(path, { method: "PATCH", body: JSON.stringify(body), identity }),
+  // A 204 has no body, so this resolves to "".
+  delete: <T = string>(path: string, identity?: Identity) => request<T>(path, { method: "DELETE", identity }),
 };

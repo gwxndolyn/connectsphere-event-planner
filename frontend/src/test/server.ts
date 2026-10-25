@@ -2,7 +2,8 @@ import { http, HttpResponse, type JsonBodyType } from "msw";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll } from "vitest";
 import type { EventRegistrations } from "../features/eventRegistrations/types";
-import type { Clarification, EventRequest, EventRequestWrite } from "../features/eventRequest/types";
+import type { AssignmentRecord, Clarification, EventRequest, EventRequestWrite } from "../features/eventRequest/types";
+import type { BookingEvaluation, VenueBooking } from "../features/venue/bookingTypes";
 import type { Venue } from "../features/venue/types";
 
 /**
@@ -18,6 +19,7 @@ export const ORGANISER_ID = "organiser-id";
 export const COORDINATOR_ID = "coordinator-id";
 export const LEAD_ID = "lead-id";
 export const VENUE_STAFF_ID = "venue-staff-id";
+export const TECH_SUPPORT_ID = "tech-support-id";
 export const ATTENDEE_ID = "attendee-id";
 export const ATTENDEE_EMAIL = "calvin.ng.2024@smu.edu.sg";
 
@@ -48,6 +50,37 @@ export interface FakeRegistration {
   answers?: Record<string, string>;
 }
 
+// US26 equipment (SCRUM-109's API, SCRUM-110's screens). Kept here rather than imported from the
+// feature, so the fake backend's contract is written down once, from §3.
+export interface FakeEquipmentType {
+  id: string;
+  name: string;
+}
+
+export interface FakeEquipmentEvent {
+  id: string;
+  name: string;
+  start_at: string;
+  status: string;
+  // The assigned coordinator (D20): only they list, add, edit and remove its lines.
+  coordinator_id: string | null;
+}
+
+export interface FakeEquipmentLine {
+  id: string;
+  event: { id: string; name: string | null; start_at: string | null };
+  equipment_type: FakeEquipmentType;
+  quantity: number;
+  notes: string | null;
+  status: "pending" | "approved" | "rejected";
+  review_note: string | null;
+  requested_by_user_id: string;
+  reviewed_by_user_id: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface RecordedCall {
   method: string;
   path: string;
@@ -63,12 +96,23 @@ interface Db {
   events: FakeEvent[];
   registrations: FakeRegistration[];
   requests: EventRequest[];
+  // SCRUM-69: each request's Assignment History, newest first.
+  assignments: Record<string, AssignmentRecord[]>;
   clarifications: Clarification[];
+  // US22 venue bookings (SCRUM-113).
+  bookings: VenueBooking[];
+  // US13 (SCRUM-116): what GET /venue-bookings/{id}/evaluation finds, by booking id (see setEvaluation).
+  evaluations: Record<string, Pick<BookingEvaluation, "conflicts" | "outside_hours">>;
+  // US26 equipment (SCRUM-110).
+  equipmentTypes: FakeEquipmentType[];
+  equipmentEvents: FakeEquipmentEvent[];
+  equipmentLines: FakeEquipmentLine[];
   // US28: the events each managing role sees, and what each event's registrations call returns.
   managedEvents: Record<"organiser" | "coordinator", EventRegistrations[]>;
   calls: RecordedCall[];
   nextId: number;
   nextReference: number;
+  nextBookingReference: number;
 }
 
 function emptyDb(): Db {
@@ -78,11 +122,18 @@ function emptyDb(): Db {
     events: [],
     registrations: [],
     requests: [],
+    assignments: {},
     clarifications: [],
     managedEvents: { organiser: [], coordinator: [] },
+    bookings: [],
+    evaluations: {},
+    equipmentTypes: [],
+    equipmentEvents: [],
+    equipmentLines: [],
     calls: [],
     nextId: 1,
     nextReference: 1,
+    nextBookingReference: 1,
   };
 }
 
@@ -206,6 +257,99 @@ export function seedVenue(overrides: Partial<Venue> = {}): Venue {
   return venue;
 }
 
+const MINUTE = 60_000;
+
+function shifted(iso: string, minutes: number): string {
+  return new Date(new Date(iso).getTime() + minutes * MINUTE).toISOString().replace(".000Z", "Z");
+}
+
+/**
+ * A US22 booking of `venue` for an event request (an approved one, in the screens' flows). US13: it
+ * gets a VB- reference and the occupied window the venue's buffers make, unless overridden.
+ */
+export function seedBooking(request: EventRequest, venue: Venue, overrides: Partial<VenueBooking> = {}): VenueBooking {
+  const starts_at = overrides.starts_at ?? "2026-11-20T02:00:00Z";
+  const ends_at = overrides.ends_at ?? "2026-11-20T04:00:00Z";
+  const booking: VenueBooking = {
+    id: newId("booking"),
+    reference: `VB-2026-${String(db.nextBookingReference++).padStart(6, "0")}`,
+    event: { id: request.id, name: request.name, request_reference: request.request_reference, status: request.status },
+    venue: { id: venue.id, name: venue.name, location: venue.location, capacity: venue.capacity },
+    requested_by_user_id: COORDINATOR_ID,
+    // Singapore 10:00–12:00 on 20 Nov 2026 by default.
+    starts_at,
+    ends_at,
+    occupied_starts_at: shifted(starts_at, -venue.setup_minutes),
+    occupied_ends_at: shifted(ends_at, venue.turnaround_minutes),
+    expected_attendees: 30,
+    room_layout: "classroom",
+    required_facilities: [],
+    required_accessibility_features: [],
+    special_requirements: null,
+    status: "requested",
+    created_at: "2026-10-01T02:00:00Z",
+    updated_at: "2026-10-01T02:00:00Z",
+    withdrawn_at: null,
+    decided_at: null,
+    decided_by_user_id: null,
+    rejection_reason: null,
+    alternative_suggestion: null,
+    ...overrides,
+  };
+  db.bookings.push(booking);
+  return booking;
+}
+
+/** US13 AC 4: what the evaluation of `booking` finds; by default nothing stands in its way. */
+export function setEvaluation(booking: VenueBooking, found: Partial<Pick<BookingEvaluation, "conflicts" | "outside_hours">>) {
+  db.evaluations[booking.id] = { conflicts: found.conflicts ?? [], outside_hours: found.outside_hours ?? null };
+}
+
+export function seedEquipmentType(name: string): FakeEquipmentType {
+  const equipmentType = { id: newId("equipment-type"), name };
+  db.equipmentTypes.push(equipmentType);
+  return equipmentType;
+}
+
+/** An event that can take equipment lines: confirmed and assigned to the coordinator the tests act as. */
+export function seedEquipmentEvent(overrides: Partial<FakeEquipmentEvent> = {}): FakeEquipmentEvent {
+  const event: FakeEquipmentEvent = {
+    id: newId("equipment-event"),
+    name: "Equipment Request Demo",
+    // Singapore 10:00 on 7 Nov 2026.
+    start_at: "2026-11-07T02:00:00Z",
+    status: "confirmed",
+    coordinator_id: COORDINATOR_ID,
+    ...overrides,
+  };
+  db.equipmentEvents.push(event);
+  return event;
+}
+
+export function seedEquipmentLine(
+  event: FakeEquipmentEvent,
+  equipmentType: FakeEquipmentType,
+  overrides: Partial<FakeEquipmentLine> = {},
+): FakeEquipmentLine {
+  const line: FakeEquipmentLine = {
+    id: newId("equipment-line"),
+    event: { id: event.id, name: event.name, start_at: event.start_at },
+    equipment_type: equipmentType,
+    quantity: 2,
+    notes: null,
+    status: "pending",
+    review_note: null,
+    requested_by_user_id: COORDINATOR_ID,
+    reviewed_by_user_id: null,
+    reviewed_at: null,
+    created_at: `2026-10-01T02:00:${String(db.nextId).padStart(2, "0")}Z`,
+    updated_at: "2026-10-01T02:00:00Z",
+    ...overrides,
+  };
+  db.equipmentLines.push(line);
+  return line;
+}
+
 /** The venues the next search returns, in that order: the API decides which venues fit, not the fake. */
 export function nextSearchResult(venues: Venue[]) {
   db.searchResult = venues;
@@ -302,12 +446,12 @@ function byStart(a: FakeRegistration, b: FakeRegistration) {
   return ea.start_at.localeCompare(eb.start_at) || ea.name.localeCompare(eb.name);
 }
 
-const ROLES: Record<string, "organiser" | "coordinator" | "coordinator_lead" | "operations_manager"> = {
+const ROLES: Record<string, "organiser" | "coordinator" | "coordinator_lead" | "venue_staff" | "tech_support"> = {
   [ORGANISER_ID]: "organiser",
   [COORDINATOR_ID]: "coordinator",
   [LEAD_ID]: "coordinator_lead",
-  // Venue staff is operations_manager until US16b (D19).
-  [VENUE_STAFF_ID]: "operations_manager",
+  [VENUE_STAFF_ID]: "venue_staff",
+  [TECH_SUPPORT_ID]: "tech_support",
 };
 
 /** `get_current_user`: the role behind X-User-Id, or null for 401. */
@@ -344,9 +488,56 @@ function visibleTo(request: EventRequest, role: string, userId: string) {
 
 // SCRUM-13: who the Lead can pick, as GET /api/v1/coordinators returns them.
 export const COORDINATOR_PERSON = { id: COORDINATOR_ID, name: "Casey Tan", email: "casey.tan@smu.edu.sg" };
+// SCRUM-67, D30: the statuses a coordinator is actively working an event through.
+const WORKLOAD_STATUSES = new Set(["under_review", "awaiting_clarification", "approved", "planning"]);
+export const LEAD_PERSON = { id: LEAD_ID, name: "Lena Lead", email: "lena.lead@smu.edu.sg" };
 const ORGANISER_PERSON = { id: ORGANISER_ID, name: "Olivia Organiser", email: "event.organiser@smu.edu.sg" };
 
 const CLARIFIABLE = new Set(["submitted", "under_review"]);
+
+// US22 after US10a (D20): may this user book, and list the bookings of, this event?
+function assignedTo(request: EventRequest, userId: string): boolean {
+  return request.coordinator?.id === userId;
+}
+// US26 (SCRUM-109): which events take lines, and the line checks, as app/equipment/service.py has them.
+const EQUIPMENT_ELIGIBLE = new Set(["planning", "confirmed"]);
+const LINE_FIELDS = ["equipment_type_id", "quantity"] as const;
+
+function managedEquipmentEvent(request: Request, eventId: string): FakeEquipmentEvent | null {
+  const event = db.equipmentEvents.find((e) => e.id === eventId);
+  return event && event.status !== "draft" && event.coordinator_id === request.headers.get("X-User-Id") ? event : null;
+}
+
+/** INVALID_EQUIPMENT_LINE for the fields present in `values`, or null when they're all fine. */
+function invalidLine(values: Record<string, unknown>): Response | null {
+  const errors: Record<string, string> = {};
+  if ("equipment_type_id" in values && !db.equipmentTypes.some((t) => t.id === values.equipment_type_id)) {
+    errors.equipment_type_id = "Choose an equipment type from the catalogue.";
+  }
+  if ("quantity" in values && !(Number.isInteger(values.quantity) && (values.quantity as number) >= 1)) {
+    errors.quantity = "Quantity must be a whole number of at least 1.";
+  }
+  const fields = LINE_FIELDS.filter((field) => field in errors);
+  return fields.length ? error(422, "INVALID_EQUIPMENT_LINE", { fields, errors }) : null;
+}
+
+function duplicateLine(eventId: string, typeId: unknown, lineId?: string): Response | null {
+  const live = db.equipmentLines.some(
+    (l) => l.event.id === eventId && l.equipment_type.id === typeId && l.status !== "rejected" && l.id !== lineId,
+  );
+  return live
+    ? error(409, "DUPLICATE_EQUIPMENT_TYPE", {
+        fields: ["equipment_type_id"],
+        message: "This event already has a pending or approved line for that equipment type. Change its quantity instead.",
+      })
+    : null;
+}
+
+function cleanNotes(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+const BOOKING_REQUIRED = ["event_id", "venue_id", "starts_at", "ends_at", "expected_attendees", "room_layout"];
 const SECTION_ORDER = ["details", "schedule", "attendance", "layout", "accessibility", "equipment", "registration"];
 
 // --- Handlers -------------------------------------------------------------------------------
@@ -355,9 +546,9 @@ type Resolver = (args: { request: Request; params: Record<string, string>; body:
   | Response
   | Promise<Response>;
 
-function route(method: "get" | "post" | "patch", path: string, resolver: Resolver) {
+function route(method: "get" | "post" | "patch" | "delete", path: string, resolver: Resolver) {
   return http[method](`${API}${path}`, async ({ request, params }) => {
-    const body: unknown = method === "get" ? null : await request.clone().json().catch(() => null);
+    const body: unknown = method === "get" || method === "delete" ? null : await request.clone().json().catch(() => null);
     const url = new URL(request.url);
     db.calls.push({ method: method.toUpperCase(), path: url.pathname, url, headers: request.headers, body });
     return resolver({ request, params: params as Record<string, string>, body });
@@ -496,7 +687,7 @@ const handlers = [
     const url = new URL(request.url);
     const q = (url.searchParams.get("q") ?? "").trim().toLowerCase();
     const venues = db.venues
-      .filter((venue) => role === "operations_manager" || venue.is_active)
+      .filter((venue) => role === "venue_staff" || venue.is_active)
       .filter((venue) => !q || venue.name.toLowerCase().includes(q))
       .sort((a, b) => a.name.localeCompare(b.name));
     return HttpResponse.json({ venues });
@@ -548,6 +739,113 @@ const handlers = [
     return HttpResponse.json(managed);
   }),
 
+  // US22 venue bookings (SCRUM-89), identified by X-User-Id. The contract and identity rules only:
+  // overlap, capacity and venue warnings are the API's (backend/tests/venue/test_booking_api.py), so
+  // a test queues a refusal or warnings with server.use(...).
+  route("post", "/api/v1/venue-bookings", ({ request, body }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "coordinator") return error(403, "FORBIDDEN");
+    const sent = (body ?? {}) as Record<string, unknown>;
+    const missing = BOOKING_REQUIRED.filter((field) => sent[field] === undefined || sent[field] === null || sent[field] === "");
+    if (missing.length > 0) return error(422, "MISSING_REQUIRED_FIELD", { fields: missing });
+    // D20 since US10a: only the event's assigned coordinator; anyone else's or an unassigned event is 404.
+    const event = db.requests.find(
+      (r) => r.id === sent.event_id && r.status !== "draft" && assignedTo(r, request.headers.get("X-User-Id")!),
+    );
+    const venue = db.venues.find((v) => v.id === sent.venue_id && v.is_active);
+    if (!event || !venue) return error(404, "NOT_FOUND");
+    if (event.status !== "approved" && event.status !== "planning") {
+      return error(409, "EVENT_NOT_BOOKABLE", { status: event.status });
+    }
+    const booking = seedBooking(event, venue, {
+      requested_by_user_id: request.headers.get("X-User-Id")!,
+      starts_at: String(sent.starts_at),
+      ends_at: String(sent.ends_at),
+      expected_attendees: Number(sent.expected_attendees),
+      room_layout: String(sent.room_layout),
+      required_facilities: (sent.required_facilities as string[] | undefined) ?? [],
+      required_accessibility_features: (sent.required_accessibility_features as string[] | undefined) ?? [],
+      special_requirements: (sent.special_requirements as string | undefined) ?? null,
+    });
+    return HttpResponse.json({ ...booking, warnings: [] }, { status: 201 });
+  }),
+
+  route("post", "/api/v1/venue-bookings/:id/withdraw", ({ request, params }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "coordinator") return error(403, "FORBIDDEN");
+    const booking = db.bookings.find((b) => b.id === params.id);
+    if (!booking || booking.requested_by_user_id !== request.headers.get("X-User-Id")) return error(404, "NOT_FOUND");
+    if (booking.status !== "requested") return error(409, "BOOKING_NOT_PENDING", { status: booking.status });
+    Object.assign(booking, { status: "withdrawn", withdrawn_at: "2026-10-01T03:00:00Z", updated_at: "2026-10-01T03:00:00Z" });
+    return HttpResponse.json(booking);
+  }),
+
+  // US4 (SCRUM-8): Venue Staff decide a pending request as a whole. Whether the venue is free (with
+  // buffers) is the API's rule (backend/tests/venue/test_booking_decision_api.py); a test queues a
+  // VENUE_UNAVAILABLE refusal with server.use(...).
+  ...(["approve", "reject"] as const).map((action) =>
+    route("post", `/api/v1/venue-bookings/:id/${action}`, ({ request, params, body }) => {
+      const role = userRole(request);
+      if (!role) return error(401, "UNAUTHENTICATED");
+      if (role !== "venue_staff") return error(403, "FORBIDDEN");
+      const booking = db.bookings.find((b) => b.id === params.id);
+      if (!booking) return error(404, "NOT_FOUND");
+      if (booking.status !== "requested") return error(409, "BOOKING_NOT_PENDING", { status: booking.status });
+      const notes = (body ?? {}) as { reason?: string; alternative_suggestion?: string };
+      Object.assign(booking, {
+        status: action === "approve" ? "approved" : "rejected",
+        decided_at: "2026-10-01T03:00:00Z",
+        decided_by_user_id: request.headers.get("X-User-Id"),
+        updated_at: "2026-10-01T03:00:00Z",
+        rejection_reason: action === "reject" ? (notes.reason ?? null) : null,
+        alternative_suggestion: action === "reject" ? (notes.alternative_suggestion ?? null) : null,
+      });
+      return HttpResponse.json(booking);
+    }),
+  ),
+
+  route("get", "/api/v1/venue-bookings/pending", ({ request }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "venue_staff") return error(403, "FORBIDDEN");
+    const pending = db.bookings.filter((b) => b.status === "requested").sort((a, b) => a.created_at.localeCompare(b.created_at));
+    return HttpResponse.json({ bookings: pending });
+  }),
+
+  // US13 AC 4 (D36): Venue Staff only. Conflicts are the API's rule (backend/tests/venue/
+  // test_buffer_api.py), so a test sets what this finds with setEvaluation; by default it's clear.
+  route("get", "/api/v1/venue-bookings/:id/evaluation", ({ request, params }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "venue_staff") return error(403, "FORBIDDEN");
+    const booking = db.bookings.find((b) => b.id === params.id);
+    if (!booking) return error(404, "NOT_FOUND");
+    const found = db.evaluations[booking.id] ?? { conflicts: [], outside_hours: null };
+    const evaluation: BookingEvaluation = {
+      booking_id: booking.id,
+      reference: booking.reference,
+      occupied: { starts_at: booking.occupied_starts_at, ends_at: booking.occupied_ends_at },
+      ...found,
+      clear: found.conflicts.length === 0 && found.outside_hours === null,
+    };
+    return HttpResponse.json(evaluation);
+  }),
+
+  route("get", "/api/v1/events/:id/venue-bookings", ({ request, params }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "coordinator" && role !== "venue_staff") return error(403, "FORBIDDEN");
+    const event = db.requests.find((r) => r.id === params.id && r.status !== "draft");
+    // Venue Staff read any event's bookings; a coordinator only those of an event assigned to them (D20).
+    if (!event || (role === "coordinator" && !assignedTo(event, request.headers.get("X-User-Id")!))) {
+      return error(404, "NOT_FOUND");
+    }
+    const bookings = db.bookings.filter((b) => b.event.id === event.id).sort((a, b) => a.starts_at.localeCompare(b.starts_at));
+    return HttpResponse.json({ bookings });
+  }),
+
   // Event requests (US1, US8), identified by X-User-Id.
   route("get", "/api/v1/me/event-requests", ({ request }) => {
     const role = userRole(request);
@@ -568,11 +866,38 @@ const handlers = [
     return HttpResponse.json({ event_requests: queue });
   }),
 
+  // SCRUM-86: the Lead's Assigned tab. In scope = the latest history record names the caller.
+  route("get", "/api/v1/event-requests/assigned", ({ request }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "coordinator_lead") return error(403, "FORBIDDEN");
+    const caller = request.headers.get("X-User-Id");
+    const url = new URL(request.url);
+    const coordinator = url.searchParams.get("coordinator_id");
+    const status = url.searchParams.get("status");
+    const active = ["under_review", "awaiting_clarification", "approved", "planning", "confirmed"];
+    if (status && !active.includes(status)) return error(422, "INVALID_STATUS_FILTER", { status });
+    const rows = db.requests
+      .filter(
+        (r) =>
+          r.coordinator !== null &&
+          active.includes(r.status) &&
+          db.assignments[r.id]?.[0]?.assigned_by.id === caller &&
+          (!coordinator || r.coordinator.id === coordinator) &&
+          (!status || r.status === status),
+      )
+      .map((r) => ({ ...r, event_date: r.preferred_dates?.[0] ?? null }));
+    return HttpResponse.json({ event_requests: rows });
+  }),
+
   route("get", "/api/v1/coordinators", ({ request }) => {
     const role = userRole(request);
     if (!role) return error(401, "UNAUTHENTICATED");
     if (role !== "coordinator_lead") return error(403, "FORBIDDEN");
-    return HttpResponse.json({ coordinators: [COORDINATOR_PERSON] });
+    const planning_count = db.requests.filter(
+      (r) => r.coordinator?.id === COORDINATOR_PERSON.id && WORKLOAD_STATUSES.has(r.status),
+    ).length;
+    return HttpResponse.json({ coordinators: [{ ...COORDINATOR_PERSON, planning_count }] });
   }),
 
   route("post", "/api/v1/event-requests/:id/assignment", ({ request, params, body }) => {
@@ -588,13 +913,32 @@ const handlers = [
     if (target === LEAD_ID) return error(422, "INVALID_COORDINATOR", { reason: "self_assignment" });
     if (target !== COORDINATOR_PERSON.id) return error(422, "INVALID_COORDINATOR", { reason: "not_a_coordinator" });
     Object.assign(found, { status: "under_review", coordinator: { id: COORDINATOR_PERSON.id, name: COORDINATOR_PERSON.name } });
+    db.assignments[found.id] = [
+      {
+        id: newId("assignment"),
+        kind: "assignment",
+        assigned_by: LEAD_PERSON,
+        coordinator: COORDINATOR_PERSON,
+        created_at: "2026-10-24T03:15:00Z",
+      },
+      ...(db.assignments[found.id] ?? []),
+    ];
     return HttpResponse.json(found);
+  }),
+
+  route("get", "/api/v1/event-requests/:id/assignment-history", ({ request, params }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "coordinator_lead") return error(403, "FORBIDDEN");
+    const found = db.requests.find((r) => r.id === params.id);
+    if (!found || found.status === "draft") return error(404, "NOT_FOUND");
+    return HttpResponse.json({ assignments: db.assignments[found.id] ?? [] });
   }),
 
   route("get", "/api/v1/event-requests", ({ request }) => {
     const role = userRole(request);
     if (!role) return error(401, "UNAUTHENTICATED");
-    if (role !== "coordinator") return error(403, "FORBIDDEN");
+    if (role !== "coordinator" && role !== "coordinator_lead") return error(403, "FORBIDDEN");
     return HttpResponse.json({ event_requests: db.requests.filter((r) => r.status !== "draft") });
   }),
 
@@ -686,6 +1030,125 @@ const handlers = [
     const clarification = seedClarification(found, { round, kind: "response", comment: comment.trim() });
     found.status = "under_review";
     return HttpResponse.json({ clarification, status: found.status }, { status: 201 });
+  }),
+
+  // US26 equipment (SCRUM-109, SCRUM-110). Identified by X-User-Id, like every role route.
+  route("get", "/api/v1/equipment-types", ({ request }) => {
+    if (!userRole(request)) return error(401, "UNAUTHENTICATED");
+    const types = [...db.equipmentTypes].sort((a, b) => a.name.localeCompare(b.name));
+    return HttpResponse.json({ equipment_types: types });
+  }),
+
+  route("get", "/api/v1/me/equipment-events", ({ request }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "coordinator") return error(403, "FORBIDDEN");
+    const mine = db.equipmentEvents
+      .filter((e) => e.coordinator_id === request.headers.get("X-User-Id") && EQUIPMENT_ELIGIBLE.has(e.status))
+      .sort((a, b) => a.start_at.localeCompare(b.start_at))
+      .map(({ id, name, start_at, status }) => ({ id, name, start_at, status }));
+    return HttpResponse.json({ events: mine });
+  }),
+
+  route("get", "/api/v1/events/:id/equipment-lines", ({ request, params }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "coordinator") return error(403, "FORBIDDEN");
+    const event = managedEquipmentEvent(request, params.id);
+    if (!event) return error(404, "NOT_FOUND");
+    const lines = db.equipmentLines
+      .filter((l) => l.event.id === event.id)
+      .sort((a, b) => a.created_at.localeCompare(b.created_at));
+    return HttpResponse.json({ lines });
+  }),
+
+  route("post", "/api/v1/events/:id/equipment-lines", ({ request, params, body }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "coordinator") return error(403, "FORBIDDEN");
+    const event = managedEquipmentEvent(request, params.id);
+    if (!event) return error(404, "NOT_FOUND");
+    if (!EQUIPMENT_ELIGIBLE.has(event.status)) return error(409, "EVENT_NOT_ELIGIBLE", { status: event.status });
+    // Both checked fields count as sent, so a missing one is named like an invalid one.
+    const values: Record<string, unknown> = { equipment_type_id: undefined, quantity: undefined, ...(body as Record<string, unknown>) };
+    const refused = invalidLine(values) ?? duplicateLine(event.id, values.equipment_type_id);
+    if (refused) return refused;
+    const line = seedEquipmentLine(event, db.equipmentTypes.find((t) => t.id === values.equipment_type_id)!, {
+      quantity: values.quantity as number,
+      notes: cleanNotes(values.notes),
+      requested_by_user_id: request.headers.get("X-User-Id")!,
+    });
+    return HttpResponse.json(line, { status: 201 });
+  }),
+
+  route("patch", "/api/v1/equipment-lines/:id", ({ request, params, body }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "coordinator") return error(403, "FORBIDDEN");
+    const line = db.equipmentLines.find((l) => l.id === params.id);
+    if (!line || !managedEquipmentEvent(request, line.event.id)) return error(404, "NOT_FOUND");
+    if (line.status !== "pending") return error(409, "LINE_NOT_PENDING", { status: line.status });
+    const values = (body ?? {}) as Record<string, unknown>;
+    const refused =
+      invalidLine(values) ?? ("equipment_type_id" in values ? duplicateLine(line.event.id, values.equipment_type_id, line.id) : null);
+    if (refused) return refused;
+    if ("equipment_type_id" in values) line.equipment_type = db.equipmentTypes.find((t) => t.id === values.equipment_type_id)!;
+    if ("quantity" in values) line.quantity = values.quantity as number;
+    if ("notes" in values) line.notes = cleanNotes(values.notes);
+    // The real column is onupdate=now(); a fixed later stamp is enough to tell an edited line apart.
+    line.updated_at = "2026-10-03T02:00:00Z";
+    return HttpResponse.json(line);
+  }),
+
+  route("delete", "/api/v1/equipment-lines/:id", ({ request, params }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "coordinator") return error(403, "FORBIDDEN");
+    const line = db.equipmentLines.find((l) => l.id === params.id);
+    if (!line || !managedEquipmentEvent(request, line.event.id)) return error(404, "NOT_FOUND");
+    if (line.status !== "pending") return error(409, "LINE_NOT_PENDING", { status: line.status });
+    db.equipmentLines = db.equipmentLines.filter((l) => l.id !== line.id);
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  route("get", "/api/v1/equipment-lines", ({ request }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "tech_support") return error(403, "FORBIDDEN");
+    const pending = db.equipmentLines
+      .filter((l) => l.status === "pending")
+      .sort((a, b) => a.created_at.localeCompare(b.created_at));
+    return HttpResponse.json({ lines: pending });
+  }),
+
+  route("post", "/api/v1/equipment-lines/:id/review", ({ request, params, body }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "tech_support") return error(403, "FORBIDDEN");
+    const line = db.equipmentLines.find((l) => l.id === params.id);
+    if (!line) return error(404, "NOT_FOUND");
+    const { decision, note, ...rest } = (body ?? {}) as Record<string, unknown>;
+    // Unknown fields (a quantity, AC 6) and other decisions are FastAPI's generic 422.
+    if ((decision !== "approved" && decision !== "rejected") || Object.keys(rest).length > 0) {
+      return HttpResponse.json({ detail: "validation error" }, { status: 422 });
+    }
+    if (line.status !== "pending") return error(409, "LINE_NOT_PENDING", { status: line.status });
+    Object.assign(line, {
+      status: decision,
+      review_note: cleanNotes(note),
+      reviewed_by_user_id: TECH_SUPPORT_ID,
+      reviewed_at: "2026-10-02T02:00:00Z",
+    });
+    return HttpResponse.json(line);
+  }),
+
+  // SCRUM-103/106: the first login after confirming creates the profile; Organiser or Attendee only.
+  route("post", "/api/v1/auth/profile", ({ body }) => {
+    const { full_name, role } = (body ?? {}) as { full_name?: string; role?: string };
+    const missing = [["full_name", full_name], ["role", role]].filter(([, value]) => !value?.trim()).map(([name]) => name);
+    if (missing.length) return error(422, "MISSING_REQUIRED_FIELD", { fields: missing });
+    if (role !== "organiser" && role !== "attendee") return error(422, "INVALID_ROLE");
+    return HttpResponse.json({ id: "new-user-id", email: "pat@example.com", full_name, role }, { status: 201 });
   }),
 ];
 

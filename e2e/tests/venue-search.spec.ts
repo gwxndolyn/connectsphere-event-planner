@@ -67,8 +67,10 @@ test("TC-US2-14: filters and operating hours narrow the results (AC 2, 6)", asyn
   await openSearch(page);
   const form = page.getByRole("region", { name: "Find an available venue" });
 
-  // Library's seminar room closes at 18:00, Lawn C at 19:00 (AC 6).
-  await search(page, { start: "17:30", end: "18:30" });
+  // Library's seminar room closes at 18:00, Lawn C at 19:00 (AC 6). Since US13 the venue's own setup and
+  // turnaround must fit too: 17:00-17:50 occupies Lawn C (90/60) 15:30-18:50, inside its hours, but the
+  // Library (20/20) until 18:10, past its closing.
+  await search(page, { start: "17:00", end: "17:50" });
   await expect(results(page).getByRole("listitem", { name: "Campus Green, Lawn C" })).toBeVisible();
   await expect(results(page).getByRole("listitem", { name: "Li Ka Shing Library Seminar Room 3-4" })).toHaveCount(0);
 

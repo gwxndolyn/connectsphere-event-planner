@@ -80,8 +80,11 @@ class FakeNotifier:
     def __init__(self) -> None:
         self.offers: list[dict[str, object]] = []
         self.clarifications: list[dict[str, object]] = []
+        self.venue_bookings: list[dict[str, object]] = []
+        self.booking_decisions: list[dict[str, object]] = []
         self.queued: list[dict[str, object]] = []
         self.assignments: list[dict[str, object]] = []
+        self.equipment_reviews: list[dict[str, object]] = []
         self.fail = False
 
     def waitlist_offer(
@@ -115,6 +118,34 @@ class FakeNotifier:
         )
         if self.fail:
             raise RuntimeError("mail server unavailable")
+
+    def venue_booking_requested(
+        self,
+        *,
+        email: str,
+        booking_id: uuid.UUID,
+        event_name: str,
+        venue_name: str,
+        starts_at: datetime,
+        ends_at: datetime,
+    ) -> None:
+        if self.fail:
+            raise RuntimeError("mail server unavailable")
+        self.venue_bookings.append(
+            {
+                "email": email,
+                "booking_id": booking_id,
+                "event_name": event_name,
+                "venue_name": venue_name,
+                "starts_at": starts_at,
+                "ends_at": ends_at,
+            }
+        )
+
+    def venue_booking_decided(self, **call: object) -> None:
+        if self.fail:
+            raise RuntimeError("mail server unavailable")
+        self.booking_decisions.append(call)
 
     def request_queued(
         self,
@@ -155,6 +186,31 @@ class FakeNotifier:
                 "event_name": event_name,
                 "coordinator_name": coordinator_name,
                 "event_dates": event_dates,
+            }
+        )
+        if self.fail:
+            raise RuntimeError("mail server unavailable")
+
+    def equipment_line_reviewed(
+        self,
+        *,
+        email: str,
+        line_id: uuid.UUID,
+        event_name: str,
+        equipment_type: str,
+        quantity: int,
+        decision: str,
+        note: str | None,
+    ) -> None:
+        self.equipment_reviews.append(
+            {
+                "email": email,
+                "line_id": line_id,
+                "event_name": event_name,
+                "equipment_type": equipment_type,
+                "quantity": quantity,
+                "decision": decision,
+                "note": note,
             }
         )
         if self.fail:

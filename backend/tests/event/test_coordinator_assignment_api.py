@@ -177,7 +177,7 @@ async def test_tc_us10a_13_only_the_lead_can_assign_list_or_pick(
     client: AsyncClient, db: Session, organiser: User, coordinator: User
 ) -> None:
     event = make_request(db, organiser)
-    ops = make_user(db, UserRole.OPERATIONS_MANAGER)
+    ops = make_user(db, UserRole.VENUE_STAFF)
     attendee = make_user(db, UserRole.ATTENDEE)
 
     for user in (organiser, coordinator, ops, attendee):
