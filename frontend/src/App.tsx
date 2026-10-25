@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
-import { ApiError, apiClient, getDevRole, setDevRole, type DevRole } from "./api/client";
+import { ApiError, DEV_USER_IDS, apiClient, getDevRole, setDevRole, type DevRole } from "./api/client";
 import { LoginPage } from "./auth/LoginPage";
 import { accountErrorMessage } from "./auth/messages";
 import { SignUpPage } from "./auth/SignUpPage";
@@ -200,7 +200,7 @@ function Workspace({ me, view, onNavigate, onLogOut }: WorkspaceProps) {
         <VenuesPage key={role} staff={role === "venue_staff"} canSearch={role === "coordinator" || role === "venue_staff"} />
       ) : shown === "event-requests" ? (
         role === "coordinator" ? (
-          <ClarificationReviewPage key="coordinator" />
+          <ClarificationReviewPage key="coordinator" userId={me?.id ?? DEV_USER_IDS.coordinator} />
         ) : role === "coordinator_lead" ? (
           <AssignmentQueuePage key="coordinator_lead" />
         ) : role === "venue_staff" || role === "tech_support" ? (
