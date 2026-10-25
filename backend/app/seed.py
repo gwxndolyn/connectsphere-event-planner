@@ -94,7 +94,8 @@ TECH_SUPPORT_NAME = "Terry Ong"
 # US16b (SCRUM-119): the Safety officer has no screens yet, but has a login (TC-US16B-04, 21).
 SAFETY_OFFICER_EMAIL = "safety.officer@smu.edu.sg"
 SAFETY_OFFICER_NAME = "Sam Koh"
-# D50: one user holding two roles, for the role switcher (SCRUM-121) and the held-role checks.
+# DECISION-PENDING: D50 — one user holding two roles, for the role switcher (SCRUM-121) and the
+# held-role checks.
 MULTI_ROLE_EMAIL = "multi.role@smu.edu.sg"
 MULTI_ROLE_NAME = "Morgan Lau"
 # Everyone the seed creates a Supabase login for (SCRUM-104). Staff can't sign up (US16a AC 7), so this

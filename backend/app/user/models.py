@@ -34,7 +34,8 @@ class User(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, server_default=text("gen_random_uuid()"))
     email: Mapped[str] = mapped_column(Text, unique=True)
-    # One or more roles (US16b, D45); the API allows whatever any of them allows (D46).
+    # DECISION-PENDING: D45 — one or more roles, a list on the row rather than a table (US16b).
+    # The API allows whatever any of them allows (D46).
     roles: Mapped[list[UserRole]] = mapped_column(
         ARRAY(pg_enum(UserRole, "user_role")), server_default=text("'{attendee}'")
     )

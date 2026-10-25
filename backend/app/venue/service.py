@@ -26,7 +26,8 @@ from app.venue.models import (
 )
 from app.venue.schemas import VenueOut, VenueSearchCriteria, VenueSearchOut, VenueWrite
 
-# US16b (SCRUM-119) made Venue Staff a real role, retiring D19's operations_manager stand-in (D49).
+# DECISION-PENDING: D49 — US16b (SCRUM-119) made Venue Staff a real role, retiring D19's
+# operations_manager stand-in.
 VENUE_STAFF_ROLES = (UserRole.VENUE_STAFF,)
 
 # DECISION-PENDING: D25 — US2 is the Event Coordinator's story. Coordinators search, and so do

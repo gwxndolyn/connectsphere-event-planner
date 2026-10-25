@@ -151,7 +151,7 @@ def get_current_user(
 
 def require_user_roles(*allowed_roles: UserRole):
     def dependency(user: User = Depends(get_current_user)) -> User:
-        # Any held role will do; the frontend's current role isn't sent (D46).
+        # DECISION-PENDING: D46 — any held role will do; the frontend's current role isn't sent.
         if not user.holds(*allowed_roles):
             raise DomainError(403, "FORBIDDEN")
         return user
