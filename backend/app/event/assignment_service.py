@@ -187,7 +187,7 @@ class AssignmentService:
         request_id: uuid.UUID,
         lead: User,
         coordinator_id: uuid.UUID,
-        reason: str,
+        reason: str | None,
         notifier: Notifier,
     ) -> EventRequestOut:
         """SCRUM-83 (US10e): the Lead moves an event to a different active coordinator, with a reason.
@@ -199,7 +199,7 @@ class AssignmentService:
             raise DomainError(404, "NOT_FOUND")
         if event.coordinator_id is None or event.status not in REASSIGNABLE_STATUSES:
             raise DomainError(409, "REASSIGNMENT_NOT_ALLOWED", status=event.status.value)
-        reason = reason.strip()
+        reason = (reason or "").strip()
         if not reason:
             raise DomainError(422, "MISSING_REQUIRED_FIELD", fields=["reason"])
         if coordinator_id == event.coordinator_id:
@@ -240,7 +240,7 @@ class AssignmentService:
         db: Session,
         request_id: uuid.UUID,
         coordinator: User,
-        reason: str,
+        reason: str | None,
         notifier: Notifier,
     ) -> None:
         """SCRUM-83 AC 6: the event's coordinator asks the Lead for a transfer. Nothing moves; every
@@ -250,7 +250,7 @@ class AssignmentService:
             raise DomainError(404, "NOT_FOUND")
         if event.status not in REASSIGNABLE_STATUSES:
             raise DomainError(409, "REASSIGNMENT_NOT_ALLOWED", status=event.status.value)
-        reason = reason.strip()
+        reason = (reason or "").strip()
         if not reason:
             raise DomainError(422, "MISSING_REQUIRED_FIELD", fields=["reason"])
 

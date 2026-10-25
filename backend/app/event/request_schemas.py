@@ -129,7 +129,7 @@ class ReassignmentWrite(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     coordinator_id: uuid.UUID
-    reason: str = Field(max_length=1000)
+    reason: str | None = Field(default=None, max_length=1000)
 
 
 class TransferRequestWrite(BaseModel):
@@ -137,7 +137,7 @@ class TransferRequestWrite(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    reason: str = Field(max_length=1000)
+    reason: str | None = Field(default=None, max_length=1000)
 
 
 class AssignmentRecordOut(BaseModel):

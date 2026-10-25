@@ -211,6 +211,7 @@ async def test_tc_us10e_08_a_reason_is_required(
     response = await reassign(client, lead, event.id, jordan.id, reason)
 
     assert response.status_code == 422
+    assert response.json() == {"code": "MISSING_REQUIRED_FIELD", "fields": ["reason"]}
     db.refresh(event)
     assert event.coordinator_id == casey.id
     assert records(db, event) == []
@@ -462,6 +463,7 @@ async def test_tc_us10e_22_a_transfer_request_needs_a_reason(
     response = await client.post(transfer_url(event.id), headers=auth(casey), json=body)
 
     assert response.status_code == 422
+    assert response.json() == {"code": "MISSING_REQUIRED_FIELD", "fields": ["reason"]}
     assert notifier.transfer_requests == []
 
 
