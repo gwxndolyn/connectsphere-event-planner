@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("coordinator asks for clarification and the organiser answers it", async ({ page }) => {
+test("TC-US16B-16: a Lead assigns, the coordinator asks for clarification and the organiser answers it", async ({ page }) => {
   const preferredDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
     .toISOString()
     .slice(0, 10);
@@ -22,7 +22,24 @@ test("coordinator asks for clarification and the organiser answers it", async ({
   await page.getByRole("button", { name: "Submit request" }).click();
   await expect(page.getByRole("heading", { level: 2, name: "Submission confirmed" })).toBeVisible();
 
-  // The coordinator finds it in the review queue.
+  // A coordinator sees only requests assigned to them, so not this one yet (US16b D48).
+  const queueLoaded = page.waitForResponse(
+    (response) => response.url().endsWith("/api/v1/event-requests") && response.request().method() === "GET",
+  );
+  await page.getByLabel("Acting as").selectOption("coordinator");
+  await expect(page.getByRole("heading", { name: "Requests to review" })).toBeVisible();
+  await queueLoaded;
+  await expect(page.getByRole("button", { name: new RegExp(eventName) })).toHaveCount(0);
+
+  // A Lead assigns it to the seeded coordinator.
+  await page.getByLabel("Acting as").selectOption("coordinator_lead");
+  const unassigned = page.getByRole("tabpanel", { name: "Unassigned" }).locator(".assign-row", { hasText: eventName });
+  await unassigned.getByRole("button", { name: /^Assign/ }).click();
+  await page.getByRole("radio", { name: /Casey Tan/ }).check();
+  await page.getByRole("button", { name: "Confirm assignment" }).click();
+  await expect(page.getByRole("heading", { level: 2, name: "Coordinator assigned" })).toBeVisible();
+
+  // Now the coordinator finds it in the review queue.
   await page.getByLabel("Acting as").selectOption("coordinator");
   await expect(page.getByRole("heading", { name: "Requests to review" })).toBeVisible();
   await page.getByRole("button", { name: new RegExp(eventName) }).click();
