@@ -44,6 +44,10 @@ class EquipmentRequestLine(Base):
         CheckConstraint(
             "review_note IS NULL OR status <> 'pending'", name="equipment_request_lines_note_only_when_reviewed"
         ),
+        # DECISION-PENDING: D51 — no one reviews a line they requested (US16b, SCRUM-120).
+        CheckConstraint(
+            "reviewed_by_user_id <> requested_by_user_id", name="equipment_request_lines_reviewer_not_requester"
+        ),
         Index("ix_equipment_request_lines_event_id", "event_id"),
         Index("ix_equipment_request_lines_pending", "created_at", postgresql_where=text("status = 'pending'")),
         # DECISION-PENDING: D41 — one pending or approved line per type per event.

@@ -23,7 +23,10 @@ def make_user(db: Session, role: UserRole) -> User:
     return user
 
 
-def make_request(db: Session, organiser: User, status: EventStatus = EventStatus.SUBMITTED) -> Event:
+def make_request(
+    db: Session, organiser: User, status: EventStatus = EventStatus.SUBMITTED, *, coordinator: User | None = None
+) -> Event:
+    """`coordinator` is the one assigned: only they may ask for clarification (US16b D48)."""
     event = Event(
         name="Community design workshop",
         status=status,
@@ -31,6 +34,7 @@ def make_request(db: Session, organiser: User, status: EventStatus = EventStatus
         created_by_user_id=organiser.id,
         submitted_by_user_id=None if status == EventStatus.DRAFT else organiser.id,
         submitted_at=None if status == EventStatus.DRAFT else NOW - timedelta(days=1),
+        coordinator_id=coordinator.id if coordinator else None,
     )
     db.add(event)
     db.flush()
@@ -82,7 +86,7 @@ def coordinator(db: Session) -> User:
 
 @pytest.fixture
 async def awaiting(client: AsyncClient, db: Session, organiser: User, coordinator: User) -> Event:
-    event = make_request(db, organiser)
+    event = make_request(db, organiser, coordinator=coordinator)
     await ask(client, coordinator, event)
     return event
 
@@ -110,7 +114,8 @@ async def test_tc_us8_18_thread_shows_the_question_above_the_answer(
 ) -> None:
     await answer(client, organiser, awaiting.id)
 
-    for reader in (coordinator, organiser, make_user(db, UserRole.VENUE_STAFF)):
+    # The assigned coordinator, the owner and a Lead (US16b D48).
+    for reader in (coordinator, organiser, make_user(db, UserRole.COORDINATOR_LEAD)):
         response = await thread(client, reader, awaiting.id)
         assert response.status_code == 200
         messages = response.json()["clarifications"]
@@ -192,10 +197,11 @@ async def test_tc_us8_23_after_an_answer_the_coordinator_can_ask_again(
 async def test_tc_us8_24_thread_is_hidden_from_other_organisers_and_attendees(
     client: AsyncClient, db: Session, awaiting: Event
 ) -> None:
-    for reader in (make_user(db, UserRole.ORGANISER), make_user(db, UserRole.ATTENDEE)):
-        response = await thread(client, reader, awaiting.id)
-        assert response.status_code == 404
-        assert response.json() == {"code": "NOT_FOUND"}
+    other_organiser = await thread(client, make_user(db, UserRole.ORGANISER), awaiting.id)
+    assert (other_organiser.status_code, other_organiser.json()) == (404, {"code": "NOT_FOUND"})
+    # An attendee holds no role that reads requests, so the role check refuses them (US16b TC-US16B-13).
+    attendee = await thread(client, make_user(db, UserRole.ATTENDEE), awaiting.id)
+    assert (attendee.status_code, attendee.json()) == (403, {"code": "FORBIDDEN"})
     assert (await thread(client, None, awaiting.id)).status_code == 401
 
 
@@ -220,7 +226,7 @@ async def three_rounds(client: AsyncClient, organiser: User, coordinator: User, 
 async def test_tc_us8_31_coordinator_can_ask_again_after_every_answer(
     client: AsyncClient, db: Session, organiser: User, coordinator: User
 ) -> None:
-    event = make_request(db, organiser)
+    event = make_request(db, organiser, coordinator=coordinator)
 
     sent = await three_rounds(client, organiser, coordinator, event)
 
@@ -239,7 +245,7 @@ async def test_tc_us8_31_coordinator_can_ask_again_after_every_answer(
 async def test_tc_us8_32_thread_keeps_every_round_in_order(
     client: AsyncClient, db: Session, organiser: User, coordinator: User
 ) -> None:
-    event = make_request(db, organiser)
+    event = make_request(db, organiser, coordinator=coordinator)
     await three_rounds(client, organiser, coordinator, event)
 
     response = await thread(client, coordinator, event.id)
