@@ -3,8 +3,16 @@ import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { beforeEach, describe, expect, it } from "vitest";
 import App from "../../App";
-import { setDevRole } from "../../api/client";
-import { callsTo, db, seedClarification, seedRequest, server, startMockBackend } from "../../test/server";
+import { ApiError, apiClient, setDevRole } from "../../api/client";
+import {
+  callsTo,
+  COORDINATOR_PERSON,
+  db,
+  seedClarification,
+  seedRequest,
+  server,
+  startMockBackend,
+} from "../../test/server";
 
 // The real App and event-request screens against the fake backend in test/server.ts.
 startMockBackend();
@@ -117,6 +125,30 @@ describe("organiser: event requests (US1)", () => {
     const user = userEvent.setup();
     await openEventRequests(user);
     expect(await screen.findByRole("alert")).toHaveTextContent("Set VITE_DEV_USER_ID");
+  });
+});
+
+describe("the fake backend follows SCRUM-120's access rules (US16b, TC-US16B-32)", () => {
+  it("lists a coordinator only the requests assigned to them (D48)", async () => {
+    seedRequest({ name: "Mine", status: "under_review", coordinator: { id: COORDINATOR_PERSON.id, name: COORDINATOR_PERSON.name } });
+    seedRequest({ name: "Someone else's", status: "under_review", coordinator: { id: "other-coordinator-id", name: "Dana Lee" } });
+    seedRequest({ name: "Unassigned", status: "submitted" });
+    setDevRole("coordinator");
+    const user = userEvent.setup();
+    await openEventRequests(user);
+
+    expect(await screen.findByRole("button", { name: /Mine/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Someone else's/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Unassigned/ })).not.toBeInTheDocument();
+  });
+
+  it("refuses Venue staff a request's details and thread (D54)", async () => {
+    const request = seedRequest({ status: "under_review", coordinator: { id: COORDINATOR_PERSON.id, name: COORDINATOR_PERSON.name } });
+    setDevRole("venue_staff");
+
+    for (const path of [`/api/v1/event-requests/${request.id}`, `/api/v1/event-requests/${request.id}/clarifications`]) {
+      await expect(apiClient.get(path)).rejects.toMatchObject({ status: 403, code: "FORBIDDEN" } satisfies Partial<ApiError>);
+    }
   });
 });
 

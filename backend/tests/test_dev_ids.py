@@ -16,6 +16,8 @@ EXPECTED = {
     "VITE_DEV_LEAD_ID": seed_id("user", EVENT_COORDINATOR_LEAD_EMAILS[0]),
     "VITE_DEV_VENUE_STAFF_ID": seed_id("user", "venue-staff"),
     "VITE_DEV_TECH_SUPPORT_ID": seed_id("user", "tech-support"),
+    # Acting as → Safety officer (SCRUM-121, TC-US16B-22).
+    "VITE_DEV_SAFETY_OFFICER_ID": seed_id("user", "safety-officer"),
     "VITE_DEV_ATTENDEE_ID": seed_id("attendee", ATTENDEES[0]),
 }
 

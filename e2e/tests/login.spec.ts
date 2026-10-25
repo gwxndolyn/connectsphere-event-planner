@@ -11,6 +11,8 @@ const SEED_PASSWORD = process.env.E2E_SEED_PASSWORD;
 const ORGANISER = "event.organiser@smu.edu.sg";
 const COORDINATOR = "event.coordinator@smu.edu.sg";
 const ATTENDEE = "calvin.ng.2024@smu.edu.sg";
+// US16b (SCRUM-119, D50): Coordinator and Venue staff.
+const MULTI_ROLE = "multi.role@smu.edu.sg";
 
 async function logIn(page: Page, email: string, password: string) {
   await page.goto("/");
@@ -118,6 +120,19 @@ test.describe("logged in", () => {
     await page.reload();
     await expect(page.getByRole("heading", { name: "Log in" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "My events" })).toHaveCount(0);
+  });
+
+  test("TC-US16B-23: a two-role user switches from Coordinator to Venue staff, and a refresh keeps it", async ({ page }) => {
+    await logIn(page, MULTI_ROLE, SEED_PASSWORD!);
+    await expect(page.getByRole("heading", { name: "Requests to review" })).toBeVisible();
+
+    await page.getByLabel("Role").selectOption("venue_staff");
+
+    await expect(page.getByRole("heading", { name: "Pending venue requests" })).toBeVisible();
+    await expect(page.getByRole("banner").getByRole("button", { name: "Event requests" })).toHaveCount(0);
+    await page.reload();
+    await expect(page.getByLabel("Role")).toHaveValue("venue_staff");
+    await expect(page.getByRole("heading", { name: "Pending venue requests" })).toBeVisible();
   });
 
   test("TC-US16A-38: no Acting as switch once logged in", async ({ page }) => {

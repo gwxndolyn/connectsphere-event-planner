@@ -72,6 +72,31 @@ describe("SiteHeader", () => {
     expect(onDevRoleChange).toHaveBeenCalledWith("tech_support");
   });
 
+  it("offers Safety officer in Acting as (SCRUM-121, TC-US16B-22)", async () => {
+    const { onDevRoleChange } = renderHeader();
+    await userEvent.selectOptions(screen.getByLabelText("Acting as"), "Safety officer");
+    expect(onDevRoleChange).toHaveBeenCalledWith("safety_officer");
+  });
+
+  it("shows no Role switcher to a user with one role (TC-US16B-17)", () => {
+    renderHeader({ devRole: undefined, roles: ["coordinator"], currentRole: "coordinator", onRoleChange: vi.fn() });
+    expect(screen.queryByLabelText("Role")).not.toBeInTheDocument();
+  });
+
+  it("lists exactly the roles a user holds, and reports a switch (TC-US16B-18, 19)", async () => {
+    const onRoleChange = vi.fn();
+    renderHeader({ devRole: undefined, roles: ["coordinator", "venue_staff"], currentRole: "coordinator", onRoleChange });
+
+    const switcher = screen.getByLabelText("Role");
+    expect(switcher).toHaveValue("coordinator");
+    expect(Array.from((switcher as HTMLSelectElement).options).map((option) => option.textContent)).toEqual([
+      "Coordinator",
+      "Venue staff",
+    ]);
+    await userEvent.selectOptions(switcher, "Venue staff");
+    expect(onRoleChange).toHaveBeenCalledWith("venue_staff");
+  });
+
   it("switches Acting as (D12)", async () => {
     const { onDevRoleChange } = renderHeader();
     await userEvent.selectOptions(screen.getByLabelText("Acting as"), "coordinator");

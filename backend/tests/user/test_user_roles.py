@@ -247,10 +247,8 @@ async def test_tc_us16b_06_venue_staff_edit_venues_and_decide_bookings(client: A
 # --- TC-US16B-07 /me and sign-up ---
 
 
-async def test_tc_us16b_07_me_lists_every_role_in_the_types_order_and_keeps_role(
-    token_client: AsyncClient, db: Session
-) -> None:
-    """`role` is the first held role, kept until SCRUM-121 moves the frontend to `roles` (PR #86 review)."""
+async def test_tc_us16b_07_27_me_lists_every_role_in_the_types_order(token_client: AsyncClient, db: Session) -> None:
+    """SCRUM-121 removed the interim `role` once the frontend read `roles` (TC-US16B-27, PR #86 review)."""
     user = User(
         email=f"{uuid.uuid4().hex[:12]}@smu.edu.sg",
         roles=[UserRole.VENUE_STAFF, UserRole.COORDINATOR],
@@ -268,7 +266,6 @@ async def test_tc_us16b_07_me_lists_every_role_in_the_types_order_and_keeps_role
         "email": user.email,
         "full_name": "Morgan Multi",
         "roles": ["coordinator", "venue_staff"],
-        "role": "coordinator",
     }
 
 
@@ -281,7 +278,8 @@ async def test_tc_us16b_07_sign_up_creates_a_list_of_one(token_client: AsyncClie
     )
 
     assert response.status_code == 201
-    assert (response.json()["roles"], response.json()["role"]) == ([role], role)
+    assert response.json()["roles"] == [role]
+    assert "role" not in response.json()  # TC-US16B-27
     user = db.scalars(select(User).where(User.auth_user_id == sub)).one()
     assert list(user.roles) == [UserRole(role)]
 

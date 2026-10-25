@@ -12,6 +12,7 @@ import {
   seedEquipmentType,
   server,
   startMockBackend,
+  TECH_SUPPORT_ID,
 } from "../../test/server";
 
 // US26 screens (SCRUM-110): the real App, the coordinator's Equipment screen and Tech Support's queue
@@ -306,6 +307,25 @@ describe("Tech Support's queue (US26 AC 3)", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "This line has already been reviewed (it's approved now), so it can't be changed.",
     );
+  });
+});
+
+describe("no one reviews their own line (US16b D51, SCRUM-121)", () => {
+  it("Approve or Reject on a line Tech support requested says who must review it, and the row stays (TC-US16B-30)", async () => {
+    // A Tech support user who is also a Coordinator requested this one (D51 refuses it on the API).
+    seedEquipmentLine(seedEquipmentEvent(), seedEquipmentType("Projector"), { requested_by_user_id: TECH_SUPPORT_ID });
+    const user = userEvent.setup();
+    await openEquipment(user, "tech_support");
+    const row = () => screen.getByRole("listitem", { name: "Projector for Equipment Request Demo" });
+    await screen.findByRole("listitem", { name: "Projector for Equipment Request Demo" });
+
+    for (const decision of ["Approve", "Reject"]) {
+      await user.click(within(row()).getByRole("button", { name: decision }));
+      expect(await within(row()).findByRole("alert")).toHaveTextContent(
+        "Another Tech support user must review this line, because you requested it or coordinate its event.",
+      );
+    }
+    expect(callsTo("POST", /\/review$/)).toHaveLength(2);
   });
 });
 

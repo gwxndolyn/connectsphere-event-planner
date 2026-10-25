@@ -13,6 +13,7 @@ import {
   server,
   setEvaluation,
   startMockBackend,
+  VENUE_STAFF_ID,
 } from "../../test/server";
 
 // US22 (SCRUM-89, PR 3 SCRUM-113): the real App, review queue and booking screens against the fake
@@ -187,6 +188,31 @@ describe("venue booking (US22)", () => {
     expect(hallB).toHaveTextContent("Reason: Closed for maintenance");
     expect(hallB).toHaveTextContent("Suggested instead: Hall A on Saturday");
     expect(bookings().getByRole("button", { name: "Request venue" })).toBeInTheDocument();
+  });
+});
+
+describe("no one decides their own request (US16b D51, SCRUM-121)", () => {
+  it("Approve or Reject on a request Venue staff made says who must decide it, and the row stays (TC-US16B-30)", async () => {
+    // A Venue staff member who is also a Coordinator requested this one (D51 refuses it on the API).
+    const request = seedRequest({ status: "approved", name: "Venue Booking Demo", ...MINE });
+    seedBooking(request, seedVenue({ name: "Hall A" }), { requested_by_user_id: VENUE_STAFF_ID });
+    setDevRole("venue_staff");
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("banner")).getByRole("button", { name: "Venues" }));
+    const row = () => screen.getByRole("listitem", { name: "Venue Booking Demo at Hall A" });
+    await screen.findByRole("list", { name: "Pending venue requests" });
+
+    await user.click(within(row()).getByRole("button", { name: "Approve" }));
+    expect(await within(row()).findByRole("alert")).toHaveTextContent(
+      "Another Venue staff member must decide this request, because you made it or coordinate its event.",
+    );
+
+    await user.click(within(row()).getByRole("button", { name: "Reject" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Reject request" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(await within(row()).findByRole("alert")).toHaveTextContent("Another Venue staff member must decide this request");
+    expect(callsTo("POST", /\/(approve|reject)$/)).toHaveLength(2);
   });
 });
 
