@@ -228,7 +228,7 @@ async def test_tc_us10e_09_the_reason_is_trimmed_and_capped(
     assert record.reason == REASON
 
 
-@pytest.mark.parametrize("role", [UserRole.COORDINATOR, UserRole.ORGANISER, UserRole.OPERATIONS_MANAGER, None])
+@pytest.mark.parametrize("role", [UserRole.COORDINATOR, UserRole.ORGANISER, UserRole.VENUE_STAFF, None])
 async def test_tc_us10e_10_only_the_lead_can_reassign(
     client: AsyncClient, db: Session, event: Event, casey: User, jordan: User, role: UserRole | None
 ) -> None:

@@ -1,7 +1,7 @@
 """add the reason to the coordinator assignment history
 
 Revision ID: 20261027_1200_us10e_reassign
-Revises: 20261026_1200_us10d_history
+Revises: 20261029_1200_us17_decisions
 Create Date: 2026-10-27
 
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 revision: str = "20261027_1200_us10e_reassign"
-down_revision: Union[str, None] = "20261026_1200_us10d_history"
+down_revision: Union[str, None] = "20261029_1200_us17_decisions"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
