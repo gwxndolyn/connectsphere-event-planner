@@ -40,7 +40,7 @@ coordinators_router = APIRouter(prefix="/api/v1/coordinators", tags=["event-requ
 Organiser = Annotated[User, Depends(require_user_roles(UserRole.ORGANISER))]
 Coordinator = Annotated[User, Depends(require_user_roles(UserRole.COORDINATOR))]
 # DECISION-PENDING: D48 — the review queue is the coordinator's (their assigned requests) and the
-# Lead's (all of them). Venue Staff read no event requests since SCRUM-120.
+# Lead's (all of them). DECISION-PENDING: D54 — Venue Staff read no event requests since SCRUM-120.
 Reviewer = Annotated[User, Depends(require_user_roles(UserRole.COORDINATOR, UserRole.COORDINATOR_LEAD))]
 # Who may open a request and its thread at all; which requests each may open is the service's (D47, D48).
 Reader = Annotated[
