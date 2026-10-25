@@ -183,7 +183,7 @@ async def test_tc_us19_08_events_come_soonest_first_and_undated_last(
 async def test_tc_us19_09_only_the_lead_may_open_the_assigned_list(
     client: AsyncClient, db: Session, organiser: User, casey: User
 ) -> None:
-    for user in (organiser, casey, make_user(db, UserRole.OPERATIONS_MANAGER), make_user(db, UserRole.ATTENDEE)):
+    for user in (organiser, casey, make_user(db, UserRole.VENUE_STAFF), make_user(db, UserRole.ATTENDEE)):
         assert (await client.get(ASSIGNED, headers=auth(user))).status_code == 403
     assert (await client.get(ASSIGNED)).status_code == 401
 

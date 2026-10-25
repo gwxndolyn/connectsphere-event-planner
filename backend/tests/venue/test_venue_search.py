@@ -548,9 +548,9 @@ async def test_tc_us2_09_today_counts_as_not_past(client: AsyncClient, db: Sessi
 # --- TC-US2-10: who may search (D25) ---
 
 
-async def test_tc_us2_10_coordinators_and_operations_managers_may_search(client: AsyncClient, db: Session) -> None:
+async def test_tc_us2_10_coordinators_and_venue_staff_may_search(client: AsyncClient, db: Session) -> None:
     make_venue(db, name="Venue")
-    for role in (UserRole.COORDINATOR, UserRole.OPERATIONS_MANAGER):
+    for role in (UserRole.COORDINATOR, UserRole.VENUE_STAFF):
         response = await search(client, make_user(db, role))
         assert response.status_code == 200, role
         assert names(response) == ["Venue"]

@@ -82,8 +82,7 @@ def coordinator(db: Session) -> User:
 
 @pytest.fixture
 def staff(db: Session) -> User:
-    # DECISION-PENDING: D19 — operations_manager stands in for Venue Staff until US16b.
-    return make_user(db, UserRole.OPERATIONS_MANAGER)
+        return make_user(db, UserRole.VENUE_STAFF)
 
 
 @pytest.fixture
@@ -187,7 +186,7 @@ async def test_tc_us22_05_a_draft_is_not_found(client: AsyncClient, db: Session,
 # --- TC-US22-06 who may book ---
 
 
-@pytest.mark.parametrize("role", [UserRole.ORGANISER, UserRole.ATTENDEE, UserRole.OPERATIONS_MANAGER])
+@pytest.mark.parametrize("role", [UserRole.ORGANISER, UserRole.ATTENDEE, UserRole.VENUE_STAFF])
 async def test_tc_us22_06_only_coordinators_may_request(
     client: AsyncClient, db: Session, event: Event, venue: Venue, role: UserRole
 ) -> None:
@@ -695,8 +694,8 @@ async def test_tc_us22_13_venue_staff_cannot_withdraw_it(
 async def test_tc_us22_14_each_active_staff_member_is_notified_once(
     client: AsyncClient, db: Session, notifier: FakeNotifier, coordinator: User, staff: User, event: Event, venue: Venue
 ) -> None:
-    second = make_user(db, UserRole.OPERATIONS_MANAGER)
-    make_user(db, UserRole.OPERATIONS_MANAGER, active=False)
+    second = make_user(db, UserRole.VENUE_STAFF)
+    make_user(db, UserRole.VENUE_STAFF, active=False)
 
     created = (await client.post(CREATE_URL, headers=auth(coordinator), json=booking_body(event, venue))).json()
 
@@ -793,8 +792,8 @@ def committed(engine: Engine) -> Generator[Committed, None, None]:
     """The `db` fixture's rows live in one uncommitted transaction, invisible to other connections,
     so these tests commit their own and delete them afterwards."""
     with Session(engine) as setup:
-        coordinators = [User(email=f"{uuid.uuid4().hex}@smu.edu.sg", role=UserRole.COORDINATOR) for _ in range(2)]
-        staff = User(email=f"{uuid.uuid4().hex}@smu.edu.sg", role=UserRole.OPERATIONS_MANAGER)
+        coordinators = [User(email=f"{uuid.uuid4().hex}@smu.edu.sg", roles=[UserRole.COORDINATOR]) for _ in range(2)]
+        staff = User(email=f"{uuid.uuid4().hex}@smu.edu.sg", roles=[UserRole.VENUE_STAFF])
         setup.add_all([*coordinators, staff])
         setup.flush()
         # AC 7: two coordinators, each requesting for the event assigned to them, at one venue.

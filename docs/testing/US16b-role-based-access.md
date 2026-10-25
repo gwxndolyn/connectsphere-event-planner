@@ -68,3 +68,9 @@ Taken by the story owner on 25 Oct, before any code; the PR #86 review added D51
 | TC-US16B-28 | 3 | A request created by a user who also holds Lead; a request created by a user who also holds Coordinator | The creator, as Lead, assigns their own request; a Lead assigns the second request to its creator | `403 SELF_DECISION_NOT_ALLOWED`; `422 INVALID_COORDINATOR` with `reason: created_the_request`; neither request changes (D51) *(added 25 Oct)* | SCRUM-120 |
 | TC-US16B-29 | 3 | A database at head | A venue booking is saved with `decided_by_user_id` equal to `requested_by_user_id`, or an equipment line with `reviewed_by_user_id` equal to `requested_by_user_id` | Refused on named CHECKs; the seed still runs (D51) *(added 25 Oct)* | SCRUM-120 |
 | TC-US16B-30 | 2, 3 | Venue staff's pending list or Tech support's queue, with a request the user made | They click Approve or Reject on it | The row says another Venue staff member (or Tech support user) must decide it, because they made the request or coordinate its event; the row stays (D51) *(added 25 Oct)* | SCRUM-121 |
+
+## Run log
+
+| Date | Subtask | What ran | Result |
+| --- | --- | --- | --- |
+| 25 Oct | SCRUM-119 | `pytest` (local Postgres); Vitest, lint and build; Playwright against the local API on a migrated, reseeded database | Failing tests committed first (5d5f714): the suite failed at collection on the missing `UserRole.VENUE_STAFF` and seed constants. Four more existing tests that still read `.role`, the seeded-login count and the frontend mock were adapted before the feature (4805244). After the feature: backend 830 (21 in `tests/user/test_user_roles.py`), frontend 294, lint and build clean; E2E 32 passed and 9 skipped (the logged-in and sign-up cases, which need their secrets). `alembic upgrade head` on the local database moved its `operations_manager` user to `venue_staff`; the seed then ran twice and added nothing the second time |

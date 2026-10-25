@@ -48,8 +48,7 @@ def coordinator(db: Session) -> User:
 
 @pytest.fixture
 def staff(db: Session) -> User:
-    # DECISION-PENDING: D19 — operations_manager stands in for Venue Staff until US16b.
-    return make_user(db, UserRole.OPERATIONS_MANAGER)
+        return make_user(db, UserRole.VENUE_STAFF)
 
 
 @pytest.fixture
@@ -776,7 +775,7 @@ async def test_tc_us4_09_the_requesting_coordinator_cannot_approve_their_own(
 async def test_tc_us4_09_inactive_staff_and_no_identity_are_refused(
     client: AsyncClient, db: Session, booking: VenueBooking
 ) -> None:
-    inactive = make_user(db, UserRole.OPERATIONS_MANAGER, active=False)
+    inactive = make_user(db, UserRole.VENUE_STAFF, active=False)
 
     assert (await client.post(approve_url(booking.id), headers=auth(inactive))).status_code == 403
     assert (await client.post(approve_url(booking.id))).status_code == 401

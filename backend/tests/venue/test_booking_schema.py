@@ -409,7 +409,7 @@ async def test_tc_us22_03_buffer_lock_triggers_without_forcing_it(
 ) -> None:
     """TC-US20-02 against a real Approved booking, not the forced stub."""
     make_venue_booking(db, event=event, venue=venue, user=coordinator, status=VenueBookingStatus.APPROVED)
-    staff = make_user(db, UserRole.OPERATIONS_MANAGER)  # D19: stands in for Venue Staff until US16b
+    staff = make_user(db, UserRole.VENUE_STAFF)
 
     response = await client.patch(
         f"/api/v1/venues/{venue.id}", headers={"X-User-Id": str(staff.id)}, json={"setup_minutes": 45}

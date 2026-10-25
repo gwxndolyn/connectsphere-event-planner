@@ -4,8 +4,6 @@ const BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
 // Development identity stub (D12), used only in dev mode (VITE_DEV_AUTH=true) without a login: the app
 // acts as one of the seeded users and sends their id as X-User-Id. The header's "Acting as" switch picks which.
-// Venue staff is operations_manager in the backend until US16b (D19). Tech support (SCRUM-110) is the
-// real tech_support role (deviation 34).
 export type DevRole = "organiser" | "coordinator" | "coordinator_lead" | "venue_staff" | "tech_support";
 
 export const DEV_USER_IDS: Record<DevRole, string | undefined> = {

@@ -419,12 +419,11 @@ function byStart(a: FakeRegistration, b: FakeRegistration) {
   return ea.start_at.localeCompare(eb.start_at) || ea.name.localeCompare(eb.name);
 }
 
-const ROLES: Record<string, "organiser" | "coordinator" | "coordinator_lead" | "operations_manager" | "tech_support"> = {
+const ROLES: Record<string, "organiser" | "coordinator" | "coordinator_lead" | "venue_staff" | "tech_support"> = {
   [ORGANISER_ID]: "organiser",
   [COORDINATOR_ID]: "coordinator",
   [LEAD_ID]: "coordinator_lead",
-  // Venue staff is operations_manager until US16b (D19).
-  [VENUE_STAFF_ID]: "operations_manager",
+  [VENUE_STAFF_ID]: "venue_staff",
   [TECH_SUPPORT_ID]: "tech_support",
 };
 
@@ -661,7 +660,7 @@ const handlers = [
     const url = new URL(request.url);
     const q = (url.searchParams.get("q") ?? "").trim().toLowerCase();
     const venues = db.venues
-      .filter((venue) => role === "operations_manager" || venue.is_active)
+      .filter((venue) => role === "venue_staff" || venue.is_active)
       .filter((venue) => !q || venue.name.toLowerCase().includes(q))
       .sort((a, b) => a.name.localeCompare(b.name));
     return HttpResponse.json({ venues });
@@ -743,7 +742,7 @@ const handlers = [
     route("post", `/api/v1/venue-bookings/:id/${action}`, ({ request, params, body }) => {
       const role = userRole(request);
       if (!role) return error(401, "UNAUTHENTICATED");
-      if (role !== "operations_manager") return error(403, "FORBIDDEN");
+      if (role !== "venue_staff") return error(403, "FORBIDDEN");
       const booking = db.bookings.find((b) => b.id === params.id);
       if (!booking) return error(404, "NOT_FOUND");
       if (booking.status !== "requested") return error(409, "BOOKING_NOT_PENDING", { status: booking.status });
@@ -763,7 +762,7 @@ const handlers = [
   route("get", "/api/v1/venue-bookings/pending", ({ request }) => {
     const role = userRole(request);
     if (!role) return error(401, "UNAUTHENTICATED");
-    if (role !== "operations_manager") return error(403, "FORBIDDEN");
+    if (role !== "venue_staff") return error(403, "FORBIDDEN");
     const pending = db.bookings.filter((b) => b.status === "requested").sort((a, b) => a.created_at.localeCompare(b.created_at));
     return HttpResponse.json({ bookings: pending });
   }),
@@ -773,7 +772,7 @@ const handlers = [
   route("get", "/api/v1/venue-bookings/:id/evaluation", ({ request, params }) => {
     const role = userRole(request);
     if (!role) return error(401, "UNAUTHENTICATED");
-    if (role !== "operations_manager") return error(403, "FORBIDDEN");
+    if (role !== "venue_staff") return error(403, "FORBIDDEN");
     const booking = db.bookings.find((b) => b.id === params.id);
     if (!booking) return error(404, "NOT_FOUND");
     const found = db.evaluations[booking.id] ?? { conflicts: [], outside_hours: null };
@@ -790,7 +789,7 @@ const handlers = [
   route("get", "/api/v1/events/:id/venue-bookings", ({ request, params }) => {
     const role = userRole(request);
     if (!role) return error(401, "UNAUTHENTICATED");
-    if (role !== "coordinator" && role !== "operations_manager") return error(403, "FORBIDDEN");
+    if (role !== "coordinator" && role !== "venue_staff") return error(403, "FORBIDDEN");
     const event = db.requests.find((r) => r.id === params.id && r.status !== "draft");
     // Venue Staff read any event's bookings; a coordinator only those of an event assigned to them (D20).
     if (!event || (role === "coordinator" && !assignedTo(event, request.headers.get("X-User-Id")!))) {

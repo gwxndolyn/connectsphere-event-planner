@@ -1,6 +1,6 @@
 import uuid
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, computed_field, field_validator
 
 from app.user.models import UserRole
 
@@ -25,7 +25,21 @@ class ProfileOut(BaseModel):
     id: uuid.UUID
     email: str
     full_name: str
-    role: UserRole
+    roles: list[UserRole]
+
+    @field_validator("roles")
+    @classmethod
+    def in_type_order(cls, roles: list[UserRole]) -> list[UserRole]:
+        """Every held role, in the role type's order whatever order they're stored in (TC-US16B-07)."""
+        order = list(UserRole)
+        return sorted(roles, key=order.index)
+
+    # DECISION-PENDING: SCRUM-121 removes `role` once the frontend reads `roles` (PR #86 review).
+    @computed_field
+    @property
+    def role(self) -> UserRole:
+        """The first held role, so the frontend's single-role reads keep working until SCRUM-121."""
+        return self.roles[0]
 
 
 class MeOut(ProfileOut):

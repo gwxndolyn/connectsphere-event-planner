@@ -58,7 +58,7 @@ def test_tc_us1_16_request_schema_is_installed(db: Session, engine) -> None:
 
     assert inspector.has_table("users")
     user_columns = {column["name"] for column in inspector.get_columns("users")}
-    assert {"id", "email", "role", "is_active", "created_at"} <= user_columns
+    assert {"id", "email", "roles", "is_active", "created_at"} <= user_columns
     assert inspector.has_sequence("event_request_reference_seq")
     assert any(
         constraint["column_names"] == ["request_reference"]
@@ -78,7 +78,7 @@ def test_tc_us1_16_request_schema_is_installed(db: Session, engine) -> None:
 
     attendee = make_attendee(db)
     assert db.execute(
-        text("select count(*) from users where id = :id and email = :email and role = 'attendee'"),
+        text("select count(*) from users where id = :id and email = :email and roles = '{attendee}'"),
         {"id": attendee.id, "email": attendee.email},
     ).scalar_one() == 1
 

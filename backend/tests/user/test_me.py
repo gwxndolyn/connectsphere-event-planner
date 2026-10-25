@@ -24,7 +24,7 @@ async def client(db: Session, notifier) -> AsyncGenerator[AsyncClient, None]:
 
 
 def make_user(db: Session, role: UserRole, **fields) -> User:
-    user = User(email=f"{uuid.uuid4().hex[:12]}@smu.edu.sg", role=role, auth_user_id=uuid.uuid4(), **fields)
+    user = User(email=f"{uuid.uuid4().hex[:12]}@smu.edu.sg", roles=[role], auth_user_id=uuid.uuid4(), **fields)
     db.add(user)
     db.flush()
     return user
@@ -39,7 +39,14 @@ async def test_tc_us16a_51_returns_the_logged_in_users_profile(
     response = await client.get(ME, headers=bearer(make_token(user.auth_user_id, user.email)))
 
     assert response.status_code == 200
-    assert response.json() == {"id": str(user.id), "email": user.email, "full_name": "Pat Person", "role": role.value}
+    assert response.json() == {
+        "id": str(user.id),
+        "email": user.email,
+        "full_name": "Pat Person",
+        "roles": [role.value],
+        # Kept until SCRUM-121 (US16b) moves the frontend to `roles`.
+        "role": role.value,
+    }
 
 
 async def test_tc_us16a_51_a_user_without_a_name_gets_null(client: AsyncClient, db: Session) -> None:

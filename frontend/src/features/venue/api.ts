@@ -11,8 +11,7 @@ import type {
   VenueWrite,
 } from "./types";
 
-// Venue routes identify the caller by X-User-Id (the Acting as switch). Writes need Venue Staff,
-// which is operations_manager in the backend until US16b (D19).
+// Venue routes identify the caller by X-User-Id (the Acting as switch). Writes need Venue Staff.
 export const venueApi = {
   async list(filters: VenueFilters, staff: boolean): Promise<Venue[]> {
     const params = new URLSearchParams();

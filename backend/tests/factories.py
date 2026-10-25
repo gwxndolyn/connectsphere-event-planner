@@ -16,7 +16,7 @@ NOW = datetime(2026, 10, 1, 9, 0, tzinfo=SGT)
 def make_attendee(db: Session) -> Attendee:
     attendee_id = uuid.uuid4()
     email = f"{uuid.uuid4().hex[:8]}@smu.edu.sg"
-    user = User(id=attendee_id, email=email, role=UserRole.ATTENDEE)
+    user = User(id=attendee_id, email=email, roles=[UserRole.ATTENDEE])
     attendee = Attendee(id=attendee_id, email=email)
     db.add(user)
     db.flush()
@@ -115,8 +115,9 @@ def make_registration(
     return registration
 
 
-def make_user(db: Session, role: UserRole, *, active: bool = True) -> User:
-    user = User(email=f"{uuid.uuid4().hex}@smu.edu.sg", role=role, is_active=active)
+def make_user(db: Session, role: UserRole, *more_roles: UserRole, active: bool = True) -> User:
+    """A user holding `role`, plus any `more_roles` (US16b: one or more roles, D45)."""
+    user = User(email=f"{uuid.uuid4().hex}@smu.edu.sg", roles=[role, *more_roles], is_active=active)
     db.add(user)
     db.flush()
     return user

@@ -22,8 +22,12 @@ def test_tc_us10a_01_coordinator_assignment_schema_is_installed(db: Session, eng
             """
         )
     ).scalars().all()
-    # 'tech_support' is appended later by US26's migration (SCRUM-108, deviation 34).
-    assert roles == ["organiser", "coordinator", "coordinator_lead", "operations_manager", "attendee", "tech_support"]
+    # 'tech_support' is appended later by US26's migration (SCRUM-108, deviation 34), and 'venue_staff' and
+    # 'safety_officer' by US16b's (SCRUM-119). 'operations_manager' stays in the type, unused (D49).
+    assert roles == [
+        "organiser", "coordinator", "coordinator_lead", "operations_manager", "attendee", "tech_support",
+        "venue_staff", "safety_officer",
+    ]
 
     inspector = inspect(engine)
     column = {c["name"]: c for c in inspector.get_columns("events")}["coordinator_id"]
@@ -52,12 +56,12 @@ def test_tc_us10a_04_seed_adds_two_active_leads_and_leaves_events_unassigned(db:
     seed(db)
     seed(db)  # idempotent
 
-    leads = db.scalars(select(User).where(User.role == UserRole.COORDINATOR_LEAD)).all()
+    leads = db.scalars(select(User).where(User.roles.any(UserRole.COORDINATOR_LEAD))).all()
     assert sorted(lead.email for lead in leads) == sorted(EVENT_COORDINATOR_LEAD_EMAILS)
     assert all(lead.is_active for lead in leads)
     # AC 8: organisers see a name, so the seeded coordinator and Leads have one.
     assert all(lead.full_name for lead in leads)
-    assert db.scalars(select(User).where(User.role == UserRole.COORDINATOR, User.full_name.is_(None))).first() is None
+    assert db.scalars(select(User).where(User.roles.any(UserRole.COORDINATOR), User.full_name.is_(None))).first() is None
     # Seeded events start unassigned, except US22's Venue Booking Demo and US26's Equipment Request
     # Demo: only the assigned coordinator may book a venue or add equipment (D20), so the seed assigns
     # the dev coordinator to both for their screens and E2E.
