@@ -3,7 +3,8 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
-from app.event.models import DeliveryMode
+from app.event.models import DeliveryMode, EventStatus
+from app.event.schemas import RegistrationFieldOut
 from app.registration.models import RegistrationStatus
 
 
@@ -88,3 +89,50 @@ class MyRegistrationsResponse(BaseModel):
     waitlisted: list[MyWaitlistedRegistrationOut]
     # Additive in Sprint 2 (SCRUM-50): older clients that read only the two lists above still work.
     offered: list[MyOfferedRegistrationOut] = []
+
+
+class ManagedEventOut(BaseModel):
+    """An event whose registrations the caller may view (US28 AC 1)."""
+
+    id: uuid.UUID
+    name: str
+    start_at: datetime
+    end_at: datetime
+    status: EventStatus
+    capacity: int
+
+
+class ManagedEventsResponse(BaseModel):
+    events: list[ManagedEventOut]
+
+
+class RegistrationTotalsOut(BaseModel):
+    """US28 AC 2. Counted over every registration, whatever the list's filter."""
+
+    confirmed: int
+    waitlisted: int
+    offered: int
+    seats_remaining: int
+
+
+class EventRegistrantOut(BaseModel):
+    """One registrant (US28 AC 3). `attendee_name` is the user's `full_name`, null for seeded users
+    and email-only waitlist entries (D3)."""
+
+    registration_id: uuid.UUID
+    attendee_name: str | None
+    attendee_email: str
+    status: RegistrationStatus
+    registered_at: datetime
+    waitlist_position: int | None = None
+    offer_expires_at: datetime | None = None
+    # Keyed by `field_key`; a field the registrant didn't answer is absent.
+    answers: dict[str, str | None]
+
+
+class EventRegistrationsResponse(BaseModel):
+    event: ManagedEventOut
+    totals: RegistrationTotalsOut
+    # The event's registration questions, in order, so the screen can label `answers`.
+    registration_fields: list[RegistrationFieldOut]
+    registrations: list[EventRegistrantOut]
