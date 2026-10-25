@@ -68,7 +68,8 @@ export interface Profile {
   id: string;
   email: string;
   full_name: string | null;
-  role: string;
+  // Every role the user holds, in the role type's order (US16b, SCRUM-121); sign-up makes one.
+  roles: string[];
 }
 
 /** First login after confirming (TC-US16A-40, 41): create the profile from what sign-up saved. */

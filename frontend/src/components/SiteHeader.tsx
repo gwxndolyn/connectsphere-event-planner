@@ -1,4 +1,5 @@
 import type { DevRole } from "../api/client";
+import { roleLabel } from "../auth/currentRole";
 import "./SiteHeader.css";
 
 export type View = "discovery" | "my-events" | "event-requests" | "registrations" | "venues" | "equipment";
@@ -13,6 +14,11 @@ interface SiteHeaderProps {
   onDevRoleChange: (role: DevRole) => void;
   // Shown while logged in (AC 5).
   onLogOut?: () => void;
+  // US16b AC 2 (SCRUM-121): the roles a logged-in user holds and the one they're working in. The Role
+  // switcher shows only when there's more than one.
+  roles?: string[];
+  currentRole?: string;
+  onRoleChange?: (role: string) => void;
   // The screens this user may open, home first; every screen in dev mode without a login.
   views: View[];
 }
@@ -26,6 +32,9 @@ export function SiteHeader({
   onDevRoleChange,
   onLogOut,
   views,
+  roles = [],
+  currentRole,
+  onRoleChange,
 }: SiteHeaderProps) {
   const attendeeScreens = views.includes("discovery");
   return (
@@ -127,6 +136,19 @@ export function SiteHeader({
               <option value="coordinator_lead">Coordinator Lead</option>
               <option value="venue_staff">Venue staff</option>
               <option value="tech_support">Tech support</option>
+              <option value="safety_officer">Safety officer</option>
+            </select>
+          </label>
+        )}
+        {roles.length > 1 && currentRole && onRoleChange && (
+          <label className="site-header__role">
+            Role
+            <select value={currentRole} onChange={(event) => onRoleChange(event.target.value)}>
+              {roles.map((role) => (
+                <option key={role} value={role}>
+                  {roleLabel(role)}
+                </option>
+              ))}
             </select>
           </label>
         )}

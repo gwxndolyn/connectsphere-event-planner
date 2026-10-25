@@ -228,6 +228,9 @@ export function decisionErrorMessage(error: unknown): string {
       return `Can't approve: the event is ${typeof error.body.status === "string" ? error.body.status.replaceAll("_", " ") : "no longer bookable"} now. Reject the request instead.`;
     case "BOOKING_NOT_PENDING":
       return `This request was already decided or withdrawn${typeof error.body.status === "string" ? ` (it's ${error.body.status} now)` : ""}. Reload the list.`;
+    case "SELF_DECISION_NOT_ALLOWED":
+      // US16b D51: whoever requested a booking, or coordinates its event, doesn't decide it.
+      return "Another Venue staff member must decide this request, because you made it or coordinate its event.";
     case "FORBIDDEN":
       return "Only Venue staff can approve or reject venue requests. Switch Acting as to Venue staff.";
     case "NOT_FOUND":

@@ -63,7 +63,6 @@ async def test_tc_us16a_18_an_organiser_profile_takes_its_identity_from_the_toke
         "email": email,
         "full_name": "Olivia Organiser",
         "roles": ["organiser"],
-        "role": "organiser",
     }
     user = db.get(User, uuid.UUID(body["id"]))
     assert (user.auth_user_id, user.email, list(user.roles), user.full_name) == (

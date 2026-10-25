@@ -4,7 +4,8 @@ import { ApiError, DEV_USER_IDS, apiClient, getDevRole, setDevRole, type DevRole
 import { LoginPage } from "./auth/LoginPage";
 import { accountErrorMessage } from "./auth/messages";
 import { SignUpPage } from "./auth/SignUpPage";
-import { completeProfile, profileFromMetadata } from "./auth/signUp";
+import { rememberRole, startingRole } from "./auth/currentRole";
+import { completeProfile, profileFromMetadata, type Profile } from "./auth/signUp";
 import { screensFor } from "./auth/screens";
 import { DEV_AUTH, supabase } from "./auth/supabase";
 import { SiteHeader, type View } from "./components/SiteHeader";
@@ -20,12 +21,13 @@ import { MyEventsView } from "./features/registration/MyEventsView";
 import { useEventRegistry } from "./features/registration/useEventRegistry";
 import { VenuesPage } from "./features/venue/VenuesPage";
 
-// GET /api/v1/me (SCRUM-105): who is logged in. `role` can be one this frontend doesn't know yet.
-interface Me {
-  id: string;
-  email: string;
-  full_name: string | null;
-  role: string;
+// GET /api/v1/me (SCRUM-105): who is logged in, with every role they hold (US16b, SCRUM-121). A role can
+// be one this frontend has no screens for yet (the Safety officer's).
+type Me = Profile;
+
+/** The held roles that have screens, in /me's order: the ones a user can work in (US16b AC 2). */
+function workableRoles(me: Me): string[] {
+  return me.roles.filter((role) => screensFor(role));
 }
 
 // The last screen, so a refresh comes back to it (TC-US16A-35).
@@ -44,8 +46,9 @@ function storedView(): View {
 function App() {
   // undefined while Supabase restores a saved session on load.
   const [session, setSession] = useState<Session | null | undefined>(supabase ? undefined : null);
-  // GET /api/v1/me's answer for one login; ignored once a different user (or nobody) is logged in.
-  const [account, setAccount] = useState<{ userId: string; me?: Me; error?: string } | null>(null);
+  // GET /api/v1/me's answer for one login, and the role they're working in (US16b AC 2); ignored once a
+  // different user (or nobody) is logged in.
+  const [account, setAccount] = useState<{ userId: string; me?: Me; role?: string; error?: string } | null>(null);
   // Set by the login page, so only a fresh login (not a refresh) opens the role's home screen.
   const goHome = useRef(false);
   const [view, setViewState] = useState<View>(storedView);
@@ -89,8 +92,9 @@ function App() {
       })
       .then((me) => {
         if (!current) return;
-        setAccount({ userId, me });
-        const screens = screensFor(me.role);
+        const role = startingRole(userId, workableRoles(me));
+        setAccount({ userId, me, role });
+        const screens = role ? screensFor(role) : undefined;
         if (goHome.current && screens) {
           goHome.current = false;
           setView(screens[0]);
@@ -109,6 +113,15 @@ function App() {
   const me = current?.me ?? null;
   const meError = current?.error ?? null;
 
+  // US16b AC 2: switching role opens the new role's home screen, and is remembered for this user.
+  function switchRole(role: string) {
+    if (!current?.me || !userId) return;
+    rememberRole(userId, role);
+    setAccount({ ...current, role });
+    const screens = screensFor(role);
+    if (screens) setView(screens[0]);
+  }
+
   const [logOutError, setLogOutError] = useState<string | null>(null);
 
   // Logs out of this browser only; other devices stay logged in (PR #62 review).
@@ -126,8 +139,8 @@ function App() {
     if (authScreen === "sign-up") return <SignUpPage onShowLogin={() => setAuthScreen("login")} />;
     return <LoginPage onLoggedIn={() => (goHome.current = true)} onShowSignUp={() => setAuthScreen("sign-up")} />;
   }
-  // A role with no screens yet (one US16b adds before the frontend knows it) can only log out.
-  const blocked = me && !screensFor(me.role) ? "Your account's role doesn't have any screens yet." : meError;
+  // A user whose roles have no screens yet (the Safety officer's, US16b) can only log out (TC-US16B-21).
+  const blocked = me && !current?.role ? "Your account's role doesn't have any screens yet." : meError;
   if (session && (!me || blocked)) {
     return (
       <main className="request-page">
@@ -154,7 +167,14 @@ function App() {
           {logOutError}
         </div>
       )}
-      <Workspace me={me} view={view} onNavigate={setView} onLogOut={session ? logOut : undefined} />
+      <Workspace
+        me={me}
+        role={current?.role ?? null}
+        onRoleChange={switchRole}
+        view={view}
+        onNavigate={setView}
+        onLogOut={session ? logOut : undefined}
+      />
     </>
   );
 }
@@ -162,21 +182,25 @@ function App() {
 interface WorkspaceProps {
   // Null in dev mode without a login, where "Acting as" picks the user instead.
   me: Me | null;
+  // The role a logged-in user is working in; null in dev mode.
+  role: string | null;
+  onRoleChange: (role: string) => void;
   view: View;
   onNavigate: (view: View) => void;
   onLogOut?: () => void;
 }
 
 // Mounted only once someone is identified, so its data loads with their identity.
-function Workspace({ me, view, onNavigate, onLogOut }: WorkspaceProps) {
-  // Dev mode without a login keeps every screen, as before. App never mounts this for an unknown role.
-  const views = (me && screensFor(me.role)) || VIEWS;
+function Workspace({ me, role: currentRole, onRoleChange, view, onNavigate, onLogOut }: WorkspaceProps) {
+  // The current role's screens; dev mode without a login keeps every screen, as before. App mounts this
+  // only once a logged-in user has a role with screens.
+  const views = (currentRole && screensFor(currentRole)) || VIEWS;
   // A screen saved by someone else on this browser falls back to this user's home screen.
   const shown = views.includes(view) ? view : views[0];
   const registry = useEventRegistry(views.includes("discovery"));
   const [search, setSearch] = useState("");
   const [devRole, setDevRoleState] = useState<DevRole>(getDevRole);
-  const role = me ? (me.role as DevRole | "attendee") : devRole;
+  const role = currentRole ? (currentRole as DevRole | "attendee") : devRole;
 
   return (
     <div>
@@ -190,6 +214,9 @@ function Workspace({ me, view, onNavigate, onLogOut }: WorkspaceProps) {
         onNavigate={onNavigate}
         views={views}
         devRole={me ? undefined : devRole}
+        roles={me ? workableRoles(me) : undefined}
+        currentRole={currentRole ?? undefined}
+        onRoleChange={onRoleChange}
         onDevRoleChange={(role) => {
           setDevRole(role);
           setDevRoleState(role);

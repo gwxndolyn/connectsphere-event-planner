@@ -157,6 +157,12 @@ export function PendingBookings() {
       decided(await bookingApi.reject(booking.id, body), "rejected");
       setRejecting(null);
     } catch (reason) {
+      // US16b D51: the request isn't this user's to decide. It stays, with the reason on its row.
+      if (reason instanceof ApiError && reason.code === "SELF_DECISION_NOT_ALLOWED") {
+        setRejecting(null);
+        setRefusals((current) => ({ ...current, [booking.id]: decisionErrorMessage(reason) }));
+        return;
+      }
       await reload();
       throw reason;
     }

@@ -3,13 +3,24 @@ import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { beforeEach, describe, expect, it } from "vitest";
 import App from "../../App";
-import { setDevRole } from "../../api/client";
-import { callsTo, db, seedClarification, seedRequest, server, startMockBackend } from "../../test/server";
+import { ApiError, apiClient, setDevRole } from "../../api/client";
+import {
+  callsTo,
+  COORDINATOR_PERSON,
+  db,
+  seedClarification,
+  seedRequest,
+  server,
+  startMockBackend,
+} from "../../test/server";
 
 // The real App and event-request screens against the fake backend in test/server.ts.
 startMockBackend();
 
 beforeEach(() => setDevRole("organiser"));
+
+// A coordinator sees only the requests assigned to them (US16b D48), so the flows' requests are.
+const MINE = { coordinator: { id: COORDINATOR_PERSON.id, name: COORDINATOR_PERSON.name } };
 
 async function openEventRequests(user: ReturnType<typeof userEvent.setup>) {
   render(<App />);
@@ -120,9 +131,33 @@ describe("organiser: event requests (US1)", () => {
   });
 });
 
+describe("the fake backend follows SCRUM-120's access rules (US16b, TC-US16B-32)", () => {
+  it("lists a coordinator only the requests assigned to them (D48)", async () => {
+    seedRequest({ name: "Mine", status: "under_review", coordinator: { id: COORDINATOR_PERSON.id, name: COORDINATOR_PERSON.name } });
+    seedRequest({ name: "Someone else's", status: "under_review", coordinator: { id: "other-coordinator-id", name: "Dana Lee" } });
+    seedRequest({ name: "Unassigned", status: "submitted" });
+    setDevRole("coordinator");
+    const user = userEvent.setup();
+    await openEventRequests(user);
+
+    expect(await screen.findByRole("button", { name: /Mine/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Someone else's/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Unassigned/ })).not.toBeInTheDocument();
+  });
+
+  it("refuses Venue staff a request's details and thread (D54)", async () => {
+    const request = seedRequest({ status: "under_review", coordinator: { id: COORDINATOR_PERSON.id, name: COORDINATOR_PERSON.name } });
+    setDevRole("venue_staff");
+
+    for (const path of [`/api/v1/event-requests/${request.id}`, `/api/v1/event-requests/${request.id}/clarifications`]) {
+      await expect(apiClient.get(path)).rejects.toMatchObject({ status: 403, code: "FORBIDDEN" } satisfies Partial<ApiError>);
+    }
+  });
+});
+
 describe("coordinator: review queue and clarification (US8a)", () => {
   it("sends a clarification on chosen sections and the request moves to awaiting clarification", async () => {
-    const request = seedRequest({ name: "Clarification workshop", status: "submitted", expected_attendees: 40 });
+    const request = seedRequest({ name: "Clarification workshop", status: "submitted", expected_attendees: 40, ...MINE });
     const user = userEvent.setup();
     await openEventRequests(user);
     await actAs(user, "coordinator");
@@ -158,7 +193,7 @@ describe("coordinator: review queue and clarification (US8a)", () => {
   });
 
   it("disables the form for a request that can't take a clarification (D15)", async () => {
-    seedRequest({ name: "Waiting on organiser", status: "awaiting_clarification" });
+    seedRequest({ name: "Waiting on organiser", status: "awaiting_clarification", ...MINE });
     const user = userEvent.setup();
     setDevRole("coordinator");
     await openEventRequests(user);
@@ -180,7 +215,7 @@ describe("coordinator: review queue and clarification (US8a)", () => {
 
 describe("organiser answers, coordinator reads the thread (US8c, US8d)", () => {
   it("answers the open question, and the coordinator sees question then answer", async () => {
-    const request = seedRequest({ name: "Clarification workshop", status: "awaiting_clarification" });
+    const request = seedRequest({ name: "Clarification workshop", status: "awaiting_clarification", ...MINE });
     seedClarification(request, { sections: ["attendance", "layout"], comment: "Final headcount and layout?" });
     const user = userEvent.setup();
     await openEventRequests(user);

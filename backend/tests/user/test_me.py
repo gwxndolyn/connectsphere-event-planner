@@ -43,9 +43,8 @@ async def test_tc_us16a_51_returns_the_logged_in_users_profile(
         "id": str(user.id),
         "email": user.email,
         "full_name": "Pat Person",
+        # Only `roles` since SCRUM-121 (TC-US16B-27).
         "roles": [role.value],
-        # Kept until SCRUM-121 (US16b) moves the frontend to `roles`.
-        "role": role.value,
     }
 
 
