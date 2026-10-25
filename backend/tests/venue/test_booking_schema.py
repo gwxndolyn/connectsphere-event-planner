@@ -158,6 +158,7 @@ def test_tc_us22_01_booking_schema_is_installed(db: Session, engine) -> None:
         "venue_bookings_occupied_covers_window",
         "venue_bookings_decided_consistent",  # US4
         "venue_bookings_rejection_notes_only_when_rejected",  # US4
+        "venue_bookings_decider_not_requester",  # US16b D51
     }
     exclusions = db.scalars(
         text("select conname from pg_constraint where conrelid = 'venue_bookings'::regclass and contype = 'x'")
