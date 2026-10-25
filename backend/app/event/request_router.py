@@ -23,6 +23,8 @@ from app.event.request_schemas import (
     AssignmentWrite,
     CoordinatorOptionsOut,
     EventRequestOut,
+    ReassignmentWrite,
+    TransferRequestWrite,
     EventRequestWrite,
     EventRequestsOut,
     RequestRejectWrite,
@@ -40,7 +42,7 @@ coordinators_router = APIRouter(prefix="/api/v1/coordinators", tags=["event-requ
 Organiser = Annotated[User, Depends(require_user_roles(UserRole.ORGANISER))]
 Coordinator = Annotated[User, Depends(require_user_roles(UserRole.COORDINATOR))]
 # DECISION-PENDING: D48 — the review queue is the coordinator's (their assigned requests) and the
-# Lead's (all of them). DECISION-PENDING: D54 — Venue Staff read no event requests since SCRUM-120.
+# Lead's (all of them). DECISION-PENDING: D55 — Venue Staff read no event requests since SCRUM-120.
 Reviewer = Annotated[User, Depends(require_user_roles(UserRole.COORDINATOR, UserRole.COORDINATOR_LEAD))]
 # Who may open a request and its thread at all; which requests each may open is the service's (D47, D48).
 Reader = Annotated[
@@ -174,6 +176,29 @@ def reject_request(
     notifier: Notifier = Depends(get_notifier),
 ) -> EventRequestOut:
     return request_decision_service.reject(db, coordinator, request_id, body, now, notifier)
+
+
+@router.post("/{request_id}/reassignment", response_model=EventRequestOut)
+def reassign_coordinator(
+    request_id: uuid.UUID,
+    body: ReassignmentWrite,
+    lead: Lead,
+    db: Session = Depends(get_db),
+    notifier: Notifier = Depends(get_notifier),
+) -> EventRequestOut:
+    return assignment_service.reassign(db, request_id, lead, body.coordinator_id, body.reason, notifier)
+
+
+@router.post("/{request_id}/transfer-request", status_code=202)
+def request_transfer(
+    request_id: uuid.UUID,
+    body: TransferRequestWrite,
+    coordinator: Coordinator,
+    db: Session = Depends(get_db),
+    notifier: Notifier = Depends(get_notifier),
+) -> dict[str, str]:
+    assignment_service.request_transfer(db, request_id, coordinator, body.reason, notifier)
+    return {"status": "requested"}
 
 
 @router.post("/{request_id}/clarifications", status_code=201, response_model=ClarificationSentOut)

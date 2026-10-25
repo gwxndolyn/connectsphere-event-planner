@@ -27,6 +27,7 @@ const REFUSALS: Record<string, string> = {
   self_assignment: "You can't assign a request to yourself. The Lead isn't a coordinator.",
   not_a_coordinator: "That person doesn't have the Event Coordinator role.",
   inactive: "That coordinator is inactive.",
+  same_coordinator: "This event already belongs to that coordinator. Pick a different one.",
   unknown_user: "That person no longer exists. Reload and pick again.",
 };
 
@@ -36,6 +37,8 @@ function errorMessage(error: unknown): string {
   if (error.code === "FORBIDDEN") return "Only the Event Coordinator Lead can assign. Switch \"Acting as\" to Coordinator Lead.";
   if (error.code === "NOT_FOUND") return "This request is no longer available.";
   if (error.code === "ASSIGNMENT_NOT_ALLOWED") return "This request is no longer waiting for a coordinator. It has been assigned or moved on.";
+  if (error.code === "REASSIGNMENT_NOT_ALLOWED") return "This event can no longer be reassigned. It has no coordinator or has been rejected, cancelled or completed.";
+  if (error.code === "MISSING_REQUIRED_FIELD") return "Give a reason for the reassignment.";
   if (error.code === "INVALID_STATUS_FILTER") return "That status can't be filtered here. Pick an active status.";
   if (error.code === "INVALID_COORDINATOR") {
     const reason = error.body.reason;
@@ -73,6 +76,9 @@ export function AssignmentQueuePage() {
   const [coordinators, setCoordinators] = useState<CoordinatorOption[]>([]);
   const [picked, setPicked] = useState("");
   const [assignedTo, setAssignedTo] = useState<string | null>(null);
+  // SCRUM-83: the assign screen doubles as the reassign screen, which also asks for a reason.
+  const [reassigning, setReassigning] = useState(false);
+  const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -153,13 +159,16 @@ export function AssignmentQueuePage() {
     }
   }
 
-  async function startAssigning(request: UnassignedRequest) {
+  async function startAssigning(request: UnassignedRequest, reassign = false) {
     setError(null);
     try {
       const response = await apiClient.get<CoordinatorOptionsResponse>("/api/v1/coordinators");
-      setCoordinators(response.coordinators);
+      // AC 2, 5: only a different coordinator can be picked, so the current one isn't offered.
+      setCoordinators(response.coordinators.filter((person) => !reassign || person.id !== request.coordinator?.id));
       setActive(request);
       setPicked("");
+      setReason("");
+      setReassigning(reassign);
       setScreen("assign");
     } catch (reason) {
       setError(errorMessage(reason));
@@ -168,12 +177,21 @@ export function AssignmentQueuePage() {
 
   async function confirmAssignment() {
     if (!active || !picked) return;
+    if (reassigning && !reason.trim()) {
+      setError("Give a reason for the reassignment.");
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
-      const result = await apiClient.post<EventRequest>(`/api/v1/event-requests/${active.id}/assignment`, {
-        coordinator_id: picked,
-      });
+      const result = reassigning
+        ? await apiClient.post<EventRequest>(`/api/v1/event-requests/${active.id}/reassignment`, {
+            coordinator_id: picked,
+            reason: reason.trim(),
+          })
+        : await apiClient.post<EventRequest>(`/api/v1/event-requests/${active.id}/assignment`, {
+            coordinator_id: picked,
+          });
       // AC 5: the request leaves the queue once it's assigned.
       setRequests((current) => current.filter((request) => request.id !== active.id));
       setAssignedTo(result.coordinator?.name ?? null);
@@ -182,6 +200,7 @@ export function AssignmentQueuePage() {
       setFilterStatus("");
       setAssignedLoaded(false);
       setAssignedVersion((version) => version + 1);
+      setActive({ ...active, coordinator: result.coordinator });
       setScreen("done");
     } catch (reason) {
       setError(errorMessage(reason));
@@ -198,6 +217,7 @@ export function AssignmentQueuePage() {
     setScreen("queue");
     setActive(null);
     setAssignedTo(null);
+    setReassigning(false);
     setError(null);
   }
 
@@ -210,12 +230,16 @@ export function AssignmentQueuePage() {
             {screen === "queue"
               ? "Unassigned requests"
               : screen === "assign"
-                ? "Assign a coordinator"
+                ? reassigning
+                  ? "Reassign an event"
+                  : "Assign a coordinator"
                 : screen === "history"
                   ? "Assignment history"
                   : screen === "detail"
                     ? "Request details"
-                    : "Assignment complete"}
+                    : reassigning
+                      ? "Reassignment complete"
+                      : "Assignment complete"}
           </h1>
         </div>
         {(screen === "assign" || screen === "history" || screen === "detail") && (
@@ -353,6 +377,7 @@ export function AssignmentQueuePage() {
         <LeadRequestDetail
           request={active}
           onAssign={() => void startAssigning(active)}
+          onReassign={() => void startAssigning(active, true)}
           onHistory={() => void openHistory(active)}
         />
       )}
@@ -372,6 +397,7 @@ export function AssignmentQueuePage() {
                   <strong>{entry.kind === "reassignment" ? "Reassignment" : "Assignment"}</strong>
                   <span>
                     {entry.assigned_by.name} assigned <strong>{entry.coordinator.name}</strong>
+                    {entry.reason && <em className="assign-history__reason">Reason: {entry.reason}</em>}
                   </span>
                   <time dateTime={entry.created_at}>{when(entry.created_at)}</time>
                 </li>
@@ -382,15 +408,21 @@ export function AssignmentQueuePage() {
       )}
 
       {screen === "assign" && active && (
-        <section className="request-form" aria-label="Assign a coordinator">
+        <section className="request-form" aria-label={reassigning ? "Reassign an event" : "Assign a coordinator"}>
           <div className="clarify-summary">
             <strong>{active.name || "Untitled event request"}</strong>
             {active.request_reference && <code>{active.request_reference}</code>}
             <span className={`request-status request-status--${active.status}`}>{statusLabel(active.status)}</span>
           </div>
+          {reassigning && active.coordinator && (
+            <p className="request-notice">
+              Currently with <strong>{active.coordinator.name}</strong>. They will lose access, and everything linked to
+              the event moves to the coordinator you pick.
+            </p>
+          )}
 
           {coordinators.length === 0 ? (
-            <p className="request-notice">There are no active coordinators to assign.</p>
+            <p className="request-notice">There are no other active coordinators to assign.</p>
           ) : (
             <fieldset className="assign-picker">
               <legend>Event Coordinator</legend>
@@ -413,6 +445,21 @@ export function AssignmentQueuePage() {
             </fieldset>
           )}
 
+          {reassigning && (
+            <label className="assign-reason">
+              Reason for reassigning
+              <textarea
+                value={reason}
+                maxLength={1000}
+                rows={3}
+                onChange={(event) => {
+                  setReason(event.target.value);
+                  setError(null);
+                }}
+              />
+            </label>
+          )}
+
           <div className="request-form__actions">
             <button className="request-button request-button--quiet" type="button" onClick={backToQueue}>
               Cancel
@@ -420,10 +467,10 @@ export function AssignmentQueuePage() {
             <button
               className="request-button request-button--primary"
               type="button"
-              disabled={!picked || saving}
+              disabled={!picked || (reassigning && !reason.trim()) || saving}
               onClick={() => void confirmAssignment()}
             >
-              {saving ? "Assigning…" : "Confirm assignment"}
+              {saving ? (reassigning ? "Reassigning…" : "Assigning…") : reassigning ? "Confirm reassignment" : "Confirm assignment"}
             </button>
           </div>
         </section>
@@ -432,9 +479,10 @@ export function AssignmentQueuePage() {
       {screen === "done" && active && (
         <section className="request-confirmation" aria-labelledby="assigned-title">
           <span className="request-confirmation__mark" aria-hidden="true">✓</span>
-          <h2 id="assigned-title">Coordinator assigned</h2>
+          <h2 id="assigned-title">{reassigning ? "Event reassigned" : "Coordinator assigned"}</h2>
           <p>
-            {active.name || "The request"} is assigned to <strong>{assignedTo}</strong> and is now under review.
+            {active.name || "The request"} is {reassigning ? "now with" : "assigned to"} <strong>{assignedTo}</strong>
+            {reassigning ? ". Everyone involved has been told." : " and is now under review."}
           </p>
           <div className="request-form__actions">
             <button className="request-button request-button--quiet" type="button" onClick={() => void openHistory(active)}>

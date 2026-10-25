@@ -363,3 +363,82 @@ describe("Coordinator Lead: queue and oversight view (US19)", () => {
     expect(refused.status).toBe(403);
   });
 });
+
+describe("Coordinator Lead: reassign an event (US10e)", () => {
+  async function openDetail(user: ReturnType<typeof userEvent.setup>, name: string) {
+    await openEventRequestsAs(user, "coordinator_lead");
+    await user.click(await screen.findByRole("tab", { name: "Assigned" }));
+    await user.click(await screen.findByRole("button", { name: `View ${name}` }));
+    return screen.findByRole("region", { name: "Request details" });
+  }
+
+  it("TC-US10E-25: moves the event to a different coordinator with a reason, and the history shows both", async () => {
+    db.otherCoordinators.push(DANA);
+    seedAssigned({ name: "Careers fair" });
+    const user = userEvent.setup();
+    const detail = await openDetail(user, "Careers fair");
+
+    await user.click(within(detail).getByRole("button", { name: "Reassign to another coordinator" }));
+    expect(await screen.findByRole("heading", { name: "Reassign an event" })).toBeInTheDocument();
+    // AC 5: the current coordinator isn't offered; nothing can be confirmed without a pick and a reason.
+    expect(screen.queryByLabelText(/Casey Tan/)).not.toBeInTheDocument();
+    const confirm = screen.getByRole("button", { name: "Confirm reassignment" });
+    expect(confirm).toBeDisabled();
+    await user.click(screen.getByLabelText(/Dana Lim/));
+    expect(confirm).toBeDisabled();
+    await user.type(screen.getByLabelText("Reason for reassigning"), "Casey is on leave");
+    await user.click(confirm);
+
+    expect(await screen.findByRole("heading", { name: "Event reassigned" })).toBeInTheDocument();
+    expect(screen.getByText("Dana Lim", { selector: "strong" })).toBeInTheDocument();
+    expect(callsTo("POST", /\/reassignment$/)[0].body).toEqual({ coordinator_id: DANA.id, reason: "Casey is on leave" });
+    expect(db.requests.find((r) => r.name === "Careers fair")?.coordinator?.id).toBe(DANA.id);
+
+    await user.click(screen.getByRole("button", { name: "View assignment history" }));
+    const entries = within(await screen.findByRole("region", { name: "Assignment history" })).getAllByRole("listitem");
+    expect(entries[0]).toHaveTextContent("Reassignment");
+    expect(entries[0]).toHaveTextContent("Dana Lim");
+    expect(entries[0]).toHaveTextContent("Reason: Casey is on leave");
+  });
+
+  it("TC-US10E-26: offers Reassign only on an active event that has a coordinator (AC 1)", async () => {
+    seedAssigned({ name: "Careers fair" });
+    seedRequest({ status: "submitted", name: "Alumni night" });
+    const user = userEvent.setup();
+    await openEventRequestsAs(user, "coordinator_lead");
+
+    await user.click(await screen.findByRole("button", { name: "View Alumni night" }));
+    const unassigned = await screen.findByRole("region", { name: "Request details" });
+    expect(within(unassigned).queryByRole("button", { name: /Reassign/ })).not.toBeInTheDocument();
+  });
+
+  it("TC-US10E-27: says why when the backend refuses, and changes nothing", async () => {
+    db.otherCoordinators.push(DANA);
+    seedAssigned({ name: "Careers fair" });
+    server.use(
+      http.post("http://api.test/api/v1/event-requests/:id/reassignment", () =>
+        HttpResponse.json({ code: "REASSIGNMENT_NOT_ALLOWED", status: "completed" }, { status: 409 }),
+      ),
+    );
+    const user = userEvent.setup();
+    const detail = await openDetail(user, "Careers fair");
+    await user.click(within(detail).getByRole("button", { name: "Reassign to another coordinator" }));
+    await user.click(await screen.findByLabelText(/Dana Lim/));
+    await user.type(screen.getByLabelText("Reason for reassigning"), "Leave");
+    await user.click(screen.getByRole("button", { name: "Confirm reassignment" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("can no longer be reassigned");
+    expect(screen.getByRole("heading", { name: "Reassign an event" })).toBeInTheDocument();
+    expect(db.requests.find((r) => r.name === "Careers fair")?.coordinator?.id).toBe(COORDINATOR_PERSON.id);
+  });
+
+  it("TC-US10E-28: says there is nobody else to pick when Casey is the only coordinator", async () => {
+    seedAssigned({ name: "Careers fair" });
+    const user = userEvent.setup();
+    const detail = await openDetail(user, "Careers fair");
+    await user.click(within(detail).getByRole("button", { name: "Reassign to another coordinator" }));
+
+    expect(await screen.findByText("There are no other active coordinators to assign.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirm reassignment" })).toBeDisabled();
+  });
+});

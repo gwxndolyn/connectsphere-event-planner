@@ -30,7 +30,7 @@ from tests.factories import NOW, make_attendee, make_event, make_registration, m
 
 pytestmark = pytest.mark.anyio
 
-REVISION = "20261030_1200_us16b_d51_checks"
+REVISION = "20261031_1200_us16b_d51_checks"
 QUESTION = {"sections": ["attendance"], "comment": "How many people are coming?"}
 FORBIDDEN = {"code": "FORBIDDEN"}
 NOT_FOUND = {"code": "NOT_FOUND"}
@@ -245,6 +245,9 @@ ROUTES = [
     ("GET", "/api/v1/coordinators", {LEAD}),
     ("POST", "/api/v1/event-requests/{request_id}/assignment", {LEAD}),
     ("GET", "/api/v1/event-requests/{request_id}/assignment-history", {LEAD}),
+    # SCRUM-83 (#89): only the Lead reassigns; the event's coordinator may ask for a transfer.
+    ("POST", "/api/v1/event-requests/{request_id}/reassignment", {LEAD}),
+    ("POST", "/api/v1/event-requests/{request_id}/transfer-request", {COORDINATOR}),
     ("POST", "/api/v1/event-requests/{request_id}/approve", {COORDINATOR}),
     ("POST", "/api/v1/event-requests/{request_id}/reject", {COORDINATOR}),
     ("POST", "/api/v1/event-requests/{request_id}/clarifications", {COORDINATOR}),
@@ -513,6 +516,15 @@ async def request_by_its_lead(client: AsyncClient, db: Session) -> tuple[User, u
     return both, await submitted_request(client, both), {"coordinator_id": str(coordinator.id)}
 
 
+async def assigned_request_by_its_lead(client: AsyncClient, db: Session) -> tuple[User, uuid.UUID, dict]:
+    both = make_user(db, UserRole.ORGANISER, UserRole.COORDINATOR_LEAD)
+    request_id = await submitted_request(client, both)
+    event = assign(db, request_id, make_user(db, UserRole.COORDINATOR))
+    event.status = EventStatus.UNDER_REVIEW
+    db.flush()
+    return both, request_id, {"coordinator_id": str(make_user(db, UserRole.COORDINATOR).id), "reason": "Workload."}
+
+
 async def request_by_its_coordinator(client: AsyncClient, db: Session) -> tuple[User, uuid.UUID, dict]:
     both = make_user(db, UserRole.ORGANISER, UserRole.COORDINATOR)
     request_id = await submitted_request(client, both)
@@ -528,12 +540,13 @@ DECISIONS = {
     ("POST", "/api/v1/venue-bookings/{booking_id}/reject"): booking_by_its_decider,
     ("POST", "/api/v1/equipment-lines/{line_id}/review"): line_by_its_reviewer,
     ("POST", "/api/v1/event-requests/{request_id}/assignment"): request_by_its_lead,
+    ("POST", "/api/v1/event-requests/{request_id}/reassignment"): assigned_request_by_its_lead,
     ("POST", "/api/v1/event-requests/{request_id}/approve"): request_by_its_coordinator,
     ("POST", "/api/v1/event-requests/{request_id}/reject"): request_by_its_coordinator,
 }
 
 
-DECISION_VERBS = {"approve", "reject", "review", "assignment"}
+DECISION_VERBS = {"approve", "reject", "review", "assignment", "reassignment"}
 
 
 def test_tc_us16b_25_28_every_decision_route_is_tried() -> None:
@@ -563,35 +576,54 @@ async def test_tc_us16b_25_28_every_decision_route_refuses_its_creator(
 # --- TC-US16B-31 a request whose coordinator is deactivated (D48, PR #88 review) ---
 
 
-async def test_tc_us16b_31_a_deactivated_coordinators_request_waits_for_the_lead(
-    client: AsyncClient, db: Session
-) -> None:
-    """Recorded behaviour, not a goal: only the Lead can still see the request, and nobody can act on it
-    until reassigning exists (SCRUM-83). Until then, claude_instructions.md §1a's runbook moves a
-    coordinator's events before they're deactivated."""
+async def test_tc_us16b_31_the_lead_moves_a_deactivated_coordinators_request(client: AsyncClient, db: Session) -> None:
+    """Since SCRUM-83 the Lead reassigns, so a deactivated coordinator's request no longer waits with
+    nobody able to act on it (PR #88 review)."""
     organiser = make_user(db, UserRole.ORGANISER)
     coordinator_a = make_user(db, UserRole.COORDINATOR)
     coordinator_b = make_user(db, UserRole.COORDINATOR)
     lead = make_user(db, UserRole.COORDINATOR_LEAD)
     request_id = await submitted_request(client, organiser)
-    assign(db, request_id, coordinator_a)
+    event = assign(db, request_id, coordinator_a)
+    event.status = EventStatus.UNDER_REVIEW
     coordinator_a.is_active = False
     db.flush()
     details = f"/api/v1/event-requests/{request_id}"
 
     as_a = await client.get(details, headers=auth(coordinator_a))
-    as_b = await client.get(details, headers=auth(coordinator_b))
-    b_clarifies = await client.post(f"{details}/clarifications", headers=auth(coordinator_b), json=QUESTION)
-    as_lead = await client.get(details, headers=auth(lead))
-    lead_reassigns = await client.post(
-        f"{details}/assignment", headers=auth(lead), json={"coordinator_id": str(coordinator_b.id)}
+    b_before = await client.get(details, headers=auth(coordinator_b))
+    moved = await client.post(
+        f"{details}/reassignment",
+        headers=auth(lead),
+        json={"coordinator_id": str(coordinator_b.id), "reason": "Casey has left."},
     )
+    b_after = await client.get(details, headers=auth(coordinator_b))
+    b_clarifies = await client.post(f"{details}/clarifications", headers=auth(coordinator_b), json=QUESTION)
 
     assert (as_a.status_code, as_a.json()) == (403, FORBIDDEN)
-    assert [(r.status_code, r.json()) for r in (as_b, b_clarifies)] == [(404, NOT_FOUND)] * 2
-    assert as_lead.status_code == 200
-    assert lead_reassigns.status_code == 409
-    assert lead_reassigns.json()["code"] == "ASSIGNMENT_NOT_ALLOWED"
+    assert (b_before.status_code, b_before.json()) == (404, NOT_FOUND)
+    assert moved.status_code == 200
+    assert (b_after.status_code, b_clarifies.status_code) == (200, 201)
+
+
+async def test_tc_us16b_28_a_request_cant_be_reassigned_to_its_creator(client: AsyncClient, db: Session) -> None:
+    coordinator_and_organiser = make_user(db, UserRole.ORGANISER, UserRole.COORDINATOR)
+    lead = make_user(db, UserRole.COORDINATOR_LEAD)
+    request_id = await submitted_request(client, coordinator_and_organiser)
+    current = make_user(db, UserRole.COORDINATOR)
+    event = assign(db, request_id, current)
+    event.status = EventStatus.UNDER_REVIEW
+    db.flush()
+
+    response = await client.post(
+        f"/api/v1/event-requests/{request_id}/reassignment",
+        headers=auth(lead),
+        json={"coordinator_id": str(coordinator_and_organiser.id), "reason": "They know it best."},
+    )
+
+    assert (response.status_code, response.json()) == (422, {"code": "INVALID_COORDINATOR", "reason": "created_the_request"})
+    db.refresh(event)
+    assert event.coordinator_id == current.id
 
 
 # --- TC-US16B-29 the database refuses a self-decision too (D51) ---

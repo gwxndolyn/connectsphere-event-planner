@@ -6,17 +6,21 @@ import "./assignments.css";
 interface Props {
   request: EventRequest | UnassignedRequest;
   onAssign: () => void;
+  onReassign: () => void;
   onHistory: () => void;
 }
+
+// SCRUM-83 AC 1: an event with a coordinator can move unless it is Cancelled, Completed or Rejected.
+const REASSIGNABLE = ["under_review", "awaiting_clarification", "approved", "planning", "confirmed"];
 
 function value(text: string | number | null | undefined): string {
   return text === null || text === undefined || text === "" ? "Not set" : String(text);
 }
 
 /** SCRUM-86 AC 4: the Lead's read-only view of a listed event. The only actions are starting an
- * assignment (an unassigned request) and reading its history; approving, rejecting and confirming
- * belong to other roles. Reassigning arrives with US10e (SCRUM-83). */
-export function LeadRequestDetail({ request, onAssign, onHistory }: Props) {
+ * assignment (an unassigned request), reassigning (an active event with a coordinator, SCRUM-83) and
+ * reading its history; approving, rejecting and confirming belong to other roles. */
+export function LeadRequestDetail({ request, onAssign, onReassign, onHistory }: Props) {
   const organiser = "organiser" in request ? request.organiser : null;
   const rows: [string, string][] = [
     ["Reference", value(request.request_reference)],
@@ -47,9 +51,16 @@ export function LeadRequestDetail({ request, onAssign, onHistory }: Props) {
       </dl>
       <div className="request-form__actions">
         {request.coordinator ? (
-          <button className="request-button request-button--quiet" type="button" onClick={onHistory}>
-            Assignment history
-          </button>
+          <>
+            <button className="request-button request-button--quiet" type="button" onClick={onHistory}>
+              Assignment history
+            </button>
+            {REASSIGNABLE.includes(request.status) && (
+              <button className="request-button request-button--primary" type="button" onClick={onReassign}>
+                Reassign to another coordinator
+              </button>
+            )}
+          </>
         ) : (
           <button className="request-button request-button--primary" type="button" onClick={onAssign}>
             Assign a coordinator

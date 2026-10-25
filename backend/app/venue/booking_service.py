@@ -339,12 +339,14 @@ class VenueBookingService:
         return booking, event, venue
 
     def withdraw(self, db: Session, coordinator: User, booking_id: uuid.UUID, now: datetime) -> VenueBookingOut:
-        """AC 5: a pending request can be withdrawn by the coordinator who made it, which frees the
-        window. Anyone else's booking is 404, never 403."""
+        """AC 5: a pending request can be withdrawn by the coordinator now assigned to its event, which
+        frees the window. After a reassignment (SCRUM-83) that is the new coordinator, not whoever
+        made the request. Anyone else's booking is 404, never 403."""
         booking = db.scalars(
             select(VenueBooking).where(VenueBooking.id == booking_id).with_for_update()
         ).one_or_none()
-        if booking is None or booking.requested_by_user_id != coordinator.id:
+        event = db.get(Event, booking.event_id) if booking is not None else None
+        if booking is None or event is None or not may_book(event, coordinator):
             raise DomainError(404, "NOT_FOUND")
         if booking.status != VenueBookingStatus.REQUESTED:
             raise DomainError(409, "BOOKING_NOT_PENDING", status=booking.status.value)

@@ -81,6 +81,32 @@
   background: var(--surface, #fff);
 }
 
+.assign-history__reason {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-style: normal;
+  overflow-wrap: anywhere;
+}
+
+.assign-reason {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 16px 0;
+  font-weight: 600;
+}
+
+.assign-reason textarea {
+  padding: 10px 12px;
+  border: 1px solid var(--border, #d9dde3);
+  border-radius: 8px;
+  font: inherit;
+  font-weight: 400;
+  resize: vertical;
+}
+
 .assign-history__entry time {
   color: var(--text-muted);
   font-size: 13px;
