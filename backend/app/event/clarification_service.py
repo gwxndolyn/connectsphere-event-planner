@@ -56,6 +56,8 @@ class ClarificationService:
         # Drafts and finished events are invisible to coordinators (D11), so they 404, not 409.
         if event is None or event.status not in SUBMITTED_REQUEST_STATUSES:
             raise DomainError(404, "NOT_FOUND")
+        if event.coordinator_id not in (None, coordinator.id):
+            raise DomainError(404, "NOT_FOUND")  # SCRUM-83 AC 3: another coordinator's event
         if event.status not in CLARIFIABLE_STATUSES:
             raise DomainError(409, "CLARIFICATION_NOT_ALLOWED", status=event.status.value)
 

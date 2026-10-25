@@ -39,7 +39,7 @@ class EventStatus(enum.StrEnum):
 
 class AssignmentKind(enum.StrEnum):
     ASSIGNMENT = "assignment"
-    REASSIGNMENT = "reassignment"  # written by US10e (SCRUM-83); the history already has room for it
+    REASSIGNMENT = "reassignment"  # SCRUM-83 (US10e); always carries a reason
 
 
 class DeliveryMode(enum.StrEnum):
@@ -188,12 +188,20 @@ class CoordinatorAssignment(Base):
     and when. Written in the same transaction as the change to `events.coordinator_id`; never edited."""
 
     __tablename__ = "coordinator_assignments"
+    __table_args__ = (
+        CheckConstraint(
+            "kind::text <> 'reassignment' OR (reason IS NOT NULL AND btrim(reason) <> '')",
+            name="coordinator_assignments_reassignment_has_reason",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, server_default=text("gen_random_uuid()"))
     event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id"), index=True)
     assigned_by_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     coordinator_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     kind: Mapped[AssignmentKind] = mapped_column(pg_enum(AssignmentKind, "assignment_kind"))
+    # The Lead's reason for a reassignment (SCRUM-83 AC 2); null on an assignment.
+    reason: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     assigned_by: Mapped["User"] = relationship(foreign_keys=[assigned_by_user_id])

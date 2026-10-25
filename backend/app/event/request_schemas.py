@@ -123,6 +123,23 @@ class AssignmentWrite(BaseModel):
     coordinator_id: uuid.UUID
 
 
+class ReassignmentWrite(BaseModel):
+    """SCRUM-83 AC 2: the different coordinator and why. A blank reason is refused by the service."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    coordinator_id: uuid.UUID
+    reason: str = Field(max_length=1000)
+
+
+class TransferRequestWrite(BaseModel):
+    """SCRUM-83 AC 6: a coordinator asks the Lead to move their event, with a reason."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(max_length=1000)
+
+
 class AssignmentRecordOut(BaseModel):
     """One Assignment History entry (SCRUM-69 AC 3): whether it was an assignment or a reassignment,
     the Lead who did it, the coordinator and when."""
@@ -133,6 +150,7 @@ class AssignmentRecordOut(BaseModel):
     kind: AssignmentKind
     assigned_by: PersonOut
     coordinator: PersonOut
+    reason: str | None = None
     created_at: datetime
 
 

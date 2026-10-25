@@ -181,6 +181,151 @@ class AssignmentService:
         self._notify(db, request_id, notifier, coordinator_email, organiser_id, *notice)
         return result
 
+    def reassign(
+        self,
+        db: Session,
+        request_id: uuid.UUID,
+        lead: User,
+        coordinator_id: uuid.UUID,
+        reason: str,
+        notifier: Notifier,
+    ) -> EventRequestOut:
+        """SCRUM-83 (US10e): the Lead moves an event to a different active coordinator, with a reason.
+        Everything linked to the event is keyed by the event and read through `events.coordinator_id`
+        (D20), so changing that one column and writing the history row, in one transaction, moves it
+        all. A refusal changes nothing and notifies no one."""
+        event = db.scalars(select(Event).where(Event.id == request_id).with_for_update()).one_or_none()
+        if event is None or event.status == EventStatus.DRAFT:
+            raise DomainError(404, "NOT_FOUND")
+        if event.coordinator_id is None or event.status not in REASSIGNABLE_STATUSES:
+            raise DomainError(409, "REASSIGNMENT_NOT_ALLOWED", status=event.status.value)
+        reason = reason.strip()
+        if not reason:
+            raise DomainError(422, "MISSING_REQUIRED_FIELD", fields=["reason"])
+        if coordinator_id == event.coordinator_id:
+            raise DomainError(422, "INVALID_COORDINATOR", reason="same_coordinator")
+
+        coordinator = self._eligible_coordinator(db, lead, coordinator_id)
+        previous = event.coordinator
+        event.coordinator = coordinator
+        db.add(
+            CoordinatorAssignment(
+                event_id=event.id,
+                assigned_by_user_id=lead.id,
+                coordinator_id=coordinator.id,
+                kind=AssignmentKind.REASSIGNMENT,
+                reason=reason,
+            )
+        )
+
+        db.flush()
+        result = EventRequestOut.model_validate(event)
+        notice = (
+            event.request_reference,
+            event.name,
+            previous.display_name,
+            coordinator.display_name,
+            list(event.preferred_dates or []),
+            reason,
+        )
+        emails = {"new_coordinator": coordinator.email, "previous_coordinator": previous.email}
+        organiser_id = event.created_by_user_id
+        db.commit()
+
+        self._notify_reassigned(db, request_id, notifier, emails, organiser_id, *notice)
+        return result
+
+    def request_transfer(
+        self,
+        db: Session,
+        request_id: uuid.UUID,
+        coordinator: User,
+        reason: str,
+        notifier: Notifier,
+    ) -> None:
+        """SCRUM-83 AC 6: the event's coordinator asks the Lead for a transfer. Nothing moves; every
+        active Lead is told, with the reason. Anyone else's event is a 404."""
+        event = db.get(Event, request_id)
+        if event is None or event.coordinator_id != coordinator.id:
+            raise DomainError(404, "NOT_FOUND")
+        if event.status not in REASSIGNABLE_STATUSES:
+            raise DomainError(409, "REASSIGNMENT_NOT_ALLOWED", status=event.status.value)
+        reason = reason.strip()
+        if not reason:
+            raise DomainError(422, "MISSING_REQUIRED_FIELD", fields=["reason"])
+
+        request_reference = event.request_reference or MISSING_REFERENCE
+        event_name = event.name or MISSING_NAME
+        coordinator_name = coordinator.display_name
+        try:
+            leads = db.scalars(
+                select(User).where(User.roles.any(UserRole.COORDINATOR_LEAD), User.is_active.is_(True))
+            ).all()
+        except Exception:
+            logger.exception("could not look up Coordinator Leads for request %s", request_id)
+            return
+        if not leads:
+            logger.warning("could not notify a Coordinator Lead about request %s: none is active", request_id)
+        for lead in leads:
+            try:
+                notifier.transfer_requested(
+                    email=lead.email,
+                    request_reference=request_reference,
+                    event_name=event_name,
+                    coordinator_name=coordinator_name,
+                    reason=reason,
+                )
+            except Exception:
+                logger.exception("could not tell Lead %s about the transfer request for %s", lead.id, request_id)
+
+    def _notify_reassigned(
+        self,
+        db: Session,
+        request_id: uuid.UUID,
+        notifier: Notifier,
+        coordinator_emails: dict[str, str],
+        organiser_id: uuid.UUID | None,
+        request_reference: str | None,
+        event_name: str | None,
+        previous_name: str,
+        new_name: str,
+        event_dates: list[date],
+        reason: str,
+    ) -> None:
+        """SCRUM-68's last AC: the organiser and both coordinators hear the event moved, after the
+        commit and best effort, as for an assignment: a failure is logged, never undoes the move, and
+        one recipient failing doesn't stop the others."""
+        if not request_reference or not event_name:
+            logger.warning("reassignment notices for request %s are missing request details", request_id)
+        request_reference = request_reference or MISSING_REFERENCE
+        event_name = event_name or MISSING_NAME
+
+        recipients = list(coordinator_emails.items())
+        try:
+            organiser = db.get(User, organiser_id) if organiser_id else None
+        except Exception:
+            logger.exception("could not look up the organiser of request %s", request_id)
+            organiser = None
+        if organiser is None or not organiser.email:
+            logger.warning("could not notify the organiser of request %s: no owner or email", request_id)
+        else:
+            recipients.append(("organiser", organiser.email))
+
+        for recipient, email in recipients:
+            try:
+                notifier.event_reassigned(
+                    email=email,
+                    recipient=recipient,  # type: ignore[arg-type]
+                    request_reference=request_reference,
+                    event_name=event_name,
+                    previous_coordinator_name=previous_name,
+                    new_coordinator_name=new_name,
+                    event_dates=event_dates,
+                    reason=reason,
+                )
+            except Exception:
+                logger.exception("could not send the %s reassignment notice for request %s", recipient, request_id)
+
     def _notify(
         self,
         db: Session,
@@ -242,6 +387,9 @@ class AssignmentService:
             raise DomainError(422, "INVALID_COORDINATOR", reason="inactive")
         return coordinator
 
+
+# SCRUM-83 AC 1: an event with a coordinator can move unless it is Cancelled, Completed or Rejected.
+REASSIGNABLE_STATUSES = ACTIVE_ASSIGNED_STATUSES
 
 NOT_A_REQUEST_STATUSES = (
     EventStatus.DRAFT,

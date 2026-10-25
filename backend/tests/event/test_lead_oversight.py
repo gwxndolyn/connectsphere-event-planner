@@ -136,6 +136,7 @@ async def test_tc_us19_05_a_later_reassignment_moves_the_event_to_the_lead_who_d
             assigned_by_user_id=other_lead.id,
             coordinator_id=casey.id,
             kind=AssignmentKind.REASSIGNMENT,
+            reason="Covering leave",
             created_at=datetime(2999, 1, 1, tzinfo=timezone.utc),
         )
     )

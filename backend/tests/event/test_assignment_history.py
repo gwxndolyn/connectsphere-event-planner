@@ -37,8 +37,9 @@ def coordinator(db: Session) -> User:
 def test_tc_us10d_01_the_history_table_is_installed(db: Session, engine) -> None:
     inspector = inspect(engine)
     columns = {c["name"]: c for c in inspector.get_columns("coordinator_assignments")}
-    assert set(columns) == {"id", "event_id", "assigned_by_user_id", "coordinator_id", "kind", "created_at"}
-    assert not any(column["nullable"] for column in columns.values())
+    assert set(columns) == {"id", "event_id", "assigned_by_user_id", "coordinator_id", "kind", "reason", "created_at"}
+    # Only the reason may be empty: an assignment has none (US10e, SCRUM-83).
+    assert {name for name, column in columns.items() if column["nullable"]} == {"reason"}
     referred = {fk["constrained_columns"][0]: fk["referred_table"] for fk in inspector.get_foreign_keys("coordinator_assignments")}
     assert referred == {"event_id": "events", "assigned_by_user_id": "users", "coordinator_id": "users"}
 
@@ -119,6 +120,7 @@ async def test_tc_us10d_06_records_are_listed_newest_first_with_reassignments_ma
             assigned_by_user_id=lead.id,
             coordinator_id=other.id,
             kind=AssignmentKind.REASSIGNMENT,
+            reason="Covering leave",
             created_at=first.created_at + timedelta(hours=1),
         )
     )
