@@ -174,7 +174,7 @@ export function VenueBookingForm({ event, onBooked, onCancel }: VenueBookingForm
             id="venue-booking-starts_at"
             type="time"
             value={form.startTime}
-            onChange={(changed) => update("startTime", changed.target.value, "starts_at")}
+            onChange={(changed) => update("startTime", changed.target.value, "starts_at", "ends_at")}
             {...invalid("starts_at")}
           />,
         )}
@@ -185,7 +185,7 @@ export function VenueBookingForm({ event, onBooked, onCancel }: VenueBookingForm
             id="venue-booking-ends_at"
             type="time"
             value={form.endTime}
-            onChange={(changed) => update("endTime", changed.target.value, "ends_at")}
+            onChange={(changed) => update("endTime", changed.target.value, "starts_at", "ends_at")}
             {...invalid("ends_at")}
           />,
         )}

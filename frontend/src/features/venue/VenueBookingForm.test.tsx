@@ -215,6 +215,28 @@ describe("VenueBookingForm buffers (US13, SCRUM-116)", () => {
     expect(end).not.toHaveAttribute("aria-invalid");
   });
 
+  it("clears VENUE_OUTSIDE_HOURS on the end time when the start time is edited (PR #83 review)", async () => {
+    create.mockRejectedValue(
+      new ApiError(422, "VENUE_OUTSIDE_HOURS", ["ends_at"], {
+        opens_at: "08:00:00",
+        closes_at: "16:00:00",
+        occupied: { starts_at: "2026-11-20T06:00:00+00:00", ends_at: "2026-11-20T08:15:00+00:00" },
+      }),
+    );
+    const { user } = await renderForm();
+
+    await user.selectOptions(screen.getByLabelText("Venue"), "venue-1");
+    await user.selectOptions(screen.getByLabelText("Layout"), "theatre");
+    await user.click(screen.getByRole("button", { name: "Send request" }));
+
+    const end = screen.getByLabelText("End time");
+    expect(end).toHaveAttribute("aria-invalid", "true");
+
+    await user.clear(screen.getByLabelText("Start time"));
+    expect(end).not.toHaveAttribute("aria-invalid");
+    expect(screen.queryByText("With turnaround, ends after the venue closes at 4:00 PM.")).not.toBeInTheDocument();
+  });
+
   it("shows VENUE_UNAVAILABLE's overlap period on the start time (TC-US13-17, AC 3, 4)", async () => {
     create.mockRejectedValue(
       new ApiError(409, "VENUE_UNAVAILABLE", [], {
