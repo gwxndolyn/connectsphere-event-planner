@@ -110,7 +110,7 @@ class AssignmentService:
                 Event,
                 and_(Event.coordinator_id == User.id, Event.status.in_(WORKLOAD_STATUSES)),
             )
-            .where(User.role == UserRole.COORDINATOR, User.is_active.is_(True))
+            .where(User.roles.any(UserRole.COORDINATOR), User.is_active.is_(True))
             .group_by(User.id)
             .order_by(User.full_name, User.email)
         ).all()
@@ -236,7 +236,7 @@ class AssignmentService:
         coordinator = db.get(User, coordinator_id)
         if coordinator is None:
             raise DomainError(422, "INVALID_COORDINATOR", reason="unknown_user")
-        if coordinator.role != UserRole.COORDINATOR:
+        if not coordinator.holds(UserRole.COORDINATOR):
             raise DomainError(422, "INVALID_COORDINATOR", reason="not_a_coordinator")
         if not coordinator.is_active:
             raise DomainError(422, "INVALID_COORDINATOR", reason="inactive")

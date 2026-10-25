@@ -26,15 +26,12 @@ from app.venue.models import (
 )
 from app.venue.schemas import VenueOut, VenueSearchCriteria, VenueSearchOut, VenueWrite
 
-# DECISION-PENDING: D19 — Venue Staff arrives with US16b (SCRUM-82), which adds the enum value.
-# Until then operations_manager stands in, so this user can also read the event-request queue
-# (D11). US16b changes this one line to (UserRole.VENUE_STAFF,).
-VENUE_STAFF_ROLES = (UserRole.OPERATIONS_MANAGER,)
+# US16b (SCRUM-119) made Venue Staff a real role, retiring D19's operations_manager stand-in (D49).
+VENUE_STAFF_ROLES = (UserRole.VENUE_STAFF,)
 
-# DECISION-PENDING: D25 — US2 is the Event Coordinator's story. Coordinators search, and so does
-# operations_manager, which stands in for Venue Staff (D19)
-# until US16b. Organisers and attendees get 403.
-VENUE_SEARCH_ROLES = (UserRole.COORDINATOR, UserRole.OPERATIONS_MANAGER)
+# DECISION-PENDING: D25 — US2 is the Event Coordinator's story. Coordinators search, and so do
+# Venue Staff. Organisers and attendees get 403.
+VENUE_SEARCH_ROLES = (UserRole.COORDINATOR, UserRole.VENUE_STAFF)
 SEARCH_REQUIRED_FIELDS = ("date", "start_time", "end_time", "attendees")
 # Every venue and requested time is Singapore wall-clock (D9, TC-X-01).
 VENUE_TIMEZONE = ZoneInfo("Asia/Singapore")
@@ -280,7 +277,7 @@ class VenueService:
         """Venues by name. Only staff see inactive ones; `active` narrows staff's list and is
         ignored for everyone else, who always get active venues."""
         query = select(Venue)
-        if reader.role not in VENUE_STAFF_ROLES:
+        if not reader.holds(*VENUE_STAFF_ROLES):
             query = query.where(Venue.is_active.is_(True))
         elif active is not None:
             query = query.where(Venue.is_active.is_(active))
@@ -311,7 +308,7 @@ class VenueService:
     def get(self, db: Session, venue_id: uuid.UUID, reader: User) -> VenueOut:
         venue = db.get(Venue, venue_id)
         visible = venue is not None and (
-            venue.is_active or reader.role in VENUE_STAFF_ROLES or _has_live_booking_by(db, venue.id, reader)
+            venue.is_active or reader.holds(*VENUE_STAFF_ROLES) or _has_live_booking_by(db, venue.id, reader)
         )
         if not visible:
             raise DomainError(404, "NOT_FOUND")

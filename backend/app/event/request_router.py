@@ -39,7 +39,7 @@ Organiser = Annotated[User, Depends(require_user_roles(UserRole.ORGANISER))]
 Coordinator = Annotated[User, Depends(require_user_roles(UserRole.COORDINATOR))]
 Staff = Annotated[
     User,
-    Depends(require_user_roles(UserRole.COORDINATOR, UserRole.COORDINATOR_LEAD, UserRole.OPERATIONS_MANAGER)),
+    Depends(require_user_roles(UserRole.COORDINATOR, UserRole.COORDINATOR_LEAD, UserRole.VENUE_STAFF)),
 ]
 # DECISION-PENDING: SCRUM-82 owns role checks; until it lands, the seeded `coordinator_lead` role is
 # the only one that assigns (SCRUM-13 AC 6).

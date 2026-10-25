@@ -72,24 +72,40 @@ ATTENDEES = [
     "arjun.rao.2024@smu.edu.sg",
     "sofia.lim.2024@smu.edu.sg",
 ]
+# Every seeded user has a full name (TC-US16B-04).
+ATTENDEE_NAMES = {
+    "calvin.ng.2024@smu.edu.sg": "Calvin Ng",
+    "mei.tan.2024@smu.edu.sg": "Mei Tan",
+    "arjun.rao.2024@smu.edu.sg": "Arjun Rao",
+    "sofia.lim.2024@smu.edu.sg": "Sofia Lim",
+}
 EVENT_ORGANISER_EMAIL = "event.organiser@smu.edu.sg"
 EVENT_ORGANISER_NAME = "Olivia Organiser"
 EVENT_COORDINATOR_EMAIL = "event.coordinator@smu.edu.sg"
 # Seeded users get a full name, so what organisers see (SCRUM-13 AC 8) is a name, not an email.
 EVENT_COORDINATOR_NAME = "Casey Tan"
 VENUE_STAFF_EMAIL = "venue.staff@smu.edu.sg"
+VENUE_STAFF_NAME = "Vera Goh"
 # SCRUM-82 AC 7: more than one Lead, never a single hard-coded one.
 EVENT_COORDINATOR_LEAD_EMAILS = ("lead.one@smu.edu.sg", "lead.two@smu.edu.sg")
 EVENT_COORDINATOR_LEAD_NAMES = {"lead.one@smu.edu.sg": "Lena Lim", "lead.two@smu.edu.sg": "Leo Lee"}
 TECH_SUPPORT_EMAIL = "tech.support@smu.edu.sg"
 TECH_SUPPORT_NAME = "Terry Ong"
+# US16b (SCRUM-119): the Safety officer has no screens yet, but has a login (TC-US16B-04, 21).
+SAFETY_OFFICER_EMAIL = "safety.officer@smu.edu.sg"
+SAFETY_OFFICER_NAME = "Sam Koh"
+# D50: one user holding two roles, for the role switcher (SCRUM-121) and the held-role checks.
+MULTI_ROLE_EMAIL = "multi.role@smu.edu.sg"
+MULTI_ROLE_NAME = "Morgan Lau"
 # Everyone the seed creates a Supabase login for (SCRUM-104). Staff can't sign up (US16a AC 7), so this
-# is how the coordinator, venue staff, Tech Support and Leads get one.
+# is how the coordinator, venue staff, Tech Support, the Safety officer, the two-role user and Leads get one.
 SEEDED_LOGIN_EMAILS = [
     EVENT_ORGANISER_EMAIL,
     EVENT_COORDINATOR_EMAIL,
     VENUE_STAFF_EMAIL,
     TECH_SUPPORT_EMAIL,
+    SAFETY_OFFICER_EMAIL,
+    MULTI_ROLE_EMAIL,
     *EVENT_COORDINATOR_LEAD_EMAILS,
     *ATTENDEES,
 ]
@@ -380,9 +396,12 @@ def upsert_attendee(db: Session, email: str) -> Attendee:
     attendee_id = seed_id("attendee", email)
     user = db.get(User, attendee_id)
     if user is None:
-        user = User(id=attendee_id, email=email, role=UserRole.ATTENDEE)
+        user = User(id=attendee_id, email=email, full_name=ATTENDEE_NAMES[email], roles=[UserRole.ATTENDEE])
         db.add(user)
         db.flush()
+    else:
+        user.full_name = ATTENDEE_NAMES[email]
+        user.roles = [UserRole.ATTENDEE]
     attendee = db.get(Attendee, attendee_id)
     if attendee is None:
         attendee = Attendee(id=attendee_id, email=email)
@@ -390,110 +409,60 @@ def upsert_attendee(db: Session, email: str) -> Attendee:
     return attendee
 
 
+def upsert_staff_user(db: Session, slug: str, email: str, full_name: str, roles: list[UserRole]) -> User:
+    """A seeded user other than an attendee, reset to its seeded email, name and roles on every run."""
+    user_id = seed_id("user", slug)
+    user = db.get(User, user_id)
+    if user is None:
+        user = User(id=user_id)
+        db.add(user)
+    user.email = email
+    user.full_name = full_name
+    user.roles = roles
+    user.is_active = True
+    return user
+
+
 def upsert_event_organiser(db: Session) -> User:
-    organiser_id = seed_id("user", "event-organiser")
-    organiser = db.get(User, organiser_id)
-    if organiser is None:
-        organiser = User(
-            id=organiser_id,
-            email=EVENT_ORGANISER_EMAIL,
-            full_name=EVENT_ORGANISER_NAME,
-            role=UserRole.ORGANISER,
-            is_active=True,
-        )
-        db.add(organiser)
-    else:
-        organiser.email = EVENT_ORGANISER_EMAIL
-        organiser.full_name = EVENT_ORGANISER_NAME
-        organiser.role = UserRole.ORGANISER
-        organiser.is_active = True
-    return organiser
+    return upsert_staff_user(db, "event-organiser", EVENT_ORGANISER_EMAIL, EVENT_ORGANISER_NAME, [UserRole.ORGANISER])
 
 
 def upsert_event_coordinator(db: Session) -> User:
     """US8 reviews requests as a coordinator; the organiser can't stand in for one."""
-    coordinator_id = seed_id("user", "event-coordinator")
-    coordinator = db.get(User, coordinator_id)
-    if coordinator is None:
-        coordinator = User(
-            id=coordinator_id,
-            email=EVENT_COORDINATOR_EMAIL,
-            full_name=EVENT_COORDINATOR_NAME,
-            role=UserRole.COORDINATOR,
-            is_active=True,
-        )
-        db.add(coordinator)
-    else:
-        coordinator.email = EVENT_COORDINATOR_EMAIL
-        coordinator.full_name = EVENT_COORDINATOR_NAME
-        coordinator.role = UserRole.COORDINATOR
-        coordinator.is_active = True
-    return coordinator
+    return upsert_staff_user(
+        db, "event-coordinator", EVENT_COORDINATOR_EMAIL, EVENT_COORDINATOR_NAME, [UserRole.COORDINATOR]
+    )
 
 
 def upsert_venue_staff(db: Session) -> User:
     """US20 venue catalogue writes need Venue Staff."""
-    # DECISION-PENDING: D19 — operations_manager stands in for Venue Staff until US16b adds the role.
-    staff_id = seed_id("user", "venue-staff")
-    staff = db.get(User, staff_id)
-    if staff is None:
-        staff = User(
-            id=staff_id,
-            email=VENUE_STAFF_EMAIL,
-            role=UserRole.OPERATIONS_MANAGER,
-            is_active=True,
-        )
-        db.add(staff)
-    else:
-        staff.email = VENUE_STAFF_EMAIL
-        staff.role = UserRole.OPERATIONS_MANAGER
-        staff.is_active = True
-    return staff
+    return upsert_staff_user(db, "venue-staff", VENUE_STAFF_EMAIL, VENUE_STAFF_NAME, [UserRole.VENUE_STAFF])
 
 
 def upsert_tech_support(db: Session) -> User:
     """US26 reviews equipment requests as Technical Support Staff."""
-    staff_id = seed_id("user", "tech-support")
-    staff = db.get(User, staff_id)
-    if staff is None:
-        staff = User(
-            id=staff_id,
-            email=TECH_SUPPORT_EMAIL,
-            full_name=TECH_SUPPORT_NAME,
-            role=UserRole.TECH_SUPPORT,
-            is_active=True,
-        )
-        db.add(staff)
-    else:
-        staff.email = TECH_SUPPORT_EMAIL
-        staff.full_name = TECH_SUPPORT_NAME
-        staff.role = UserRole.TECH_SUPPORT
-        staff.is_active = True
-    return staff
+    return upsert_staff_user(db, "tech-support", TECH_SUPPORT_EMAIL, TECH_SUPPORT_NAME, [UserRole.TECH_SUPPORT])
+
+
+def upsert_safety_officer(db: Session) -> User:
+    return upsert_staff_user(
+        db, "safety-officer", SAFETY_OFFICER_EMAIL, SAFETY_OFFICER_NAME, [UserRole.SAFETY_OFFICER]
+    )
+
+
+def upsert_multi_role(db: Session) -> User:
+    """D50: Coordinator and Venue Staff, the pair US16b's switcher and held-role checks are tried with."""
+    return upsert_staff_user(
+        db, "multi-role", MULTI_ROLE_EMAIL, MULTI_ROLE_NAME, [UserRole.COORDINATOR, UserRole.VENUE_STAFF]
+    )
 
 
 def upsert_coordinator_leads(db: Session) -> list[User]:
     """US10a: the Event Coordinator Lead assigns coordinators; two exist so no one is special."""
-    leads = []
-    for email in EVENT_COORDINATOR_LEAD_EMAILS:
-        lead_id = seed_id("user", email)
-        lead = db.get(User, lead_id)
-        if lead is None:
-            lead = User(
-                id=lead_id,
-                email=email,
-                full_name=EVENT_COORDINATOR_LEAD_NAMES[email],
-                role=UserRole.COORDINATOR_LEAD,
-                is_active=True,
-            )
-            db.add(lead)
-        else:
-            lead.email = email
-            lead.full_name = EVENT_COORDINATOR_LEAD_NAMES[email]
-            lead.role = UserRole.COORDINATOR_LEAD
-            lead.is_active = True
-        leads.append(lead)
-    return leads
+    return [
+        upsert_staff_user(db, email, email, EVENT_COORDINATOR_LEAD_NAMES[email], [UserRole.COORDINATOR_LEAD])
+        for email in EVENT_COORDINATOR_LEAD_EMAILS
+    ]
 
 
 def upsert_equipment_type(db: Session, name: str) -> EquipmentType:
@@ -733,6 +702,8 @@ def seed(db: Session, now: datetime | None = None) -> None:
     upsert_venue_staff(db)
     upsert_coordinator_leads(db)
     upsert_tech_support(db)
+    upsert_safety_officer(db)
+    upsert_multi_role(db)
     attendees = {email: upsert_attendee(db, email) for email in ATTENDEES}
     db.flush()
 
@@ -862,8 +833,9 @@ def main() -> int:
         for email in EVENT_COORDINATOR_LEAD_EMAILS:
             lead = db.get(User, seed_id("user", email))
             print(f"X-User-Id for {lead.email} (Coordinator Lead):\n  {lead.id}\n")
-        tech_support = db.get(User, seed_id("user", "tech-support"))
-        print(f"X-User-Id for {tech_support.email}:\n  {tech_support.id}\n")
+        for slug in ("tech-support", "safety-officer", "multi-role"):
+            user = db.get(User, seed_id("user", slug))
+            print(f"X-User-Id for {user.email}:\n  {user.id}\n")
         print("Registrations you can withdraw:")
         mine = db.scalars(select(Registration).where(Registration.attendee_id == calvin.id))
         for registration in mine:

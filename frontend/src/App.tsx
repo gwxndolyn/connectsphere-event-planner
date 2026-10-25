@@ -27,11 +27,6 @@ interface Me {
   role: string;
 }
 
-// Which role's screens to render; `operations_manager` stands in for Venue staff (D19).
-function screenRole(role: string): DevRole | "attendee" {
-  return role === "operations_manager" ? "venue_staff" : (role as DevRole | "attendee");
-}
-
 // The last screen, so a refresh comes back to it (TC-US16A-35).
 const VIEW_KEY = "connectsphere.view";
 const VIEWS: View[] = ["discovery", "my-events", "event-requests", "venues", "equipment"];
@@ -180,7 +175,7 @@ function Workspace({ me, view, onNavigate, onLogOut }: WorkspaceProps) {
   const registry = useEventRegistry(views.includes("discovery"));
   const [search, setSearch] = useState("");
   const [devRole, setDevRoleState] = useState<DevRole>(getDevRole);
-  const role = me ? screenRole(me.role) : devRole;
+  const role = me ? (me.role as DevRole | "attendee") : devRole;
 
   return (
     <div>

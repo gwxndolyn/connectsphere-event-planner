@@ -36,7 +36,7 @@ def may_manage(event: Event, coordinator: User) -> bool:
     assigned to it (AC 1: "an event they manage"), whoever added the line. An unassigned event has
     nobody who may."""
     # DECISION-PENDING: D20 — as for venue bookings: events.coordinator_id, since US10a (SCRUM-13).
-    return coordinator.role == UserRole.COORDINATOR and event.coordinator_id == coordinator.id
+    return coordinator.holds(UserRole.COORDINATOR) and event.coordinator_id == coordinator.id
 
 
 def _type_id(value: Any) -> uuid.UUID | None:

@@ -15,7 +15,7 @@ import { tagLabel } from "./tags";
 import type { Venue } from "./types";
 
 // US22 booking routes identify the caller by X-User-Id: a coordinator requests and withdraws,
-// Venue Staff (operations_manager until US16b, D19) read the pending list and, since US4 (SCRUM-8),
+// Venue Staff read the pending list and, since US4 (SCRUM-8),
 // approve or reject a request as a whole.
 export const bookingApi = {
   create: (body: VenueBookingWrite) => apiClient.post<VenueBookingCreated>("/api/v1/venue-bookings", body),

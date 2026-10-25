@@ -59,7 +59,7 @@ def may_book(event: Event, coordinator: User) -> bool:
     coordinator assigned to it (US22 AC 1). An unassigned event has nobody who may."""
     # DECISION-PENDING: D20 — since US10a (SCRUM-13), events.coordinator_id. Withdrawing still
     # belongs to whoever made the request (withdraw), even if the event is later reassigned.
-    return coordinator.role == UserRole.COORDINATOR and event.coordinator_id == coordinator.id
+    return coordinator.holds(UserRole.COORDINATOR) and event.coordinator_id == coordinator.id
 
 
 VENUE_TIMEZONE = ZoneInfo("Asia/Singapore")
@@ -505,7 +505,7 @@ class VenueBookingService:
         event = db.get(Event, event_id)
         if event is None or event.status == EventStatus.DRAFT:
             raise DomainError(404, "NOT_FOUND")
-        if reader.role not in VENUE_STAFF_ROLES and not may_book(event, reader):
+        if not reader.holds(*VENUE_STAFF_ROLES) and not may_book(event, reader):
             raise DomainError(404, "NOT_FOUND")
         rows = db.execute(
             select(VenueBooking, Venue)
@@ -539,7 +539,7 @@ class VenueBookingService:
         try:
             staff = db.scalars(
                 select(User)
-                .where(User.role.in_(VENUE_STAFF_ROLES), User.is_active.is_(True))
+                .where(User.roles.any(UserRole.VENUE_STAFF), User.is_active.is_(True))
                 .order_by(User.email)
             ).all()
             if not staff:
