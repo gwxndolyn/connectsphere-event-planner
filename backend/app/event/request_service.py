@@ -3,7 +3,7 @@ import uuid
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select, text
+from sqlalchemy import or_, select, text
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import DomainError
@@ -65,14 +65,14 @@ class EventRequestService:
         ).all()
         return [EventRequestOut.model_validate(event) for event in events]
 
-    def list_for_review(self, db: Session) -> list[EventRequestOut]:
+    def list_for_review(self, db: Session, reader: User | None = None) -> list[EventRequestOut]:
         """Staff review queue: every submitted request still at the request stage (D11),
-        oldest submission first so nothing waits behind newer work."""
-        events = db.scalars(
-            select(Event)
-            .where(Event.status.in_(SUBMITTED_REQUEST_STATUSES))
-            .order_by(Event.submitted_at, Event.id)
-        ).all()
+        oldest submission first so nothing waits behind newer work. A coordinator doesn't see
+        another coordinator's events (SCRUM-83 AC 3), so a reassigned one leaves their queue."""
+        query = select(Event).where(Event.status.in_(SUBMITTED_REQUEST_STATUSES))
+        if reader is not None and reader.holds(UserRole.COORDINATOR) and not reader.holds(UserRole.COORDINATOR_LEAD):
+            query = query.where(or_(Event.coordinator_id.is_(None), Event.coordinator_id == reader.id))
+        events = db.scalars(query.order_by(Event.submitted_at, Event.id)).all()
         return [EventRequestOut.model_validate(event) for event in events]
 
     def get(self, db: Session, request_id: uuid.UUID, reader: User) -> EventRequestOut:
@@ -183,8 +183,20 @@ class EventRequestService:
             return False
         # DECISION-PENDING: SCRUM-20 — submitted requests are visible to coordinators and
         # Venue Staff so US8/US10 can proceed; SCRUM-120 narrows this (D48).
+        if self._is_other_coordinators_event(event, reader):
+            return False  # SCRUM-83 AC 3: the previous coordinator can no longer see it
         return event.status in SUBMITTED_REQUEST_STATUSES and reader.holds(
             UserRole.COORDINATOR, UserRole.COORDINATOR_LEAD, UserRole.VENUE_STAFF
+        )
+
+    @staticmethod
+    def _is_other_coordinators_event(event: Event, reader: User) -> bool:
+        """SCRUM-83 AC 3 (D52): a coordinator, who isn't also a Lead, doesn't see an event that has
+        a different coordinator. Unassigned requests stay visible to every coordinator."""
+        return (
+            reader.holds(UserRole.COORDINATOR)
+            and not reader.holds(UserRole.COORDINATOR_LEAD)
+            and event.coordinator_id not in (None, reader.id)
         )
 
     def _validate_save_fields(self, fields: EventRequestWrite) -> None:

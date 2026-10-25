@@ -84,6 +84,8 @@ class FakeNotifier:
         self.booking_decisions: list[dict[str, object]] = []
         self.queued: list[dict[str, object]] = []
         self.assignments: list[dict[str, object]] = []
+        self.reassignments: list[dict[str, object]] = []
+        self.transfer_requests: list[dict[str, object]] = []
         self.equipment_reviews: list[dict[str, object]] = []
         self.request_decisions: list[dict[str, object]] = []
         self.fail = False
@@ -187,6 +189,48 @@ class FakeNotifier:
                 "event_name": event_name,
                 "coordinator_name": coordinator_name,
                 "event_dates": event_dates,
+            }
+        )
+        if self.fail:
+            raise RuntimeError("mail server unavailable")
+
+    def event_reassigned(
+        self,
+        *,
+        email: str,
+        recipient: str,
+        request_reference: str,
+        event_name: str,
+        previous_coordinator_name: str,
+        new_coordinator_name: str,
+        event_dates: list[date],
+        reason: str,
+    ) -> None:
+        self.reassignments.append(
+            {
+                "email": email,
+                "recipient": recipient,
+                "request_reference": request_reference,
+                "event_name": event_name,
+                "previous_coordinator_name": previous_coordinator_name,
+                "new_coordinator_name": new_coordinator_name,
+                "event_dates": event_dates,
+                "reason": reason,
+            }
+        )
+        if self.fail:
+            raise RuntimeError("mail server unavailable")
+
+    def transfer_requested(
+        self, *, email: str, request_reference: str, event_name: str, coordinator_name: str, reason: str
+    ) -> None:
+        self.transfer_requests.append(
+            {
+                "email": email,
+                "request_reference": request_reference,
+                "event_name": event_name,
+                "coordinator_name": coordinator_name,
+                "reason": reason,
             }
         )
         if self.fail:

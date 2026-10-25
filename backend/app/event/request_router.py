@@ -23,6 +23,8 @@ from app.event.request_schemas import (
     AssignmentWrite,
     CoordinatorOptionsOut,
     EventRequestOut,
+    ReassignmentWrite,
+    TransferRequestWrite,
     EventRequestWrite,
     EventRequestsOut,
     RequestRejectWrite,
@@ -59,10 +61,10 @@ def create_draft(
 
 @router.get("", response_model=EventRequestsOut)
 def list_for_review(
-    _: Staff,
+    reader: Staff,
     db: Session = Depends(get_db),
 ) -> EventRequestsOut:
-    return EventRequestsOut(event_requests=event_request_service.list_for_review(db))
+    return EventRequestsOut(event_requests=event_request_service.list_for_review(db, reader))
 
 
 @me_router.get("/event-requests", response_model=EventRequestsOut)
@@ -172,6 +174,29 @@ def reject_request(
     notifier: Notifier = Depends(get_notifier),
 ) -> EventRequestOut:
     return request_decision_service.reject(db, coordinator, request_id, body, now, notifier)
+
+
+@router.post("/{request_id}/reassignment", response_model=EventRequestOut)
+def reassign_coordinator(
+    request_id: uuid.UUID,
+    body: ReassignmentWrite,
+    lead: Lead,
+    db: Session = Depends(get_db),
+    notifier: Notifier = Depends(get_notifier),
+) -> EventRequestOut:
+    return assignment_service.reassign(db, request_id, lead, body.coordinator_id, body.reason, notifier)
+
+
+@router.post("/{request_id}/transfer-request", status_code=202)
+def request_transfer(
+    request_id: uuid.UUID,
+    body: TransferRequestWrite,
+    coordinator: Coordinator,
+    db: Session = Depends(get_db),
+    notifier: Notifier = Depends(get_notifier),
+) -> dict[str, str]:
+    assignment_service.request_transfer(db, request_id, coordinator, body.reason, notifier)
+    return {"status": "requested"}
 
 
 @router.post("/{request_id}/clarifications", status_code=201, response_model=ClarificationSentOut)
