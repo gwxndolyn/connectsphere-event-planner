@@ -1027,10 +1027,10 @@ def upsert_multi_venue_event(
 
 def seeded_booking_count() -> int:
     """Every booking the seed owns: US2's slot, each in-person event's primary and the multi-venue
-    demo event's venues (US24), and US18's Confirmation Demo's one booking. Bookings made in the app aren't
+    demo event's venues (US24), US18's Confirmation Demo's booking and US30a's Safety Review Demo's. Bookings made in the app aren't
     counted."""
     primaries = sum(1 for spec in [*EVENTS, EQUIPMENT_EVENT] if spec.venue_slug)
-    return len(VENUE_BOOKINGS) + primaries + len(MULTI_VENUE_EVENT.bookings) + 1
+    return len(VENUE_BOOKINGS) + primaries + len(MULTI_VENUE_EVENT.bookings) + 2
 
 
 def upsert_venue_block(db: Session, spec: VenueBlockSpec, now: datetime) -> VenueBlock:
