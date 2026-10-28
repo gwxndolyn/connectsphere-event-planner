@@ -157,6 +157,8 @@ class Event(Base):
     safety_approved_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     confirmed_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    # US30a (SCRUM-99): when the coordinator last sent a rejected safety arrangement for another review.
+    safety_review_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class EventRegistrationField(Base):

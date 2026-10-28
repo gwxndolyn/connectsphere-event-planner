@@ -31,6 +31,7 @@ from app.core.config import settings
 from app.core.database import SessionLocal
 from app.equipment.models import EquipmentRequestLine, EquipmentReservation, EquipmentType, TechStaffAssignment
 from app.event.models import DeliveryMode, Event, EventAuditEntry, EventChangeRequest, EventStatus
+from app.safety.models import SafetyReview
 from app.registration.models import ACTIVE_STATUSES, Registration, RegistrationStatus
 from app.user.models import Attendee, User, UserRole
 from app.user.supabase_admin import SupabaseAdmin, SupabaseAdminError
@@ -500,7 +501,11 @@ MULTI_VENUE_EVENT = MultiVenueEventSpec(
 # already: an approved venue booking and the Safety Officer's approval (US30a doesn't exist yet to give
 # it), so Confirm works the first time. A reseed puts it back to Approved, with no date of its own.
 CONFIRMATION_EVENT = BookableEventSpec(slug="confirmation-demo", name="Confirmation Demo", expected_attendees=25)
-CONFIRMATION_VENUE_SLUG = "lks-library-seminar-3-4"
+# US30a (SCRUM-99): the Safety Officer reviews it. The same arrangement as the confirmation demo, with no
+# safety review yet, so it is in the Safety Officer's queue; after approving it the coordinator can confirm it.
+SAFETY_REVIEW_EVENT = BookableEventSpec(slug="safety-review-demo", name="Safety Review Demo", expected_attendees=30)
+SAFETY_REVIEW_IN_DAYS = 12
+ARRANGED_VENUE_SLUG = "lks-library-seminar-3-4"
 CONFIRMATION_IN_DAYS = 10  # not the US2 search slot (VENUE_SLOT_IN_DAYS), which expects its venues free
 
 # US26 (SCRUM-109): the dev coordinator adds equipment lines to it (SCRUM-110, TC-US26-16). Only a
@@ -741,22 +746,31 @@ def upsert_bookable_event(db: Session, spec: BookableEventSpec, organiser: User,
     return event
 
 
-def upsert_confirmation_event(
-    db: Session, spec: BookableEventSpec, organiser: User, coordinator: User, now: datetime
+def upsert_arranged_event(
+    db: Session,
+    spec: BookableEventSpec,
+    organiser: User,
+    coordinator: User,
+    now: datetime,
+    *,
+    in_days: int,
+    safety_approved: bool,
 ) -> Event:
-    """The approved event the confirmation screens confirm (US18), with its venue booking approved and the
-    Safety Officer's approval in place. Reset on every reseed, so a confirmed demo can be confirmed again."""
+    """An approved event with its one venue booking approved, assigned to `coordinator`, for the screens
+    that act on a finished arrangement: US18 confirms it (safety already approved), US30a's Safety Officer
+    reviews it. Reset on every reseed, so what a demo changes can be done again."""
     event_id = seed_id("event", spec.slug)
     values = {
         "name": spec.name,
         "status": EventStatus.APPROVED,
         "event_category": "Workshop",
-        "purpose": "Seeded for confirming an event (US18)",
+        "purpose": "Seeded for confirming an event (US18) and reviewing its safety (US30a)",
         "expected_attendees": spec.expected_attendees,
         "created_by_user_id": organiser.id,
         "coordinator_id": coordinator.id,
-        "safety_approved_at": now,
-        "safety_approved_by_user_id": seed_id("user", "safety-officer"),
+        "safety_approved_at": now if safety_approved else None,
+        "safety_approved_by_user_id": seed_id("user", "safety-officer") if safety_approved else None,
+        "safety_review_requested_at": None,
         "start_at": None,
         "end_at": None,
         "capacity": None,
@@ -774,8 +788,8 @@ def upsert_confirmation_event(
             setattr(event, key, value)
     db.flush()
 
-    venue = db.get(Venue, seed_id("venue", CONFIRMATION_VENUE_SLUG))
-    day = now.astimezone(SEED_TIMEZONE).date() + timedelta(days=CONFIRMATION_IN_DAYS)
+    venue = db.get(Venue, seed_id("venue", ARRANGED_VENUE_SLUG))
+    day = now.astimezone(SEED_TIMEZONE).date() + timedelta(days=in_days)
     starts_at = datetime.combine(day, time(14, 0), SEED_TIMEZONE)
     ends_at = datetime.combine(day, time(16, 0), SEED_TIMEZONE)
     occupied_starts_at, occupied_ends_at = occupied_window(venue, starts_at, ends_at)
@@ -798,7 +812,9 @@ def upsert_confirmation_event(
         "rejection_reason": None,
         "alternative_suggestion": None,
     }
-    booking_id = seed_id("venue-booking", "confirmation-demo")
+    booking_id = seed_id("venue-booking", spec.slug)
+    # A reseed forgets the reviews the demo collected, so its queue entry comes back.
+    db.execute(delete(SafetyReview).where(SafetyReview.event_id == event.id))
     booking = db.get(VenueBooking, booking_id)
     if booking is None:
         db.add(VenueBooking(id=booking_id, **booking_values))
@@ -806,6 +822,18 @@ def upsert_confirmation_event(
         for key, value in booking_values.items():
             setattr(booking, key, value)
     return event
+
+
+def upsert_confirmation_event(
+    db: Session, spec: BookableEventSpec, organiser: User, coordinator: User, now: datetime
+) -> Event:
+    return upsert_arranged_event(db, spec, organiser, coordinator, now, in_days=CONFIRMATION_IN_DAYS, safety_approved=True)
+
+
+def upsert_safety_review_event(
+    db: Session, spec: BookableEventSpec, organiser: User, coordinator: User, now: datetime
+) -> Event:
+    return upsert_arranged_event(db, spec, organiser, coordinator, now, in_days=SAFETY_REVIEW_IN_DAYS, safety_approved=False)
 
 
 def upsert_equipment_event(
@@ -1116,6 +1144,7 @@ def seed(db: Session, now: datetime | None = None) -> None:
         upsert_venue_block(db, spec, now)
     upsert_bookable_event(db, BOOKABLE_EVENT, organiser, coordinator)
     upsert_confirmation_event(db, CONFIRMATION_EVENT, organiser, coordinator, now)
+    upsert_safety_review_event(db, SAFETY_REVIEW_EVENT, organiser, coordinator, now)
     equipment_event = upsert_equipment_event(db, EQUIPMENT_EVENT, organiser, coordinator, now)
     db.flush()
     upsert_primary_booking(db, EQUIPMENT_EVENT, equipment_event, coordinator, now)
