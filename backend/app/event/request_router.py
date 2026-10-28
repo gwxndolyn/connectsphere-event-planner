@@ -14,6 +14,7 @@ from app.event.clarification_schemas import (
     ClarificationThreadOut,
 )
 from app.event.clarification_service import clarification_service
+from app.event.confirmation_service import confirmation_service
 from app.event.assignment_service import assignment_service
 from app.event.decision_service import request_decision_service
 from app.event.models import EventStatus
@@ -23,6 +24,7 @@ from app.event.request_schemas import (
     AssignmentWrite,
     CoordinatorOptionsOut,
     EventRequestOut,
+    ReadinessOut,
     ReassignmentWrite,
     TransferRequestWrite,
     EventRequestWrite,
@@ -176,6 +178,36 @@ def reject_request(
     notifier: Notifier = Depends(get_notifier),
 ) -> EventRequestOut:
     return request_decision_service.reject(db, coordinator, request_id, body, now, notifier)
+
+
+# SCRUM-85 (US18): the assigned coordinator reads the readiness list, confirms, then starts Preparation.
+@router.get("/{request_id}/readiness", response_model=ReadinessOut)
+def get_readiness(
+    request_id: uuid.UUID,
+    coordinator: Coordinator,
+    db: Session = Depends(get_db),
+) -> ReadinessOut:
+    return confirmation_service.readiness(db, request_id, coordinator)
+
+
+@router.post("/{request_id}/confirmation", response_model=EventRequestOut)
+def confirm_event(
+    request_id: uuid.UUID,
+    coordinator: Coordinator,
+    db: Session = Depends(get_db),
+    now: datetime = Depends(get_now),
+    notifier: Notifier = Depends(get_notifier),
+) -> EventRequestOut:
+    return confirmation_service.confirm(db, request_id, coordinator, now, notifier)
+
+
+@router.post("/{request_id}/preparation", response_model=EventRequestOut)
+def start_preparation(
+    request_id: uuid.UUID,
+    coordinator: Coordinator,
+    db: Session = Depends(get_db),
+) -> EventRequestOut:
+    return confirmation_service.start_preparation(db, request_id, coordinator)
 
 
 @router.post("/{request_id}/reassignment", response_model=EventRequestOut)

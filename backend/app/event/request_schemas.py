@@ -1,5 +1,6 @@
 import uuid
 from datetime import date, datetime, time
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -83,6 +84,26 @@ class EventRequestOut(BaseModel):
     # fall within; null for a request, which has only its preferred dates and times.
     start_at: datetime | None = None
     end_at: datetime | None = None
+    # SCRUM-85 (US18): when the Safety Officer approved it and when it was confirmed. Null until then.
+    safety_approved_at: datetime | None = None
+    confirmed_at: datetime | None = None
+
+
+class ReadinessItemOut(BaseModel):
+    """One line of the readiness list (US18 AC 2): a venue booking, the equipment, or the safety check."""
+
+    kind: Literal["venue", "equipment", "safety"]
+    name: str
+    complete: bool
+    # What is done, or what is still outstanding, in words the coordinator can act on.
+    detail: str
+
+
+class ReadinessOut(BaseModel):
+    """Whether the event can be confirmed, and per arrangement what is complete and what is outstanding."""
+
+    ready: bool
+    items: list[ReadinessItemOut]
 
 
 class RequestRejectWrite(BaseModel):

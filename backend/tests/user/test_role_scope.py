@@ -30,8 +30,7 @@ from tests.factories import NOW, make_attendee, make_event, make_registration, m
 
 pytestmark = pytest.mark.anyio
 
-# The newest migration: TC-US16B-29 checks it is the only head (SCRUM-15 added it).
-REVISION = "20261108_1200_us12_event_edits"
+REVISION = "20261101_1200_us18_confirm"
 QUESTION = {"sections": ["attendance"], "comment": "How many people are coming?"}
 FORBIDDEN = {"code": "FORBIDDEN"}
 NOT_FOUND = {"code": "NOT_FOUND"}
@@ -248,6 +247,10 @@ ROUTES = [
     ("GET", "/api/v1/event-requests/{request_id}/assignment-history", {LEAD}),
     # SCRUM-83 (#89): only the Lead reassigns; the event's coordinator may ask for a transfer.
     ("POST", "/api/v1/event-requests/{request_id}/reassignment", {LEAD}),
+    # SCRUM-85 (US18): the assigned coordinator reads readiness, confirms and starts Preparation.
+    ("GET", "/api/v1/event-requests/{request_id}/readiness", {COORDINATOR}),
+    ("POST", "/api/v1/event-requests/{request_id}/confirmation", {COORDINATOR}),
+    ("POST", "/api/v1/event-requests/{request_id}/preparation", {COORDINATOR}),
     ("POST", "/api/v1/event-requests/{request_id}/transfer-request", {COORDINATOR}),
     ("POST", "/api/v1/event-requests/{request_id}/approve", {COORDINATOR}),
     ("POST", "/api/v1/event-requests/{request_id}/reject", {COORDINATOR}),

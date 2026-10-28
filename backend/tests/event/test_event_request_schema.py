@@ -30,6 +30,7 @@ def test_tc_us1_16_request_schema_is_installed(db: Session, engine) -> None:
         "rejected",
         "planning",
         "confirmed",
+        "preparation",
         "cancelled",
         "completed",
     ]
