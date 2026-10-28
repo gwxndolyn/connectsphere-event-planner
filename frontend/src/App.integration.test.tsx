@@ -104,8 +104,9 @@ describe("role switcher (US16b AC 2)", () => {
     expect(screen.queryByRole("button", { name: "Equipment" })).not.toBeInTheDocument();
   });
 
-  it("tells a Safety officer their role has no screens yet, with Log out (TC-US16B-21)", async () => {
-    loggedInAs(["safety_officer"]);
+  it("tells a user whose role has no screens yet so, with Log out (TC-US16B-21)", async () => {
+    // The Safety officer had none until US30a (SCRUM-99); a role this frontend doesn't know stands in.
+    loggedInAs(["auditor"]);
     render(<App />);
 
     expect(await screen.findByText("Your account's role doesn't have any screens yet.")).toBeInTheDocument();

@@ -20,10 +20,11 @@ import { EventRequestsPage } from "./features/eventRequest/EventRequestsPage";
 import { EventsBoard } from "./features/registration/EventsBoard";
 import { MyEventsView } from "./features/registration/MyEventsView";
 import { useEventRegistry } from "./features/registration/useEventRegistry";
+import { SafetyReviewPage } from "./features/safety/SafetyReviewPage";
 import { VenuesPage } from "./features/venue/VenuesPage";
 
 // GET /api/v1/me (SCRUM-105): who is logged in, with every role they hold (US16b, SCRUM-121). A role can
-// be one this frontend has no screens for yet (the Safety officer's).
+// be one this frontend has no screens for.
 type Me = Profile;
 
 /** The held roles that have screens, in /me's order: the ones a user can work in (US16b AC 2). */
@@ -33,7 +34,7 @@ function workableRoles(me: Me): string[] {
 
 // The last screen, so a refresh comes back to it (TC-US16A-35).
 const VIEW_KEY = "connectsphere.view";
-const VIEWS: View[] = ["discovery", "my-events", "event-requests", "events", "registrations", "venues", "equipment"];
+const VIEWS: View[] = ["discovery", "my-events", "event-requests", "events", "registrations", "venues", "equipment", "safety-reviews"];
 
 function storedView(): View {
   try {
@@ -140,7 +141,7 @@ function App() {
     if (authScreen === "sign-up") return <SignUpPage onShowLogin={() => setAuthScreen("login")} />;
     return <LoginPage onLoggedIn={() => (goHome.current = true)} onShowSignUp={() => setAuthScreen("sign-up")} />;
   }
-  // A user whose roles have no screens yet (the Safety officer's, US16b) can only log out (TC-US16B-21).
+  // A user whose roles have no screens yet can only log out (TC-US16B-21).
   const blocked = me && !current?.role ? "Your account's role doesn't have any screens yet." : meError;
   if (session && (!me || blocked)) {
     return (
@@ -263,6 +264,14 @@ function Workspace({ me, role: currentRole, onRoleChange, view, onNavigate, onLo
         ) : (
           <main className="request-page">
             <p className="request-empty">Editing events is for Coordinators. Switch Acting as to see them.</p>
+          </main>
+        )
+      ) : shown === "safety-reviews" ? (
+        role === "safety_officer" ? (
+          <SafetyReviewPage key="safety_officer" />
+        ) : (
+          <main className="request-page">
+            <p className="request-empty">Safety reviews are for Safety officers. Switch Acting as to see them.</p>
           </main>
         )
       ) : shown === "registrations" ? (

@@ -1,0 +1,71 @@
+/* US30a (SCRUM-99): the Safety Officer's queue and checklist, and the safety outcome other roles read. */
+.safety-section {
+  margin: 20px 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  text-align: left;
+}
+
+.safety-section h2,
+.safety-section h3 {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+
+.safety-section dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 16px;
+  margin: 0;
+}
+
+.safety-section dt {
+  color: var(--text-muted);
+}
+
+.safety-section dd {
+  margin: 0;
+}
+
+.safety-check {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.safety-check legend {
+  padding: 0 6px;
+  font-weight: 700;
+}
+
+.safety-check__choices {
+  display: flex;
+  gap: 16px;
+}
+
+.safety-outcome {
+  margin: 16px 0;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  text-align: left;
+}
+
+.safety-outcome__issues {
+  margin: 6px 0 0;
+  padding-left: 20px;
+}
+
+.safety-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: var(--badge-bg);
+  color: var(--badge-text);
+  font-size: 12px;
+  font-weight: 700;
+}

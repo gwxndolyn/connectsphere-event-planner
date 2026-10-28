@@ -158,6 +158,18 @@ export interface RecordedCall {
   body: unknown;
 }
 
+// US30a (SCRUM-99): a stored safety review, as the Safety Officer's routes return it.
+export interface FakeSafetyReview {
+  id: string;
+  event_id: string;
+  outcome: "approved" | "rejected";
+  checklist: Record<string, { result: "satisfactory" | "issue"; comment: string | null }>;
+  comments: string | null;
+  internal_notes: string | null;
+  reviewer: { id: string; name: string };
+  created_at: string;
+}
+
 interface Db {
   venues: Venue[];
   // What GET /venues/available returns next (see nextSearchResult).
@@ -187,6 +199,9 @@ interface Db {
   // US14 (SCRUM-135): the active Tech support users, and every assignment.
   techStaff: FakePerson[];
   techStaffRows: FakeTechStaffRow[];
+  // US30a: every safety review, and the events whose rejected arrangement was sent back for another one.
+  safetyReviews: FakeSafetyReview[];
+  safetyResent: Record<string, boolean>;
   // US28: the events each managing role sees, and what each event's registrations call returns.
   managedEvents: Record<"organiser" | "coordinator", EventRegistrations[]>;
   // US12 (SCRUM-15): the coordinator's events and each one's History, newest first.
@@ -224,6 +239,8 @@ function emptyDb(): Db {
     reservationShortfalls: {},
     techStaff: [],
     techStaffRows: [],
+    safetyReviews: [],
+    safetyResent: {},
     calls: [],
     nextId: 1,
     nextReference: 1,
@@ -797,9 +814,45 @@ function readinessOf(event: EventRequest) {
     kind: "safety",
     name: "Safety check",
     complete: safe,
-    detail: safe ? "Approved by the Safety Officer." : "Waiting for the Safety Officer's approval.",
+    detail: safe
+      ? "Approved by the Safety Officer."
+      : safetyStateOf(event) === "rejected"
+        ? `Rejected by the Safety Officer: ${reviewsOf(event)[0].comments} Revise the arrangement, then send it for another review.`
+        : "Waiting for the Safety Officer's approval.",
   });
   return { ready: items.every((i) => i.complete), items };
+}
+
+// US30a: the checklist, as backend/app/safety/models.py has it, and the state the routes derive.
+const SAFETY_CHECKLIST: [string, string][] = [
+  ["attendance_capacity", "Expected attendance against venue capacity"],
+  ["layout", "Room layout"],
+  ["emergency_access", "Emergency access"],
+  ["accessibility", "Accessibility"],
+  ["equipment_placement", "Equipment placement"],
+  ["crowd_movement", "Expected crowd movement"],
+  ["venue_restrictions", "Known venue restrictions"],
+];
+const REVIEWABLE = new Set(["approved", "planning"]);
+
+function reviewsOf(event: EventRequest): FakeSafetyReview[] {
+  return db.safetyReviews.filter((r) => r.event_id === event.id).sort((a, b) => b.created_at.localeCompare(a.created_at));
+}
+
+function safetyStateOf(event: EventRequest): "pending" | "approved" | "rejected" {
+  if (event.safety_approved_at) return "approved";
+  const latest = reviewsOf(event)[0];
+  if (latest?.outcome === "rejected" && !db.safetyResent[event.id]) return "rejected";
+  return "pending";
+}
+
+function arrangementsReady(event: EventRequest): boolean {
+  return readinessOf(event).items.every((item) => item.kind === "safety" || item.complete);
+}
+
+// What the Coordinator and Organiser read: a review without the Safety Officer's internal notes.
+function publicReview({ internal_notes: _notes, ...review }: FakeSafetyReview) {
+  return review;
 }
 
 // US22 after US10a (D20): may this user book, and list the bookings of, this event?
@@ -1748,6 +1801,136 @@ const handlers = [
     if (found.status !== "confirmed") return error(409, "PREPARATION_NOT_ALLOWED", { status: found.status });
     found.status = "preparation";
     return HttpResponse.json(found);
+  }),
+
+  // US30a (SCRUM-99): the Safety Officer's queue and review, and the outcome the Organiser and
+  // Coordinator read, as app/safety/service.py has them. Which events are ready is readinessOf's.
+  route("get", "/api/v1/safety-reviews", ({ request }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "safety_officer") return error(403, "FORBIDDEN");
+    const events = db.requests
+      .filter((r) => REVIEWABLE.has(r.status) && !r.safety_approved_at && safetyStateOf(r) === "pending" && arrangementsReady(r))
+      .map((r) => ({
+        event_id: r.id,
+        name: r.name,
+        request_reference: r.request_reference,
+        expected_attendees: r.expected_attendees,
+        venues: db.bookings.filter((b) => b.event.id === r.id && b.status === "approved").map((b) => b.venue.name),
+        starts_at: db.bookings.find((b) => b.event.id === r.id)?.starts_at ?? null,
+        resent: reviewsOf(r).length > 0,
+      }));
+    return HttpResponse.json({ events });
+  }),
+
+  route("get", "/api/v1/safety-reviews/:id", ({ request, params }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "safety_officer") return error(403, "FORBIDDEN");
+    const found = db.requests.find((r) => r.id === params.id);
+    if (!found || !["approved", "planning", "confirmed", "preparation"].includes(found.status)) return error(404, "NOT_FOUND");
+    const state = safetyStateOf(found);
+    if (reviewsOf(found).length === 0 && !(state === "pending" && arrangementsReady(found))) return error(404, "NOT_FOUND");
+    return HttpResponse.json({
+      event: {
+        id: found.id,
+        name: found.name,
+        request_reference: found.request_reference,
+        status: found.status,
+        expected_attendees: found.expected_attendees,
+        room_layout_preference: found.room_layout_preference,
+        accessibility_needs: found.accessibility_needs,
+        equipment_needs: found.equipment_needs,
+      },
+      state,
+      venues: db.bookings
+        .filter((b) => b.event.id === found.id && b.status === "approved")
+        .map((b) => ({
+          booking_reference: b.reference,
+          venue_name: b.venue.name,
+          location: b.venue.location,
+          venue_capacity: b.venue.capacity,
+          venue_facilities: [],
+          venue_accessibility_features: [],
+          venue_room_layouts: [],
+          starts_at: b.starts_at,
+          ends_at: b.ends_at,
+          expected_attendees: b.expected_attendees,
+          room_layout: b.room_layout,
+          required_facilities: b.required_facilities,
+          required_accessibility_features: b.required_accessibility_features,
+          special_requirements: b.special_requirements,
+        })),
+      equipment: db.equipmentLines
+        .filter((l) => l.event.id === found.id && l.status !== "rejected")
+        .map((l) => ({ equipment_type: l.equipment_type.name, quantity: l.quantity, notes: l.notes })),
+      checklist: SAFETY_CHECKLIST.map(([key, label]) => ({ key, label })),
+      history: reviewsOf(found),
+    });
+  }),
+
+  route("post", "/api/v1/safety-reviews/:id", ({ request, params, body }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "safety_officer") return error(403, "FORBIDDEN");
+    const found = db.requests.find((r) => r.id === params.id);
+    if (!found || found.status === "draft") return error(404, "NOT_FOUND");
+    if (!REVIEWABLE.has(found.status)) return error(409, "SAFETY_REVIEW_NOT_ALLOWED", { reason: "status", status: found.status });
+    const state = safetyStateOf(found);
+    if (state === "approved") return error(409, "SAFETY_REVIEW_NOT_ALLOWED", { reason: "already_approved", status: found.status });
+    if (state === "rejected") return error(409, "SAFETY_REVIEW_NOT_ALLOWED", { reason: "awaiting_revision", status: found.status });
+    if (!arrangementsReady(found)) {
+      return error(409, "SAFETY_REVIEW_NOT_ALLOWED", { reason: "arrangements_incomplete", status: found.status });
+    }
+    const sent = (body ?? {}) as {
+      outcome?: "approved" | "rejected";
+      checklist?: Record<string, { result?: "satisfactory" | "issue"; comment?: string | null }>;
+      comments?: string;
+      internal_notes?: string;
+    };
+    const comments = (sent.comments ?? "").trim();
+    const missing: string[] = [];
+    if (!sent.outcome) missing.push("outcome");
+    for (const [key] of SAFETY_CHECKLIST) if (!sent.checklist?.[key]?.result) missing.push(`checklist.${key}`);
+    if (sent.outcome === "rejected" && !comments) missing.push("comments");
+    if (missing.length > 0) return error(422, "MISSING_REQUIRED_FIELD", { fields: missing });
+    const flagged = SAFETY_CHECKLIST.filter(([key]) => sent.checklist![key].result === "issue").map(([key]) => `checklist.${key}`);
+    if (sent.outcome === "approved" && flagged.length > 0) return error(422, "CHECKLIST_HAS_ISSUES", { fields: flagged });
+    const created_at = `2026-10-04T03:${String(db.safetyReviews.length).padStart(2, "0")}:00Z`;
+    const review: FakeSafetyReview = {
+      id: newId("safety-review"),
+      event_id: found.id,
+      outcome: sent.outcome!,
+      checklist: Object.fromEntries(
+        SAFETY_CHECKLIST.map(([key]) => [key, { result: sent.checklist![key].result!, comment: sent.checklist![key].comment?.trim() || null }]),
+      ),
+      comments: comments || null,
+      internal_notes: sent.internal_notes?.trim() || null,
+      reviewer: { id: request.headers.get("X-User-Id")!, name: "Sam Safety" },
+      created_at,
+    };
+    db.safetyReviews.push(review);
+    db.safetyResent[found.id] = false;
+    if (review.outcome === "approved") found.safety_approved_at = created_at;
+    return HttpResponse.json(review, { status: 201 });
+  }),
+
+  route("get", "/api/v1/event-requests/:id/safety-reviews", ({ request, params }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (!REQUEST_READERS.has(role)) return error(403, "FORBIDDEN");
+    const found = db.requests.find((r) => r.id === params.id);
+    if (!found || !visibleTo(found, role, request.headers.get("X-User-Id")!)) return error(404, "NOT_FOUND");
+    return HttpResponse.json({ state: safetyStateOf(found), reviews: reviewsOf(found).map(publicReview) });
+  }),
+
+  route("post", "/api/v1/event-requests/:id/safety-review-request", ({ request, params }) => {
+    const found = confirmableBy(request, params.id as string);
+    if (found instanceof Response) return found;
+    if (!REVIEWABLE.has(found.status)) return error(409, "SAFETY_REVIEW_NOT_ALLOWED", { reason: "status", status: found.status });
+    if (safetyStateOf(found) !== "rejected") return error(409, "SAFETY_REVIEW_NOT_ALLOWED", { reason: "not_rejected", status: found.status });
+    db.safetyResent[found.id] = true;
+    return HttpResponse.json({ state: safetyStateOf(found), reviews: reviewsOf(found).map(publicReview) });
   }),
 
   // US26 equipment (SCRUM-109, SCRUM-110). Identified by X-User-Id, like every role route.
