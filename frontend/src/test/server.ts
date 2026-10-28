@@ -302,6 +302,8 @@ export function seedRequest(overrides: Partial<EventRequest> = {}): EventRequest
     decided_at: null,
     decided_by: null,
     rejection_reason: null,
+    safety_approved_at: null,
+    confirmed_at: null,
     ...overrides,
   };
   if (request.status !== "draft" && !request.request_reference) {
@@ -705,6 +707,58 @@ export const LEAD_PERSON = { id: LEAD_ID, name: "Lena Lead", email: "lena.lead@s
 const ORGANISER_PERSON = { id: ORGANISER_ID, name: "Olivia Organiser", email: "event.organiser@smu.edu.sg" };
 
 const CLARIFIABLE = new Set(["submitted", "under_review"]);
+
+// US18: the coordinator the readiness, confirmation and preparation routes act for (D48): anyone else's
+// event, a draft or an unknown id is 404, other roles 403.
+function confirmableBy(request: Request, id: string): EventRequest | Response {
+  const role = userRole(request);
+  if (!role) return error(401, "UNAUTHENTICATED");
+  if (role !== "coordinator") return error(403, "FORBIDDEN");
+  const found = db.requests.find((r) => r.id === id);
+  if (!found || found.status === "draft" || !assignedTo(found, request.headers.get("X-User-Id")!)) {
+    return error(404, "NOT_FOUND");
+  }
+  return found;
+}
+
+// US18 AC 1, 2: each live booking approved, the equipment lines approved, the safety check approved.
+function readinessOf(event: EventRequest) {
+  const items: { kind: "venue" | "equipment" | "safety"; name: string; complete: boolean; detail: string }[] = [];
+  const live = db.bookings.filter((b) => b.event.id === event.id && (b.status === "requested" || b.status === "approved"));
+  for (const booking of live) {
+    const approved = booking.status === "approved";
+    items.push({
+      kind: "venue",
+      name: booking.venue.name,
+      complete: approved,
+      detail: approved
+        ? `Booking ${booking.reference} is approved.`
+        : `Booking ${booking.reference} is waiting for Venue staff to approve it.`,
+    });
+  }
+  if (live.length === 0) items.push({ kind: "venue", name: "Venue", complete: false, detail: "No venue has been requested yet." });
+  const lines = db.equipmentLines.filter((l) => l.event.id === event.id && l.status !== "rejected");
+  const pending = lines.filter((l) => l.status === "pending").length;
+  items.push({
+    kind: "equipment",
+    name: "Equipment",
+    complete: pending === 0,
+    detail:
+      lines.length === 0
+        ? "No equipment was requested."
+        : pending > 0
+          ? `${pending} of ${lines.length} equipment ${lines.length === 1 ? "line is" : "lines are"} waiting for Tech support to approve.`
+          : "Every equipment line is approved.",
+  });
+  const safe = event.safety_approved_at !== null;
+  items.push({
+    kind: "safety",
+    name: "Safety check",
+    complete: safe,
+    detail: safe ? "Approved by the Safety Officer." : "Waiting for the Safety Officer's approval.",
+  });
+  return { ready: items.every((i) => i.complete), items };
+}
 
 // US22 after US10a (D20): may this user book, and list the bookings of, this event?
 function assignedTo(request: EventRequest, userId: string): boolean {
@@ -1362,7 +1416,7 @@ const handlers = [
     const url = new URL(request.url);
     const coordinator = url.searchParams.get("coordinator_id");
     const status = url.searchParams.get("status");
-    const active = ["under_review", "awaiting_clarification", "approved", "planning", "confirmed"];
+    const active = ["under_review", "awaiting_clarification", "approved", "planning", "confirmed", "preparation"];
     if (status && !active.includes(status)) return error(422, "INVALID_STATUS_FILTER", { status });
     const rows = db.requests
       .filter(
@@ -1398,7 +1452,7 @@ const handlers = [
     if (role !== "coordinator_lead") return error(403, "FORBIDDEN");
     const found = db.requests.find((r) => r.id === params.id);
     if (!found || found.status === "draft") return error(404, "NOT_FOUND");
-    const active = ["under_review", "awaiting_clarification", "approved", "planning", "confirmed"];
+    const active = ["under_review", "awaiting_clarification", "approved", "planning", "confirmed", "preparation"];
     if (found.coordinator === null || !active.includes(found.status)) {
       return error(409, "REASSIGNMENT_NOT_ALLOWED", { status: found.status });
     }
@@ -1583,6 +1637,40 @@ const handlers = [
       return HttpResponse.json(found);
     }),
   ),
+
+  // US18 (SCRUM-85): readiness, confirm and Preparation for the assigned coordinator, as
+  // app/event/confirmation_service.py has them. Which arrangements count is the API's rule
+  // (backend/tests/event/test_confirmation.py); here the same three checks over the fake's rows.
+  route("get", "/api/v1/event-requests/:id/readiness", ({ request, params }) => {
+    const found = confirmableBy(request, params.id as string);
+    if (found instanceof Response) return found;
+    if (!["approved", "planning", "confirmed", "preparation"].includes(found.status)) {
+      return error(409, "CONFIRMATION_NOT_ALLOWED", { status: found.status });
+    }
+    return HttpResponse.json(readinessOf(found));
+  }),
+
+  route("post", "/api/v1/event-requests/:id/confirmation", ({ request, params }) => {
+    const found = confirmableBy(request, params.id as string);
+    if (found instanceof Response) return found;
+    if (found.status !== "approved" && found.status !== "planning") {
+      return error(409, "CONFIRMATION_NOT_ALLOWED", { status: found.status });
+    }
+    const readiness = readinessOf(found);
+    if (!readiness.ready) {
+      return error(409, "EVENT_NOT_READY", { outstanding: readiness.items.filter((i) => !i.complete), items: readiness.items });
+    }
+    Object.assign(found, { status: "confirmed", confirmed_at: "2026-10-03T03:00:00Z" });
+    return HttpResponse.json(found);
+  }),
+
+  route("post", "/api/v1/event-requests/:id/preparation", ({ request, params }) => {
+    const found = confirmableBy(request, params.id as string);
+    if (found instanceof Response) return found;
+    if (found.status !== "confirmed") return error(409, "PREPARATION_NOT_ALLOWED", { status: found.status });
+    found.status = "preparation";
+    return HttpResponse.json(found);
+  }),
 
   // US26 equipment (SCRUM-109, SCRUM-110). Identified by X-User-Id, like every role route.
   route("get", "/api/v1/equipment-types", ({ request }) => {
