@@ -113,7 +113,7 @@ def _booking_conflicts(
     return conflicts
 
 
-def _block_conflicts(db: Session, venue_id: uuid.UUID, occupied: Window) -> list[Conflict]:
+def block_conflicts(db: Session, venue_id: uuid.UUID, occupied: Window) -> list[Conflict]:
     """Venue blocks (US2's unavailability periods) overlapping the occupied window. A block has no
     buffers of its own (confirmed by the story owner), so its plain window is what's checked."""
     window = func.tstzrange(literal(occupied.starts_at), literal(occupied.ends_at), literal("[)"))
@@ -144,7 +144,7 @@ def _evaluate(
 ) -> Evaluation:
     conflicts = (
         _booking_conflicts(db, venue.id, occupied, exclude_booking_id)
-        + _block_conflicts(db, venue.id, occupied)
+        + block_conflicts(db, venue.id, occupied)
         + _hold_conflicts(db, venue.id, occupied)
     )
     return Evaluation(occupied=occupied, conflicts=conflicts, outside_hours=hours_breach(venue, starts_at, occupied))

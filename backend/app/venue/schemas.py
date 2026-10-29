@@ -198,3 +198,61 @@ class VenueSearchCriteria(BaseModel):
 class VenueSearchOut(BaseModel):
     venues: list[VenueOut]
     criteria: VenueSearchCriteria
+
+
+class CalendarVenueOut(BaseModel):
+    """US21: the venue the calendar is for, with what the screen needs to draw it: its hours (shaded
+    outside them, D61) and its buffers (AC 2)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    is_active: bool
+    opens_at: time
+    closes_at: time
+    setup_minutes: int
+    turnaround_minutes: int
+
+
+class CalendarEventOut(BaseModel):
+    """US21 AC 3: the booked event's name (or, unnamed, its reference) and status. No id: the
+    calendar doesn't lead into the request, which D48 keeps to its own coordinator (D58)."""
+
+    name: str | None
+    request_reference: str | None
+    status: EventStatus
+
+
+class CalendarBookingOut(BaseModel):
+    id: uuid.UUID
+    # DECISION-PENDING: D58 — null unless the reader is Venue Staff, a Lead or the event's
+    # coordinator, as a coordinator's VENUE_UNAVAILABLE never names another booking (D35).
+    reference: str | None
+    status: VenueBookingStatus  # requested or approved (D57)
+    event: CalendarEventOut
+
+
+class CalendarItemOut(BaseModel):
+    """One thing occupying the venue (US21 AC 1). starts_at/ends_at are the booking's own times or
+    the block's; `occupied` adds the booking's setup and turnaround (AC 2) and equals them for a block."""
+
+    kind: str  # "booking" or "block"; "hold" with US25 (D59)
+    label: str  # "Booking", "Unavailable"; "Hold" with US25
+    starts_at: datetime
+    ends_at: datetime
+    occupied: WindowOut
+    booking: CalendarBookingOut | None
+    note: str | None  # a block's note
+
+
+class VenueCalendarOut(BaseModel):
+    """GET /api/v1/venues/{id}/calendar (US21): what occupies the venue over `from`..`to`,
+    Singapore days, both included (D61)."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    venue: CalendarVenueOut
+    from_: date = Field(alias="from")
+    to: date
+    items: list[CalendarItemOut]
