@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime, time, timedelta
 
-from sqlalchemy import ARRAY, CheckConstraint, DateTime, ForeignKey, Integer, Text, Time, func, text
+from sqlalchemy import ARRAY, Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, Text, Time, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base, pg_enum
@@ -132,6 +132,18 @@ class VenueBooking(Base):
         ),
         # DECISION-PENDING: D51 — no one decides a booking they requested (US16b, SCRUM-120).
         CheckConstraint("decided_by_user_id <> requested_by_user_id", name="venue_bookings_decider_not_requester"),
+        # DECISION-PENDING: D66 — US24 (SCRUM-127): a purpose of 1 to 100 characters, already trimmed.
+        CheckConstraint(
+            "purpose = btrim(purpose) AND char_length(purpose) BETWEEN 1 AND 100", name="venue_bookings_purpose_valid"
+        ),
+        # DECISION-PENDING: D68 — US24 AC 4: at most one live primary venue per event. A withdrawn or
+        # rejected primary no longer counts. The same pair as LIVE_BOOKING_STATUSES; change both together.
+        Index(
+            "venue_bookings_one_primary_per_event",
+            "event_id",
+            unique=True,
+            postgresql_where=text("is_primary AND status IN ('requested', 'approved')"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, server_default=text("gen_random_uuid()"))
@@ -171,6 +183,11 @@ class VenueBooking(Base):
     decided_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
     rejection_reason: Mapped[str | None] = mapped_column(Text)
     alternative_suggestion: Mapped[str | None] = mapped_column(Text)
+    # US24 (SCRUM-92, PR 1 SCRUM-127) AC 1: what this venue is for, e.g. "Main hall" or "Breakout A".
+    # The default is the migration's backfill, and keeps US22's create working until PR 2 asks for one.
+    purpose: Mapped[str] = mapped_column(Text, server_default=text("'Main venue'"))
+    # AC 4: the one venue attendees see (D68, D70).
+    is_primary: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
 
 
 class VenueBlock(Base):
