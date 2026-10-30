@@ -6,6 +6,7 @@ overlaps it, so a booking whose setup starts the evening before still shows (D61
 come back with the venue for the screen to shade; they aren't items.
 """
 
+import re
 import uuid
 from datetime import date, datetime, time, timedelta
 
@@ -13,7 +14,7 @@ from sqlalchemy import func, literal, select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import DomainError
-from app.event.models import Event, EventStatus
+from app.event.models import Event
 from app.user.models import User, UserRole
 from app.venue.availability import VENUE_TIMEZONE, Window, block_conflicts
 from app.venue.models import LIVE_BOOKING_STATUSES, VenueBooking
@@ -34,6 +35,9 @@ MAX_RANGE_DAYS = 42
 # their own events' bookings, as a coordinator's VENUE_UNAVAILABLE never names another's (D35).
 REFERENCE_ROLES = (*VENUE_STAFF_ROLES, UserRole.COORDINATOR_LEAD)
 
+# Only YYYY-MM-DD: date.fromisoformat also takes 20261012 and 2026-W42-1. ASCII digits only.
+DAY_FORMAT = re.compile(r"\d{4}-\d{2}-\d{2}", re.ASCII)
+
 
 def _parse_range(start: str | None, end: str | None) -> tuple[date, date]:
     """`from` and `to` as YYYY-MM-DD, `to` not before `from`, at most MAX_RANGE_DAYS days. Strings, so
@@ -42,13 +46,12 @@ def _parse_range(start: str | None, end: str | None) -> tuple[date, date]:
     bad: list[str] = []
     for field, value in (("from", start), ("to", end)):
         try:
-            days[field] = date.fromisoformat(value or "")
+            if not DAY_FORMAT.fullmatch(value or ""):
+                raise ValueError(value)
+            # Also refuses a well-formed day that doesn't exist, e.g. 2026-02-30.
+            days[field] = date.fromisoformat(value)
         except ValueError:
             bad.append(field)
-        else:
-            # fromisoformat also takes 20261012 and 2026-W42-1; the screen only ever sends YYYY-MM-DD.
-            if len(value or "") != 10:
-                bad.append(field)
     if not bad and not 0 <= (days["to"] - days["from"]).days < MAX_RANGE_DAYS:
         bad.append("to")
     if bad:
@@ -67,16 +70,16 @@ def _window_out(window: Window) -> WindowOut:
 
 def _booking_items(db: Session, venue_id: uuid.UUID, window: Window, reader: User) -> list[tuple[Window, CalendarItemOut]]:
     """Live bookings (D21, D57: Requested too) whose stored occupied window overlaps the range, on
-    the range the exclusion constraint's GiST index holds. Withdrawn and rejected aren't live, and a
-    booking for a cancelled event is left out too (D60)."""
-    # DECISION-PENDING: D60 — nothing frees a cancelled event's bookings yet; the calendar hides them.
+    the range the exclusion constraint's GiST index holds. Withdrawn and rejected aren't live. A live
+    booking for a cancelled event is shown, with the event's status, because it still holds the window."""
+    # D60 decided (the PO, 30 Oct): a cancelled event's live bookings are shown. Whether cancelling an
+    # event withdraws them is US9's (SCRUM-12).
     rows = db.execute(
         select(VenueBooking, Event)
         .join(Event, Event.id == VenueBooking.event_id)
         .where(
             VenueBooking.venue_id == venue_id,
             VenueBooking.status.in_(LIVE_BOOKING_STATUSES),
-            Event.status != EventStatus.CANCELLED,
             func.tstzrange(VenueBooking.occupied_starts_at, VenueBooking.occupied_ends_at, literal("[)")).op("&&")(
                 func.tstzrange(literal(window.starts_at), literal(window.ends_at), literal("[)"))
             ),

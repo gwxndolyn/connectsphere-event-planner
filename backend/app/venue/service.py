@@ -314,11 +314,14 @@ class VenueService:
         return VenueOut.model_validate(self.visible(db, venue_id, reader))
 
     def visible(self, db: Session, venue_id: uuid.UUID, reader: User) -> Venue:
-        """The venue if the reader may see it, else 404: an inactive one only to Venue Staff and to a
-        coordinator whose event is booked there. Also the calendar's rule (US21, D61)."""
+        """The venue if the reader may see it, else 404: an inactive one only to Venue Staff, a
+        Coordinator Lead (who oversees every coordinator's events) and a coordinator whose event is
+        booked there. Also the calendar's rule (US21, D61). The venue list keeps inactive ones to staff."""
         venue = db.get(Venue, venue_id)
         visible = venue is not None and (
-            venue.is_active or reader.holds(*VENUE_STAFF_ROLES) or _has_live_booking_by(db, venue.id, reader)
+            venue.is_active
+            or reader.holds(*VENUE_STAFF_ROLES, UserRole.COORDINATOR_LEAD)
+            or _has_live_booking_by(db, venue.id, reader)
         )
         if not visible:
             raise DomainError(404, "NOT_FOUND")
