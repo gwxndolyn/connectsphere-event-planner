@@ -25,6 +25,7 @@ REVISION = "20261103_1200_us24_multi_venue"
 PREVIOUS_REVISION = "20261101_1200_us5_equipment"
 ONE_PRIMARY = "venue_bookings_one_primary_per_event"
 PURPOSE_CHECK = "venue_bookings_purpose_valid"
+PREPARATION_CHECK = "venue_bookings_preparation_status_known"
 SINGAPORE = ZoneInfo("Asia/Singapore")
 DAY = (NOW + timedelta(days=7)).date()
 
@@ -59,14 +60,17 @@ def refused_constraint(db: Session, **booking: object) -> str:
 # --- TC-US24-01 schema and the migration's backfill ---
 
 
-def test_tc_us24_01_bookings_have_a_purpose_and_a_primary_flag(engine: Engine) -> None:
+def test_tc_us24_01_bookings_have_a_purpose_a_primary_flag_and_a_preparation_status(engine: Engine) -> None:
     columns = {column["name"]: column for column in inspect(engine).get_columns("venue_bookings")}
 
     assert columns["purpose"]["nullable"] is False
     assert columns["is_primary"]["nullable"] is False
     assert "false" in str(columns["is_primary"]["default"])
+    # D73 (CS3-49): preparation is tracked per venue, not_started until Venue staff move it on.
+    assert columns["preparation_status"]["nullable"] is False
+    assert "not_started" in str(columns["preparation_status"]["default"])
     checks = {constraint["name"] for constraint in inspect(engine).get_check_constraints("venue_bookings")}
-    assert PURPOSE_CHECK in checks
+    assert {PURPOSE_CHECK, PREPARATION_CHECK} <= checks
     indexes = {index["name"]: index for index in inspect(engine).get_indexes("venue_bookings")}
     assert indexes[ONE_PRIMARY]["unique"] is True
     assert indexes[ONE_PRIMARY]["column_names"] == ["event_id"]
@@ -161,26 +165,28 @@ def test_tc_us24_01_the_upgrade_names_existing_bookings_and_marks_each_events_fi
     rows = {
         row.id: row
         for row in migration_connection.execute(
-            text("select id, purpose, is_primary from venue_bookings where id = any(:ids)"), {"ids": list(ids.values())}
+            text("select id, purpose, is_primary, preparation_status from venue_bookings where id = any(:ids)"),
+            {"ids": list(ids.values())},
         )
     }
     assert {row.purpose for row in rows.values()} == {"Main venue"}
+    assert {row.preparation_status for row in rows.values()} == {"not_started"}
     primary = {name for name, booking_id in ids.items() if rows[booking_id].is_primary}
     assert primary == {"requested second", "approved alone"}
 
 
-def test_tc_us24_01_downgrade_removes_purpose_primary_and_the_index(migration_connection: Connection) -> None:
+def test_tc_us24_01_downgrade_removes_purpose_primary_preparation_and_the_index(migration_connection: Connection) -> None:
     config = alembic_config(migration_connection)
 
     command.downgrade(config, PREVIOUS_REVISION)
 
     columns = {column["name"] for column in inspect(migration_connection).get_columns("venue_bookings")}
-    assert not {"purpose", "is_primary"} & columns
+    assert not {"purpose", "is_primary", "preparation_status"} & columns
     assert migration_connection.scalar(text("select to_regclass(:name)"), {"name": ONE_PRIMARY}) is None
 
     command.upgrade(config, "head")
     columns = {column["name"] for column in inspect(migration_connection).get_columns("venue_bookings")}
-    assert {"purpose", "is_primary"} <= columns
+    assert {"purpose", "is_primary", "preparation_status"} <= columns
 
 
 # --- TC-US24-02 one live primary per event ---
@@ -248,6 +254,33 @@ def test_tc_us24_03_a_purpose_of_1_to_100_characters_is_accepted(
     assert db.scalar(select(VenueBooking.purpose).where(VenueBooking.id == booking.id)) == purpose
 
 
+@pytest.mark.parametrize("preparation_status", ["", "done", "Ready", "in progress", "cancelled"])
+def test_tc_us24_03_an_unknown_preparation_status_is_refused(
+    db: Session, event: Event, venue: Venue, coordinator: User, preparation_status: str
+) -> None:
+    assert (
+        refused_constraint(db, event=event, venue=venue, user=coordinator, preparation_status=preparation_status)
+        == PREPARATION_CHECK
+    )
+
+
+@pytest.mark.parametrize("preparation_status", ["not_started", "in_progress", "ready"])
+def test_tc_us24_03_each_preparation_status_is_accepted_and_a_new_booking_has_not_started(
+    db: Session, event: Event, venue: Venue, coordinator: User, preparation_status: str
+) -> None:
+    fresh = make_venue_booking(db, event=event, venue=venue, user=coordinator, starts_at=at(9))
+    set_one = make_venue_booking(
+        db, event=event, venue=venue, user=coordinator, starts_at=at(12), preparation_status=preparation_status
+    )
+
+    stored = dict(
+        db.execute(
+            select(VenueBooking.id, VenueBooking.preparation_status).where(VenueBooking.id.in_([fresh.id, set_one.id]))
+        ).all()
+    )
+    assert stored == {fresh.id: "not_started", set_one.id: preparation_status}
+
+
 # --- TC-US24-04 the seed ---
 
 
@@ -278,6 +311,7 @@ def test_tc_us24_04_each_seeded_in_person_event_with_a_seeded_venue_has_an_appro
         assert (booking.starts_at, booking.ends_at) == (event.start_at, event.end_at), spec.slug
         assert booking.expected_attendees <= capacities[booking.venue_id]
         assert booking.decided_by_user_id == seed_id("user", "venue-staff")
+        assert booking.preparation_status == "not_started"
 
 
 def test_tc_us24_04_the_seed_summary_counts_every_booking_it_seeds(db: Session) -> None:
@@ -322,6 +356,12 @@ def test_tc_us24_04_the_multi_venue_demo_event_has_approved_requested_and_reject
         "Breakout B": (VenueBookingStatus.REJECTED, False),
     }
     assert by_purpose["Breakout B"].rejection_reason
+    # D73 (CS3-49): Venue staff are preparing the approved main hall; nothing else has started.
+    assert {purpose: b.preparation_status for purpose, b in by_purpose.items()} == {
+        "Main hall": "in_progress",
+        "Breakout A": "not_started",
+        "Breakout B": "not_started",
+    }
     # Each window falls on the event's preferred day, within its preferred times (D65).
     for booking in bookings:
         local_start = booking.starts_at.astimezone(SINGAPORE)
