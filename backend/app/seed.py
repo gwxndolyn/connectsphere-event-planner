@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import SessionLocal
 from app.equipment.models import EquipmentRequestLine, EquipmentType
-from app.event.models import DeliveryMode, Event, EventStatus
+from app.event.models import DeliveryMode, Event, EventAuditEntry, EventChangeRequest, EventStatus
 from app.registration.models import ACTIVE_STATUSES, Registration, RegistrationStatus
 from app.user.models import Attendee, User, UserRole
 from app.user.supabase_admin import SupabaseAdmin, SupabaseAdminError
@@ -385,6 +385,18 @@ EQUIPMENT_EVENT = EventSpec(
     starts_in=timedelta(days=14),
 )
 
+# US12 (SCRUM-15): the dev coordinator edits it (Events, TC-US12-20 to 23). Planning is the only status that
+# takes edits, and no other seeded event is in it. Registration is off, so it stays off the events board.
+PLANNING_EVENT = EventSpec(
+    slug="planning-edit-demo",
+    name="Event Planning Demo",
+    note="planning, assigned to the seeded coordinator, registration off (US12)",
+    status=EventStatus.PLANNING,
+    registration_enabled=False,
+    starts_in=timedelta(days=21),
+    capacity=80,
+)
+
 VENUE_BLOCKS = [
     VenueBlockSpec(
         slug="connexion-maintenance",
@@ -595,6 +607,24 @@ def upsert_equipment_event(
     return event
 
 
+def upsert_planning_event(
+    db: Session, spec: EventSpec, organiser: User, coordinator: User, now: datetime
+) -> Event:
+    """The planning event the Events screen edits, assigned to `coordinator`. A reseed puts its details back
+    and removes its edit history and change requests, so E2E reruns (TC-US12-22, 23) start from the same event."""
+    event = upsert_event(db, spec, now, organiser)
+    event.coordinator_id = coordinator.id
+    event.event_category = "Workshop"
+    event.purpose = "Seeded for editing an event in planning (US12)"
+    event.expected_attendees = 60
+    event.room_layout_preference = "Classroom"
+    event.accessibility_needs = None
+    event.equipment_needs = None
+    db.execute(delete(EventAuditEntry).where(EventAuditEntry.event_id == event.id))
+    db.execute(delete(EventChangeRequest).where(EventChangeRequest.event_id == event.id))
+    return event
+
+
 def upsert_venue_booking(
     db: Session, spec: VenueBookingSpec, event: Event, coordinator: User, now: datetime
 ) -> VenueBooking:
@@ -737,6 +767,7 @@ def seed(db: Session, now: datetime | None = None) -> None:
         upsert_venue_block(db, spec, now)
     upsert_bookable_event(db, BOOKABLE_EVENT, organiser, coordinator)
     upsert_equipment_event(db, EQUIPMENT_EVENT, organiser, coordinator, now)
+    upsert_planning_event(db, PLANNING_EVENT, organiser, coordinator, now)
     for name in EQUIPMENT_TYPES:
         upsert_equipment_type(db, name)
     db.flush()
