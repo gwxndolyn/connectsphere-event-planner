@@ -111,8 +111,8 @@ class EquipmentRequestLine(Base):
     requested_by_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     reviewed_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    # DECISION-PENDING: D64 — the latest US5 availability check (AC 5 "records the outcome"); a newer check
-    # replaces it and editing the quantity or type clears it.
+    # D64 (decided by the acting PO, 30 Oct): the latest US5 availability check (AC 5 "records the
+    # outcome"); a newer check replaces it and editing the quantity or type clears it.
     availability_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     availability_checked_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
     availability_sufficient: Mapped[bool | None] = mapped_column(Boolean)

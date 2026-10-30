@@ -18,8 +18,8 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # DECISION-PENDING: D64. US5 AC 5 "records the outcome": the latest check is kept on the line, who and
-    # when with it; a newer check replaces it, and editing the line's quantity or type clears it.
+    # D64 (decided by the acting PO, 30 Oct). US5 AC 5 "records the outcome": the latest check is kept on
+    # the line, who and when with it; a newer check replaces it, and editing its quantity or type clears it.
     op.add_column("equipment_request_lines", sa.Column("availability_checked_at", sa.DateTime(timezone=True)))
     op.add_column(
         "equipment_request_lines",
