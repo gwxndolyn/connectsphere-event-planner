@@ -46,8 +46,8 @@
 | TC-US21-19 | — | Week view: hours outside the venue's opening hours are shaded "Closed" (D61) | Auto Vitest | 2 |
 | TC-US21-20 | 3 | Opening an item shows the event's name and status, the booking's status and times; the reference only when the API gives one; a cancelled event's booking shows the event as cancelled (D60) | Auto Vitest | 2 |
 | TC-US21-21 | 1 | Month view, Previous / Today / Next and Week ↔ Month each request the right range | Auto Vitest | 2 |
-| TC-US21-22 | — | `403`, `404` and a network failure are shown in an alert | Auto Vitest | 2 |
-| TC-US21-23 | 1, 3 | E2E: Venue staff opens the seeded venue's week and sees the seeded booking and block, labelled; the booking opens with event name, status and reference | Auto E2E | 2 |
+| TC-US21-22 | — | `403`, `404`, `422 INVALID_DATE_RANGE` and a network failure are shown in an alert; no venue chosen, loading and nothing booked each say so | Auto Vitest | 2 |
+| TC-US21-23 | 1, 3 | E2E: Venue staff open the week of US2's seeded slot and see SCIS Seminar Room 2-1's seeded booking, labelled, with its setup and turnaround, and SMU Connexion Studio 3-2's seeded block, "Unavailable" with its note (the seed puts them at two venues); the booking opens with event name, status and reference | Auto E2E | 2 |
 | TC-US21-24 | 3 | E2E: a coordinator sees the same items, without the reference on a booking for an event not theirs | Auto E2E | 2 |
 
 ## Results
@@ -55,3 +55,5 @@
 **PR 1 (SCRUM-122), 28 Oct:** TC-US21-01 to 14 pass (25 pytest items, `test_calendar.py`), plus the route's TC-US16B-14 matrix row. Written first and run before the endpoint existed: all 25 failed (`404`, no route). Whole backend suite: 1010 passed.
 
 **PR 1 review (Calvin, #92), 30 Oct:** TC-US21-05 now expects a cancelled event's booking shown (D60, the acting PO's decision), TC-US21-12 adds a Lead on an inactive venue, and TC-US21-14 adds `2026-W42-1`. Changed first and run before the fix: all three failed (the booking was left out, the Lead got `404`, `2026-W42-1` was accepted). Now 26 pytest items pass; whole backend suite: 1011 passed.
+
+**PR 2 (SCRUM-123), 30 Oct:** TC-US21-15 to 24 pass: 33 Vitest tests (`calendarGrid.test.ts` 13 and `VenueCalendar.test.tsx` 13, unit; `venueCalendar.integration.test.tsx` 7, against the fake backend's calendar route) and 2 E2E (`e2e/tests/venue-calendar.spec.ts`). Written first and run against stubs (`calendarGrid` throwing, `VenueCalendar` rendering nothing): 32 failed; the one that passed is TC-US21-16's organiser case, which checks the calendar is absent. The E2E spec was first run after the build, with the screen taken off Venues: both failed (no Availability calendar), then passed with it. Whole frontend suite: 364 passed; lint and build clean. Whole E2E suite: 38 passed, 10 skipped (the logged-in and sign-up tests, without `E2E_SEED_PASSWORD` and Supabase keys).
