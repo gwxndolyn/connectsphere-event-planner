@@ -15,17 +15,47 @@ class EquipmentLineStatus(enum.StrEnum):
 
 
 class EquipmentType(Base):
-    """The equipment catalogue (US26 AC 4: a line's type must exist here). Stock, condition and storage
-    location come with US5 (SCRUM-9)."""
+    """The equipment catalogue (US26 AC 4: a line's type must exist here), with its stock (US5, SCRUM-124):
+    how many are owned, how many are out of service, and where they're kept."""
 
     __tablename__ = "equipment_types"
     __table_args__ = (
         CheckConstraint("btrim(name) <> ''", name="equipment_types_name_not_blank"),
         Index("equipment_types_name_lower_unique", text("lower(btrim(name))"), unique=True),
+        # One check, so a negative stock is always refused under this name (Postgres tests CHECKs by name).
+        CheckConstraint(
+            "out_of_service_quantity >= 0 AND out_of_service_quantity <= total_quantity",
+            name="equipment_types_stock_in_range",
+        ),
+        CheckConstraint("btrim(storage_location) <> ''", name="equipment_types_storage_location_not_blank"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, server_default=text("gen_random_uuid()"))
     name: Mapped[str] = mapped_column(Text, unique=True)
+    # DECISION-PENDING: D62 — stock is counted per type, not per unit; damaged, under repair and otherwise
+    # unavailable are one count (US5 AC 3).
+    total_quantity: Mapped[int] = mapped_column(Integer, server_default=text("0"))
+    out_of_service_quantity: Mapped[int] = mapped_column(Integer, server_default=text("0"))
+    # US5 AC 7: for reference only; it never blocks a venue or a reservation.
+    storage_location: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class EquipmentReservation(Base):
+    """Units of a type committed to an event (US27, SCRUM-95). Created by US5 (SCRUM-124) because the
+    availability check subtracts other events' reservations (US5 AC 2); US27 adds reserving, release and
+    the link to the approved line in its own migration."""
+
+    __tablename__ = "equipment_reservations"
+    __table_args__ = (
+        CheckConstraint("quantity > 0", name="equipment_reservations_quantity_positive"),
+        Index("ix_equipment_reservations_equipment_type_id", "equipment_type_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, server_default=text("gen_random_uuid()"))
+    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id"))
+    equipment_type_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("equipment_types.id"))
+    quantity: Mapped[int] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

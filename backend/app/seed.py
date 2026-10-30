@@ -112,17 +112,34 @@ SEEDED_LOGIN_EMAILS = [
     *EVENT_COORDINATOR_LEAD_EMAILS,
     *ATTENDEES,
 ]
-# US26 (SCRUM-108): the equipment catalogue a request line picks from.
-EQUIPMENT_TYPES = [
-    "Projector",
-    "Projector screen",
-    "Wireless microphone",
-    "Speaker system",
-    "Laptop",
-    "HDMI cable",
-    "Extension cord",
-    "Webcam",
-]
+
+
+@dataclass
+class EquipmentStock:
+    """A catalogue entry's stock (US5, SCRUM-124): owned, out of service (AC 3) and where it's kept (AC 7)."""
+
+    total: int
+    out_of_service: int
+    location: str
+
+
+AV_STORE = "AV store, Level B1, Administration Building"
+IT_DESK = "IT service desk, Level 2, Administration Building"
+FACILITIES_ROOM = "Facilities room, Level 1, Administration Building"
+# US26 (SCRUM-108): the equipment catalogue a request line picks from. US5 (SCRUM-124) gives each a small
+# stock, so a large request on Equipment Request Demo comes out short. DECISION-PENDING: D63 — stock is
+# only ever set here; no screen edits it yet.
+EQUIPMENT_STOCK = {
+    "Projector": EquipmentStock(total=6, out_of_service=1, location=AV_STORE),
+    "Projector screen": EquipmentStock(total=4, out_of_service=0, location=AV_STORE),
+    "Wireless microphone": EquipmentStock(total=10, out_of_service=2, location=AV_STORE),
+    "Speaker system": EquipmentStock(total=3, out_of_service=1, location=AV_STORE),
+    "Laptop": EquipmentStock(total=8, out_of_service=0, location=IT_DESK),
+    "HDMI cable": EquipmentStock(total=20, out_of_service=3, location=IT_DESK),
+    "Extension cord": EquipmentStock(total=15, out_of_service=0, location=FACILITIES_ROOM),
+    "Webcam": EquipmentStock(total=5, out_of_service=0, location=IT_DESK),
+}
+EQUIPMENT_TYPES = list(EQUIPMENT_STOCK)
 
 EVENTS = [
     EventSpec(
@@ -469,12 +486,21 @@ def upsert_coordinator_leads(db: Session) -> list[User]:
     ]
 
 
-def upsert_equipment_type(db: Session, name: str) -> EquipmentType:
+def upsert_equipment_type(db: Session, name: str, stock: EquipmentStock) -> EquipmentType:
     type_id = seed_id("equipment-type", name)
+    values = {
+        "name": name,
+        "total_quantity": stock.total,
+        "out_of_service_quantity": stock.out_of_service,
+        "storage_location": stock.location,
+    }
     equipment_type = db.get(EquipmentType, type_id)
     if equipment_type is None:
-        equipment_type = EquipmentType(id=type_id, name=name)
+        equipment_type = EquipmentType(id=type_id, **values)
         db.add(equipment_type)
+    else:
+        for key, value in values.items():
+            setattr(equipment_type, key, value)
     return equipment_type
 
 
@@ -737,8 +763,8 @@ def seed(db: Session, now: datetime | None = None) -> None:
         upsert_venue_block(db, spec, now)
     upsert_bookable_event(db, BOOKABLE_EVENT, organiser, coordinator)
     upsert_equipment_event(db, EQUIPMENT_EVENT, organiser, coordinator, now)
-    for name in EQUIPMENT_TYPES:
-        upsert_equipment_type(db, name)
+    for name, stock in EQUIPMENT_STOCK.items():
+        upsert_equipment_type(db, name, stock)
     db.flush()
 
     db.commit()
