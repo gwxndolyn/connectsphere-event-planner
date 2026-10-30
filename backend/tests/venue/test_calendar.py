@@ -138,13 +138,18 @@ async def test_tc_us21_04_withdrawn_and_rejected_bookings_are_left_out(
     assert (await calendar(client, staff, venue.id)).json()["items"] == []
 
 
-async def test_tc_us21_05_a_booking_for_a_cancelled_event_is_left_out(
+async def test_tc_us21_05_a_booking_for_a_cancelled_event_is_shown_as_cancelled(
     client: AsyncClient, db: Session, staff: User, coordinator: User, venue: Venue
 ) -> None:
-    cancelled = make_event(db, status=EventStatus.CANCELLED, coordinator_id=coordinator.id)
-    book(db, cancelled, venue, coordinator, status=VenueBookingStatus.APPROVED)
+    # D60 (the PO, 30 Oct): it still holds the window, so the calendar shows it, with the event cancelled.
+    cancelled = make_event(db, name="Called Off", status=EventStatus.CANCELLED, coordinator_id=coordinator.id)
+    booking = book(db, cancelled, venue, coordinator, status=VenueBookingStatus.APPROVED)
 
-    assert (await calendar(client, staff, venue.id)).json()["items"] == []
+    [item] = (await calendar(client, staff, venue.id)).json()["items"]
+    assert item["booking"]["id"] == str(booking.id)
+    assert item["booking"]["status"] == "approved"
+    assert item["booking"]["event"]["name"] == "Called Off"
+    assert item["booking"]["event"]["status"] == "cancelled"
 
 
 async def test_tc_us21_06_items_overlapping_the_range_by_their_buffers_are_included(
@@ -263,10 +268,14 @@ async def test_tc_us21_12_an_inactive_venue_follows_the_venue_read_rule(
 ) -> None:
     inactive = make_venue(db, name="Closed Hall", is_active=False)
     stranger = make_user(db, UserRole.COORDINATOR)
+    lead = make_user(db, UserRole.COORDINATOR_LEAD)
     book(db, event, inactive, coordinator)
 
     assert (await calendar(client, staff, inactive.id)).status_code == 200
     assert (await calendar(client, coordinator, inactive.id)).status_code == 200
+    # A Lead sees every inactive venue, here and on GET /venues/{id}, booked or not.
+    assert (await calendar(client, lead, inactive.id)).status_code == 200
+    assert (await client.get(f"/api/v1/venues/{inactive.id}", headers=auth(lead))).status_code == 200
     refused = await calendar(client, stranger, inactive.id)
     assert refused.status_code == 404
     assert refused.json()["code"] == "NOT_FOUND"
@@ -286,6 +295,7 @@ async def test_tc_us21_13_an_unknown_venue_is_404(client: AsyncClient, staff: Us
         (MONDAY, None, ["to"]),
         (None, None, ["from", "to"]),
         ("12-10-2026", SUNDAY, ["from"]),
+        ("2026-W42-1", SUNDAY, ["from"]),
         (MONDAY, "soon", ["to"]),
         (MONDAY, MONDAY - timedelta(days=1), ["to"]),
         (MONDAY, MONDAY + timedelta(days=42), ["to"]),
