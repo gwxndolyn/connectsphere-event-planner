@@ -12,7 +12,7 @@
 4. Expired holds and cancelled bookings are not shown.
 5. Only internal users; Organisers and Attendees can't access the calendar.
 
-**Decisions:** D56 (who: Coordinator, Lead, Venue staff), D57 (Requested bookings shown, marked pending), D58 (event name and status for all; the `VB-` reference only for Venue staff, Leads and the event's coordinator), D59 (no holds until US25), D60 (withdrawn, rejected and cancelled-event bookings left out), D61 (range, timezone, hours). Deviations 50 and 51. All in `claude_instructions.md` §1a.
+**Decisions:** D56 (who: Coordinator, Lead, Venue staff), D57 (Requested bookings shown, marked pending), D58 (event name and status for all; the `VB-` reference only for Venue staff, Leads and the event's coordinator), D59 (no holds until US25), D60 (withdrawn and rejected bookings left out; a cancelled event's live bookings shown with the event cancelled, the acting PO's decision of 30 Oct), D61 (range, timezone, hours; inactive venues for Venue staff, Leads and the booked event's coordinator). Deviations 50 and 51. All in `claude_instructions.md` §1a.
 
 **Delivery:** two PRs, no migration.
 
@@ -29,22 +29,22 @@
 | TC-US21-02 | 1 | A Requested booking is shown, `status: requested` (D57) | Auto pytest | 1 |
 | TC-US21-03 | 1 | A venue block is a `block` item labelled "Unavailable" with its note; its occupied window is its own times | Auto pytest | 1 |
 | TC-US21-04 | 4 | Withdrawn and rejected bookings are left out (D60) | Auto pytest | 1 |
-| TC-US21-05 | 4 | An approved booking for a cancelled event is left out (D60) | Auto pytest | 1 |
+| TC-US21-05 | 4 | An approved booking for a cancelled event is shown with the event's status `cancelled` (D60) | Auto pytest | 1 |
 | TC-US21-06 | 2 | A booking whose own times are outside the range but whose turnaround or setup runs into it is included (D61) | Auto pytest | 1 |
 | TC-US21-07 | 1 | Bookings and blocks outside the range, and another venue's, are left out | Auto pytest | 1 |
 | TC-US21-08 | 1, 3 | Items are in occupied-start order, bookings before blocks at the same start; each booking carries its event's name (null with the request reference when unnamed) and status | Auto pytest | 1 |
 | TC-US21-09 | 3 | The booking's reference reaches Venue staff, a Lead and the event's coordinator, and is null for another coordinator, who still sees the event's name and the booking's status (D58) | Auto pytest | 1 |
 | TC-US21-10 | 5 | Organiser, attendee, Tech support and Safety officer get `403 FORBIDDEN`; no identity `401` (D56) | Auto pytest | 1 |
 | TC-US21-11 | 5 | A user holding Organiser and Coordinator gets `200` (D46) | Auto pytest | 1 |
-| TC-US21-12 | — | An inactive venue: `200` for Venue staff and for a coordinator whose event is booked there; `404` for another coordinator (`GET /venues/{id}`'s rule, D61) | Auto pytest | 1 |
+| TC-US21-12 | — | An inactive venue: `200` for Venue staff, a Lead and a coordinator whose event is booked there; `404` for another coordinator (`GET /venues/{id}`'s rule, D61). The Lead also gets `200` on `GET /venues/{id}` | Auto pytest | 1 |
 | TC-US21-13 | — | An unknown venue is `404 NOT_FOUND` | Auto pytest | 1 |
-| TC-US21-14 | — | A missing or badly formatted `from` or `to`, `to` before `from`, or more than 42 days is `422 INVALID_DATE_RANGE` naming the field; 42 days and a single day are accepted (deviation 51) | Auto pytest | 1 |
+| TC-US21-14 | — | A missing or badly formatted `from` or `to` (anything but exactly `YYYY-MM-DD`, e.g. `12-10-2026` or `2026-W42-1`), `to` before `from`, or more than 42 days is `422 INVALID_DATE_RANGE` naming the field; 42 days and a single day are accepted (deviation 51) | Auto pytest | 1 |
 | TC-US21-15 | 1 | `calendarGrid`: a week is Monday to Sunday; a month is the full weeks covering it; the API range matches | Auto Vitest | 2 |
 | TC-US21-16 | 5 | The calendar is shown on Venues for the Coordinator, Lead and Venue staff roles, not the Organiser | Auto Vitest | 2 |
 | TC-US21-17 | 2 | Week view: a booking labelled "Booking" spans its occupied window, with setup and turnaround segments named | Auto Vitest | 2 |
 | TC-US21-18 | 1 | Week view: a Requested booking reads "Booking (requested)"; a block "Unavailable" with its note | Auto Vitest | 2 |
 | TC-US21-19 | — | Week view: hours outside the venue's opening hours are shaded "Closed" (D61) | Auto Vitest | 2 |
-| TC-US21-20 | 3 | Opening an item shows the event's name and status, the booking's status and times; the reference only when the API gives one | Auto Vitest | 2 |
+| TC-US21-20 | 3 | Opening an item shows the event's name and status, the booking's status and times; the reference only when the API gives one; a cancelled event's booking shows the event as cancelled (D60) | Auto Vitest | 2 |
 | TC-US21-21 | 1 | Month view, Previous / Today / Next and Week ↔ Month each request the right range | Auto Vitest | 2 |
 | TC-US21-22 | — | `403`, `404` and a network failure are shown in an alert | Auto Vitest | 2 |
 | TC-US21-23 | 1, 3 | E2E: Venue staff opens the seeded venue's week and sees the seeded booking and block, labelled; the booking opens with event name, status and reference | Auto E2E | 2 |
@@ -53,3 +53,5 @@
 ## Results
 
 **PR 1 (SCRUM-122), 28 Oct:** TC-US21-01 to 14 pass (25 pytest items, `test_calendar.py`), plus the route's TC-US16B-14 matrix row. Written first and run before the endpoint existed: all 25 failed (`404`, no route). Whole backend suite: 1010 passed.
+
+**PR 1 review (Calvin, #92), 30 Oct:** TC-US21-05 now expects a cancelled event's booking shown (D60, the acting PO's decision), TC-US21-12 adds a Lead on an inactive venue, and TC-US21-14 adds `2026-W42-1`. Changed first and run before the fix: all three failed (the booking was left out, the Lead got `404`, `2026-W42-1` was accepted). Now 26 pytest items pass; whole backend suite: 1011 passed.
