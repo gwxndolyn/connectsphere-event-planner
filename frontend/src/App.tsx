@@ -225,7 +225,12 @@ function Workspace({ me, role: currentRole, onRoleChange, view, onNavigate, onLo
       />
 
       {shown === "venues" ? (
-        <VenuesPage key={role} staff={role === "venue_staff"} canSearch={role === "coordinator" || role === "venue_staff"} />
+        <VenuesPage
+          key={role}
+          staff={role === "venue_staff"}
+          canSearch={role === "coordinator" || role === "venue_staff"}
+          calendar={role === "coordinator" || role === "coordinator_lead" || role === "venue_staff"}
+        />
       ) : shown === "event-requests" ? (
         role === "coordinator" ? (
           <ClarificationReviewPage key="coordinator" userId={me?.id ?? DEV_USER_IDS.coordinator} />
