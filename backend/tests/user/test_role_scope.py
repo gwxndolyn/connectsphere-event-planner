@@ -673,4 +673,6 @@ def test_tc_us16b_29_the_seed_still_runs_and_there_is_one_head(db: Session) -> N
     config = Config(str(BACKEND_DIR / "alembic.ini"))
     config.set_main_option("script_location", str(BACKEND_DIR / "migrations"))
     script = ScriptDirectory.from_config(config)
-    assert script.get_heads() == [REVISION]
+    # One head with D51's checks in it; later migrations (US5, SCRUM-124) chain after it.
+    assert len(script.get_heads()) == 1
+    assert REVISION in {revision.revision for revision in script.walk_revisions()}
