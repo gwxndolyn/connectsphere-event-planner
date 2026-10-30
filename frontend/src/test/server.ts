@@ -78,8 +78,31 @@ export interface FakeEquipmentLine {
   requested_by_user_id: string;
   reviewed_by_user_id: string | null;
   reviewed_at: string | null;
+  // US5 (SCRUM-125, D64): the latest availability check, or null.
+  availability_check: FakeAvailabilityCheck | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface FakeAvailabilityCheck {
+  sufficient: boolean;
+  shortfall: number;
+  checked_by_user_id: string;
+  checked_at: string;
+}
+
+/** What POST /equipment-lines/{id}/availability-check answers (SCRUM-125), less who and when. */
+export interface FakeAvailability {
+  line_id: string;
+  equipment_type: { id: string; name: string; storage_location: string | null };
+  window: { starts_at: string; ends_at: string };
+  requested: number;
+  total: number;
+  out_of_service: number;
+  reserved_elsewhere: number;
+  available: number;
+  sufficient: boolean;
+  shortfall: number;
 }
 
 export interface RecordedCall {
@@ -110,6 +133,8 @@ interface Db {
   equipmentTypes: FakeEquipmentType[];
   equipmentEvents: FakeEquipmentEvent[];
   equipmentLines: FakeEquipmentLine[];
+  // US5 (SCRUM-126): what each line's availability check finds, by line id (see setAvailability).
+  availability: Record<string, FakeAvailability>;
   // US28: the events each managing role sees, and what each event's registrations call returns.
   managedEvents: Record<"organiser" | "coordinator", EventRegistrations[]>;
   calls: RecordedCall[];
@@ -134,6 +159,7 @@ function emptyDb(): Db {
     equipmentTypes: [],
     equipmentEvents: [],
     equipmentLines: [],
+    availability: {},
     calls: [],
     nextId: 1,
     nextReference: 1,
@@ -349,12 +375,36 @@ export function seedEquipmentLine(
     requested_by_user_id: COORDINATOR_ID,
     reviewed_by_user_id: null,
     reviewed_at: null,
+    availability_check: null,
     created_at: `2026-10-01T02:00:${String(db.nextId).padStart(2, "0")}Z`,
     updated_at: "2026-10-01T02:00:00Z",
     ...overrides,
   };
   db.equipmentLines.push(line);
   return line;
+}
+
+/**
+ * What checking `line` finds (US5, SCRUM-125). The API works out availability, not the fake, so a test
+ * says what it should be: by default everything requested is available, out of 10 with no location.
+ */
+export function setAvailability(line: FakeEquipmentLine, found: Partial<FakeAvailability> = {}): FakeAvailability {
+  const available = found.available ?? 10;
+  const result: FakeAvailability = {
+    line_id: line.id,
+    equipment_type: { id: line.equipment_type.id, name: line.equipment_type.name, storage_location: null },
+    window: { starts_at: line.event.start_at ?? "2026-11-07T02:00:00Z", ends_at: "2026-11-07T05:00:00Z" },
+    requested: line.quantity,
+    total: 10,
+    out_of_service: 0,
+    reserved_elsewhere: 0,
+    available,
+    sufficient: available >= line.quantity,
+    shortfall: Math.max(line.quantity - available, 0),
+    ...found,
+  };
+  db.availability[line.id] = result;
+  return result;
 }
 
 /** The venues the next search returns, in that order: the API decides which venues fit, not the fake. */
@@ -1176,6 +1226,11 @@ const handlers = [
     const refused =
       invalidLine(values) ?? ("equipment_type_id" in values ? duplicateLine(line.event.id, values.equipment_type_id, line.id) : null);
     if (refused) return refused;
+    // D64 (SCRUM-125): a recorded check no longer applies once the type or quantity changes.
+    const changesCheck =
+      ("equipment_type_id" in values && values.equipment_type_id !== line.equipment_type.id) ||
+      ("quantity" in values && values.quantity !== line.quantity);
+    if (changesCheck) line.availability_check = null;
     if ("equipment_type_id" in values) line.equipment_type = db.equipmentTypes.find((t) => t.id === values.equipment_type_id)!;
     if ("quantity" in values) line.quantity = values.quantity as number;
     if ("notes" in values) line.notes = cleanNotes(values.notes);
@@ -1203,6 +1258,24 @@ const handlers = [
       .filter((l) => l.status === "pending")
       .sort((a, b) => a.created_at.localeCompare(b.created_at));
     return HttpResponse.json({ lines: pending });
+  }),
+
+  // US5 (SCRUM-125): records the latest check on the line (D64), which updates the line like any change.
+  route("post", "/api/v1/equipment-lines/:id/availability-check", ({ request, params }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "tech_support") return error(403, "FORBIDDEN");
+    const line = db.equipmentLines.find((l) => l.id === params.id);
+    if (!line) return error(404, "NOT_FOUND");
+    const found = db.availability[line.id] ?? setAvailability(line);
+    const recorded = {
+      sufficient: found.sufficient,
+      shortfall: found.shortfall,
+      checked_by_user_id: request.headers.get("X-User-Id")!,
+      checked_at: "2026-10-02T03:00:00Z",
+    };
+    Object.assign(line, { availability_check: recorded, updated_at: recorded.checked_at });
+    return HttpResponse.json({ ...found, ...recorded });
   }),
 
   route("post", "/api/v1/equipment-lines/:id/review", ({ request, params, body }) => {

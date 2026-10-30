@@ -94,3 +94,33 @@ test("TC-US26-17: Tech support approves a pending line with a note; the coordina
   await expect(line(page, "Wireless microphone")).toContainText("Tech support: Two from the AV store");
   await expect(line(page, "Wireless microphone").getByRole("button", { name: "Remove" })).toHaveCount(0);
 });
+
+// US5 (SCRUM-126). Uses Laptop and Speaker system, which no other test here touches, and removes both
+// lines afterwards. Seeded stock (app.seed EQUIPMENT_STOCK): Laptop 8, none out of service, at the IT
+// service desk; Speaker system 3 with 1 out of service, so 2 are available and 5 is short by 3.
+test("TC-US5-11: Tech support checks availability: sufficient with the storage location, or short by the difference (AC 1, 4, 7)", async ({ page }) => {
+  await openEvent(page);
+  await addLine(page, "Laptop", "2");
+  await expect(line(page, "Laptop")).toContainText("Pending");
+  await addLine(page, "Speaker system", "5");
+  await expect(line(page, "Speaker system")).toContainText("Pending");
+
+  await openEquipment(page, "tech_support");
+  const laptop = page.getByRole("listitem", { name: `Laptop for ${EVENT}` });
+  await laptop.getByRole("button", { name: "Check availability" }).click();
+  const laptopResult = laptop.getByRole("region", { name: "Availability" });
+  await expect(laptopResult).toContainText("8 available for 2 requested: Sufficient");
+  await expect(laptopResult).toContainText("Stored at IT service desk, Level 2, Administration Building");
+  await expect(laptop).toContainText(/Last checked .*: Sufficient/);
+
+  const speakers = page.getByRole("listitem", { name: `Speaker system for ${EVENT}` });
+  await speakers.getByRole("button", { name: "Check availability" }).click();
+  await expect(speakers.getByRole("region", { name: "Availability" })).toContainText("2 available for 5 requested: Short by 3");
+  // A check only (AC 5): both lines are still waiting for review.
+  await expect(speakers.getByRole("button", { name: "Approve" })).toBeEnabled();
+
+  // Pending lines can be removed, so a rerun finds both types free (D41).
+  await openEvent(page);
+  await remove(page, "Laptop");
+  await remove(page, "Speaker system");
+});
