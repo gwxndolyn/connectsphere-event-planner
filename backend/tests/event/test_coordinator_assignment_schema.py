@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.event.models import Event, EventStatus
-from app.seed import BOOKABLE_EVENT, EQUIPMENT_EVENT, EVENT_COORDINATOR_LEAD_EMAILS, seed, seed_id
+from app.seed import BOOKABLE_EVENT, EQUIPMENT_EVENT, EVENT_COORDINATOR_LEAD_EMAILS, PLANNING_EVENT, seed, seed_id
 from app.user.models import User, UserRole
 from tests.factories import make_event
 
@@ -63,14 +63,15 @@ def test_tc_us10a_04_seed_adds_two_active_leads_and_leaves_events_unassigned(db:
     assert all(lead.full_name for lead in leads)
     assert db.scalars(select(User).where(User.roles.any(UserRole.COORDINATOR), User.full_name.is_(None))).first() is None
     # Seeded events start unassigned, except US22's Venue Booking Demo, US26's Equipment Request
-    # Demo and US28's Intro to Supabase: only the assigned coordinator may book a venue, add equipment
-    # (D20) or view registrations (D52), so the seed assigns the dev coordinator to all three for their
-    # screens and E2E.
+    # Demo, US28's Intro to Supabase and US12's Event Planning Demo: only the assigned coordinator may
+    # book a venue, add equipment (D20), view registrations (D52) or edit an event (US12), so the seed assigns
+    # the dev coordinator to all four for their screens and E2E.
     assigned = db.scalars(select(Event.id).where(Event.coordinator_id.is_not(None))).all()
     assert sorted(assigned) == sorted(
         [
             seed_id("event", BOOKABLE_EVENT.slug),
             seed_id("event", EQUIPMENT_EVENT.slug),
             seed_id("event", "supabase-live-coding"),
+            seed_id("event", PLANNING_EVENT.slug),
         ]
     )
