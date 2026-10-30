@@ -217,7 +217,7 @@ async def test_tc_us12_09_a_critical_change_creates_a_pending_change_request(
     body = response.json()
     assert body["outcome"] == "pending_approval"
     assert body["message"] == (
-        "Your change to start time, end time, capacity is awaiting approval. "
+        "Your change to start time, end time and capacity is awaiting approval. "
         "The event keeps its current details until then."
     )
     request = body["change_request"]

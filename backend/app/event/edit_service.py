@@ -82,7 +82,8 @@ NOTHING_CHANGED_MESSAGE = "Nothing changed, so nothing was saved."
 
 
 def _pending_message(fields: list[str]) -> str:
-    named = ", ".join(LABELS[field].lower() for field in fields)
+    labels = [LABELS[field].lower() for field in fields]
+    named = labels[0] if len(labels) == 1 else f"{', '.join(labels[:-1])} and {labels[-1]}"
     return f"Your change to {named} is awaiting approval. The event keeps its current details until then."
 
 
@@ -204,7 +205,8 @@ class EventEditService:
         critical = [field for field, _, _ in changes if field in CRITICAL_FIELDS]
         request = None
         if critical:
-            # D57: the whole edit waits, non-critical fields included, so the event keeps every previous value.
+            # DECISION-PENDING: D57 — the whole edit waits, non-critical fields included, so the event keeps every
+            # previous value.
             request = EventChangeRequest(
                 event_id=event.id,
                 requested_by_user_id=coordinator.id,
