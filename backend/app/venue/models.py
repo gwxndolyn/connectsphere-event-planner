@@ -80,6 +80,15 @@ class VenueBookingStatus(enum.StrEnum):
     WITHDRAWN = "withdrawn"  # the coordinator withdrew it while pending (AC 5)
 
 
+class PreparationStatus(enum.StrEnum):
+    """US24 AC 7 (D73, CS3-49): how far Venue staff are with getting a booked venue ready. Stored as
+    text under venue_bookings_preparation_status_known."""
+
+    NOT_STARTED = "not_started"
+    IN_PROGRESS = "in_progress"
+    READY = "ready"
+
+
 # D21 (decided by the team): Requested and Approved both block the window, from the sessions 1-2
 # clarification behind AC 7, "any overlap is prevented; first come, first served". AC 3 lists only
 # approved bookings, but first come, first served needs a pending request to hold the window too.
@@ -144,6 +153,11 @@ class VenueBooking(Base):
             unique=True,
             postgresql_where=text("is_primary AND status IN ('requested', 'approved')"),
         ),
+        # DECISION-PENDING: D73 — preparation is tracked per venue (CS3-49); PreparationStatus's values.
+        CheckConstraint(
+            "preparation_status IN ('not_started', 'in_progress', 'ready')",
+            name="venue_bookings_preparation_status_known",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, server_default=text("gen_random_uuid()"))
@@ -188,6 +202,8 @@ class VenueBooking(Base):
     purpose: Mapped[str] = mapped_column(Text, server_default=text("'Main venue'"))
     # AC 4: the one venue attendees see (D68, D70).
     is_primary: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+    # AC 7: Venue staff move an approved booking on from not_started (PR 2's endpoint, PR 3's screen).
+    preparation_status: Mapped[str] = mapped_column(Text, server_default=text("'not_started'"))
 
 
 class VenueBlock(Base):

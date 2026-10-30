@@ -30,7 +30,7 @@ from app.event.models import DeliveryMode, Event, EventStatus
 from app.registration.models import ACTIVE_STATUSES, Registration, RegistrationStatus
 from app.user.models import Attendee, User, UserRole
 from app.user.supabase_admin import SupabaseAdmin, SupabaseAdminError
-from app.venue.models import Venue, VenueBlock, VenueBooking, VenueBookingStatus, occupied_window
+from app.venue.models import PreparationStatus, Venue, VenueBlock, VenueBooking, VenueBookingStatus, occupied_window
 
 # Fixed namespace so slugs map to the same UUIDs on every machine and every run.
 SEED_NAMESPACE = uuid.UUID("3f2b0c54-9b1a-4f3e-9a7e-2c0d1b8e5a41")
@@ -420,6 +420,8 @@ class MultiVenueBookingSpec:
     room_layout: str
     is_primary: bool = False
     rejection_reason: str | None = None
+    # US24 AC 7 (D73, CS3-49): how far Venue staff are with getting it ready.
+    preparation_status: PreparationStatus = PreparationStatus.NOT_STARTED
 
 
 @dataclass
@@ -458,6 +460,7 @@ MULTI_VENUE_EVENT = MultiVenueEventSpec(
             expected_attendees=300,
             room_layout="theatre",
             is_primary=True,
+            preparation_status=PreparationStatus.IN_PROGRESS,
         ),
         MultiVenueBookingSpec(
             slug="multi-venue-breakout-a",
@@ -742,6 +745,7 @@ def upsert_venue_booking(
         # US24: the only venue of its event, so its primary one.
         "purpose": MAIN_VENUE_PURPOSE,
         "is_primary": True,
+        "preparation_status": PreparationStatus.NOT_STARTED,
     }
     return _upsert_booking(db, booking_id, values)
 
@@ -799,6 +803,7 @@ def upsert_primary_booking(db: Session, spec: EventSpec, event: Event, coordinat
         "alternative_suggestion": None,
         "purpose": MAIN_VENUE_PURPOSE,
         "is_primary": True,
+        "preparation_status": PreparationStatus.NOT_STARTED,
     }
     return _upsert_booking(db, seed_id("venue-booking", f"primary-{spec.slug}"), values)
 
@@ -856,6 +861,7 @@ def upsert_multi_venue_event(
                 "alternative_suggestion": None,
                 "purpose": booking_spec.purpose,
                 "is_primary": booking_spec.is_primary,
+                "preparation_status": booking_spec.preparation_status,
             },
         )
     return event

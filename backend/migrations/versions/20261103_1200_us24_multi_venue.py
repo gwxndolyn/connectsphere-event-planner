@@ -1,4 +1,4 @@
-"""add each venue booking's purpose and its event's primary venue
+"""add each venue booking's purpose, preparation status and its event's primary venue
 
 Revision ID: 20261103_1200_us24_multi_venue
 Revises: 20261101_1200_us5_equipment
@@ -55,8 +55,23 @@ def upgrade() -> None:
         postgresql_where=sa.text("is_primary AND status IN ('requested', 'approved')"),
     )
 
+    # AC 7: how far Venue staff are with getting each venue ready.
+    # DECISION-PENDING: D73 — tracked per venue (CS3-49): not_started, in_progress or ready. Every
+    # booking starts not_started, existing ones included; Venue staff move an approved one on (PR 2).
+    op.add_column(
+        "venue_bookings",
+        sa.Column("preparation_status", sa.Text(), server_default="not_started", nullable=False),
+    )
+    op.create_check_constraint(
+        "venue_bookings_preparation_status_known",
+        "venue_bookings",
+        "preparation_status IN ('not_started', 'in_progress', 'ready')",
+    )
+
 
 def downgrade() -> None:
+    op.drop_constraint("venue_bookings_preparation_status_known", "venue_bookings", type_="check")
+    op.drop_column("venue_bookings", "preparation_status")
     op.drop_index("venue_bookings_one_primary_per_event", table_name="venue_bookings")
     op.drop_column("venue_bookings", "is_primary")
     op.drop_constraint("venue_bookings_purpose_valid", "venue_bookings", type_="check")
