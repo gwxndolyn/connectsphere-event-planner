@@ -638,7 +638,9 @@ def test_tc_us2_12_seed_books_and_blocks_three_venues_on_one_slot(db: Session) -
     seed(db, now=NOW)
     seed(db, now=NOW)  # idempotent
 
-    bookings = db.scalars(select(VenueBooking)).all()
+    # US24 (SCRUM-127) also seeds each event's primary booking on other days; these are US2's slot.
+    slot_ids = [seed_id("venue-booking", spec.slug) for spec in VENUE_BOOKINGS]
+    bookings = db.scalars(select(VenueBooking).where(VenueBooking.id.in_(slot_ids))).all()
     blocks = db.scalars(select(VenueBlock)).all()
     assert len(bookings) == len(VENUE_BOOKINGS) == 2
     assert len(blocks) == len(VENUE_BLOCKS) == 1
