@@ -20,7 +20,7 @@
 | --- | --- | --- | --- |
 | 1 | SCRUM-124 | `equipment_types` stock, out-of-service count and storage location; `equipment_reservations` (schema only); seeded stock | `backend/tests/equipment/test_equipment_stock_schema.py` |
 | 2 | SCRUM-125 | `POST /api/v1/equipment-lines/{line_id}/availability-check` for Tech Support; the latest outcome recorded on the line (migration `20261102_1200_us5_check_outcome`) | `backend/tests/equipment/test_equipment_availability.py`; the route in US16b's role matrix (`tests/user/test_role_scope.py`, TC-US16B-14) |
-| 3 | SCRUM-126 | **Check availability** on Tech support's equipment queue | Vitest; `e2e/tests/` |
+| 3 | SCRUM-126 | **Check availability** on Tech support's equipment queue; each line's last recorded check | `frontend/src/features/equipment/equipment.integration.test.tsx` (fake backend: `setAvailability` in `src/test/server.ts`); `e2e/tests/equipment.spec.ts` |
 
 ## Decisions for this story
 
@@ -49,6 +49,7 @@
 | TC-US5-12 | 2, 3, 5 | A mocked availability result; a mocked API error | The row is checked | Stock, out of service, reserved for other events and available are shown; the error shows on that row only; the line's status and Approve / Reject stay as they were | SCRUM-126 |
 | TC-US5-13 | 5 | A line with a recorded check | The coordinator edits its quantity, or its type; or only its notes | The recorded check is cleared after a quantity or type edit, and kept after a notes-only edit _(added 30 Oct, D64)_ | SCRUM-125 |
 | TC-US5-14 | Schema | A database at the previous head; a request line | `alembic upgrade head`; a check is saved without its time or checker, or with a shortfall that contradicts sufficient | One Alembic head; the line is refused on `equipment_request_lines_availability_check_consistent` _(added 30 Oct, D64)_ | SCRUM-125 |
+| TC-US5-15 | 5 | A line with a recorded check and one never checked; then a line just checked | Tech support opens the queue; then approves the checked line | The first shows its last check (Sufficient or Short by N, and when), the second none; the approval goes through with no "changed since you loaded it" warning (D64) _(added 30 Oct)_ | SCRUM-126 |
 
 ## Run log
 
@@ -57,3 +58,4 @@
 | 30 Oct | SCRUM-124 | `pytest` (local Postgres): `tests/equipment/test_equipment_stock_schema.py`, then the full backend suite; `alembic downgrade -1` and `upgrade head` | Tests written first: they failed on collection (no `EquipmentReservation`). After the change: 13 items for TC-US5-01 to 03 pass; whole backend suite 1024 passed. Two existing tests needed loosening for the new columns and head: TC-US26-01 (`equipment_types` has _at least_ its own columns) and TC-US16B-29 (one head that contains D51's migration). The migration round-trips |
 | 30 Oct | SCRUM-125 | `pytest` (local Postgres): `tests/equipment/test_equipment_availability.py`, then the full backend suite | Tests written first: all 15 failed with `404` (no route). After the endpoint: 15 items for TC-US5-04 to 10 pass. TC-US16B-14's route matrix needed the new route (Tech Support only). TC-US5-06 changed to two venues (above), in Jira too. Whole backend suite 1040 passed |
 | 30 Oct | SCRUM-125, recorded outcome | Failing tests first: TC-US5-08 rewritten and TC-US5-13, 14 added, TC-US5-04 to 10 moved to `POST …/availability-check`; all 25 failed (no route, no columns). Then the migration, the recorded check, the edit clearing it and `availability_check` on every line | 25 items for TC-US5-04 to 10, 13 and 14 pass; TC-US26-01 loosened for the line's new columns; whole backend suite 1050 passed; the migration round-trips |
+| 30 Oct | SCRUM-126 | Vitest (lint, build, unit and integration), then Playwright against the local API on a reseeded database | Failing tests first: the 4 integration tests for TC-US5-12 and 15 failed (no button), the 14 existing ones passed. TC-US5-11 (E2E) was written after the screen, so it was run once against the old queue screen to confirm it fails (no Check availability button), then on the new one. After the screen: lint and build clean, Vitest 335 passed, E2E (chromium) 34 passed including TC-US5-11 |
