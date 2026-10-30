@@ -9,13 +9,15 @@ from app.core.clock import get_now
 from app.core.database import get_db
 from app.user.dependencies import get_current_user, require_user_roles
 from app.user.models import User
-from app.venue.schemas import VenueOut, VenueSearchOut, VenuesOut, VenueWrite
-from app.venue.service import VENUE_SEARCH_ROLES, VENUE_STAFF_ROLES, venue_service
+from app.venue.calendar_service import calendar_service
+from app.venue.schemas import VenueCalendarOut, VenueOut, VenueSearchOut, VenuesOut, VenueWrite
+from app.venue.service import CALENDAR_ROLES, VENUE_SEARCH_ROLES, VENUE_STAFF_ROLES, venue_service
 
 router = APIRouter(prefix="/api/v1/venues", tags=["venues"])
 
 VenueStaff = Annotated[User, Depends(require_user_roles(*VENUE_STAFF_ROLES))]
 VenueSearcher = Annotated[User, Depends(require_user_roles(*VENUE_SEARCH_ROLES))]
+CalendarReader = Annotated[User, Depends(require_user_roles(*CALENDAR_ROLES))]
 
 
 @router.get("", response_model=VenuesOut)
@@ -78,6 +80,19 @@ def get_venue(
     db: Session = Depends(get_db),
 ) -> VenueOut:
     return venue_service.get(db, venue_id, reader)
+
+
+@router.get("/{venue_id}/calendar", response_model=VenueCalendarOut)
+def venue_calendar(
+    venue_id: uuid.UUID,
+    reader: CalendarReader,
+    db: Session = Depends(get_db),
+    # Strings, so a missing or bad date is INVALID_DATE_RANGE naming the field (deviation 51).
+    start: Annotated[str | None, Query(alias="from")] = None,
+    end: Annotated[str | None, Query(alias="to")] = None,
+) -> VenueCalendarOut:
+    """US21 (SCRUM-88): what occupies the venue over `from`..`to` (Singapore days, both included)."""
+    return calendar_service.calendar(db, venue_id, reader, start, end)
 
 
 @router.post("", status_code=201, response_model=VenueOut)

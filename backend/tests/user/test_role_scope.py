@@ -258,6 +258,8 @@ ROUTES = [
     ("PATCH", "/api/v1/venues/{venue_id}", {VENUE_STAFF}),
     ("POST", "/api/v1/venues/{venue_id}/deactivate", {VENUE_STAFF}),
     ("POST", "/api/v1/venues/{venue_id}/reactivate", {VENUE_STAFF}),
+    # US21 (SCRUM-122): the venue calendar, D56.
+    ("GET", "/api/v1/venues/{venue_id}/calendar", {COORDINATOR, LEAD, VENUE_STAFF}),
     ("POST", "/api/v1/venue-bookings", {COORDINATOR}),
     ("POST", "/api/v1/venue-bookings/{booking_id}/withdraw", {COORDINATOR}),
     ("GET", "/api/v1/venue-bookings/pending", {VENUE_STAFF}),
