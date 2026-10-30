@@ -3,13 +3,17 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import DomainError
-from app.equipment.models import EquipmentLineStatus, EquipmentRequestLine, EquipmentType
+from app.equipment.models import EquipmentLineStatus, EquipmentRequestLine, EquipmentReservation, EquipmentType
 from app.equipment.schemas import (
+    AvailabilityCheckOut,
+    AvailabilityTypeOut,
+    AvailabilityWindowOut,
+    EquipmentAvailabilityOut,
     EquipmentEventOut,
     EquipmentLineOut,
     EquipmentLineWrite,
@@ -117,9 +121,28 @@ def _out(line: EquipmentRequestLine, event: Event, equipment_type: EquipmentType
         requested_by_user_id=line.requested_by_user_id,
         reviewed_by_user_id=line.reviewed_by_user_id,
         reviewed_at=line.reviewed_at,
+        availability_check=_check_out(line),
         created_at=line.created_at,
         updated_at=line.updated_at,
     )
+
+
+def _check_out(line: EquipmentRequestLine) -> AvailabilityCheckOut | None:
+    if line.availability_checked_at is None:
+        return None
+    return AvailabilityCheckOut(
+        sufficient=line.availability_sufficient,
+        shortfall=line.availability_shortfall,
+        checked_by_user_id=line.availability_checked_by_user_id,
+        checked_at=line.availability_checked_at,
+    )
+
+
+def _clear_check(line: EquipmentRequestLine) -> None:
+    line.availability_checked_at = None
+    line.availability_checked_by_user_id = None
+    line.availability_sufficient = None
+    line.availability_shortfall = None
 
 
 def _lines(db: Session, *conditions: Any) -> list[EquipmentLineOut]:
@@ -189,6 +212,9 @@ class EquipmentService:
         if "equipment_type_id" in cleaned:
             _check_not_duplicate(db, event.id, cleaned["equipment_type_id"], line.id)
 
+        # US5 (D64): a recorded check is for one type and quantity; it no longer applies once either changes.
+        if any(getattr(line, field) != cleaned[field] for field in LINE_FIELDS if field in cleaned):
+            _clear_check(line)
         for field, value in cleaned.items():
             setattr(line, field, value)
         self._commit(db)
@@ -206,6 +232,57 @@ class EquipmentService:
     def pending(self, db: Session) -> list[EquipmentLineOut]:
         """Tech Support's queue (AC 3): pending lines from every event, oldest first."""
         return _lines(db, EquipmentRequestLine.status == EquipmentLineStatus.PENDING)
+
+    def check_availability(
+        self, db: Session, checker: User, line_id: uuid.UUID, now: datetime
+    ) -> EquipmentAvailabilityOut:
+        """US5 (SCRUM-125): the line's type and quantity against its stock, less units out of service
+        (AC 3) and units reserved for other events overlapping this one's own times (AC 2, 6). The outcome
+        is recorded on the line, replacing the last (AC 5, D64); it never reserves or reviews. FOR UPDATE,
+        so a coordinator's edit, which clears the check, waits for it."""
+        line = db.scalars(
+            select(EquipmentRequestLine).where(EquipmentRequestLine.id == line_id).with_for_update()
+        ).one_or_none()
+        if line is None:
+            raise DomainError(404, "NOT_FOUND")
+        event = db.get(Event, line.event_id)
+        equipment_type = db.get(EquipmentType, line.equipment_type_id)
+
+        # Overlap on the events' own [start, end): back-to-back doesn't overlap, as for venues (D21). No
+        # venue setup or turnaround (AC 6), and the line's own event isn't counted against itself (AC 2).
+        reserved_elsewhere = db.scalar(
+            select(func.coalesce(func.sum(EquipmentReservation.quantity), 0))
+            .join(Event, Event.id == EquipmentReservation.event_id)
+            .where(
+                EquipmentReservation.equipment_type_id == equipment_type.id,
+                EquipmentReservation.event_id != event.id,
+                Event.start_at < event.end_at,
+                Event.end_at > event.start_at,
+            )
+        )
+        # Stock can fall below what's reserved (units going out of service later), so never below 0.
+        available = max(
+            equipment_type.total_quantity - equipment_type.out_of_service_quantity - reserved_elsewhere, 0
+        )
+        line.availability_sufficient = available >= line.quantity
+        line.availability_shortfall = max(line.quantity - available, 0)
+        line.availability_checked_by_user_id = checker.id
+        line.availability_checked_at = now
+        db.commit()
+        return EquipmentAvailabilityOut(
+            line_id=line.id,
+            equipment_type=AvailabilityTypeOut.model_validate(equipment_type),
+            window=AvailabilityWindowOut(starts_at=event.start_at, ends_at=event.end_at),
+            requested=line.quantity,
+            total=equipment_type.total_quantity,
+            out_of_service=equipment_type.out_of_service_quantity,
+            reserved_elsewhere=reserved_elsewhere,
+            available=available,
+            sufficient=line.availability_sufficient,
+            shortfall=line.availability_shortfall,
+            checked_by_user_id=checker.id,
+            checked_at=now,
+        )
 
     def review(
         self,

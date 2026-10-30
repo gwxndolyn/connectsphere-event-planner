@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, Text, func, text
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, Text, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base, pg_enum
@@ -88,6 +88,15 @@ class EquipmentRequestLine(Base):
             unique=True,
             postgresql_where=text("status <> 'rejected'"),
         ),
+        # US5 (SCRUM-125): a recorded check is whole, and sufficient means short by 0.
+        CheckConstraint(
+            "(availability_checked_at IS NULL AND availability_checked_by_user_id IS NULL"
+            " AND availability_sufficient IS NULL AND availability_shortfall IS NULL)"
+            " OR (availability_checked_at IS NOT NULL AND availability_checked_by_user_id IS NOT NULL"
+            " AND ((availability_sufficient AND availability_shortfall = 0)"
+            " OR (NOT availability_sufficient AND availability_shortfall > 0)))",
+            name="equipment_request_lines_availability_check_consistent",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, server_default=text("gen_random_uuid()"))
@@ -102,6 +111,12 @@ class EquipmentRequestLine(Base):
     requested_by_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     reviewed_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # DECISION-PENDING: D64 — the latest US5 availability check (AC 5 "records the outcome"); a newer check
+    # replaces it and editing the quantity or type clears it.
+    availability_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    availability_checked_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    availability_sufficient: Mapped[bool | None] = mapped_column(Boolean)
+    availability_shortfall: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
