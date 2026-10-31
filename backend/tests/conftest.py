@@ -90,6 +90,8 @@ class FakeNotifier:
         self.transfer_requests: list[dict[str, object]] = []
         self.equipment_reviews: list[dict[str, object]] = []
         self.request_decisions: list[dict[str, object]] = []
+        # US14 (SCRUM-134): each Tech support staff member assigned to an event.
+        self.tech_staff_assignments: list[dict[str, object]] = []
         self.fail = False
 
     def waitlist_offer(
@@ -272,6 +274,11 @@ class FakeNotifier:
         if self.fail:
             raise RuntimeError("mail server unavailable")
         self.request_decisions.append(call)
+
+    def tech_staff_assigned(self, **call: object) -> None:
+        if self.fail:
+            raise RuntimeError("mail server unavailable")
+        self.tech_staff_assignments.append(call)
 
 
 @pytest.fixture

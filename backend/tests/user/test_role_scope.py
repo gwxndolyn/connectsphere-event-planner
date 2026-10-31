@@ -281,6 +281,10 @@ ROUTES = [
     ("POST", "/api/v1/equipment-lines/{line_id}/availability-check", {TECH_SUPPORT}),  # US5 (SCRUM-125)
     ("POST", "/api/v1/equipment-lines/{line_id}/reservation", {TECH_SUPPORT}),  # US27 (SCRUM-131)
     ("DELETE", "/api/v1/equipment-lines/{line_id}/reservation", {TECH_SUPPORT}),  # US27 (SCRUM-131)
+    # US14 (SCRUM-134): the event's coordinator lists, assigns and unassigns Tech support staff.
+    ("GET", "/api/v1/events/{event_id}/tech-staff", {COORDINATOR}),
+    ("POST", "/api/v1/events/{event_id}/tech-staff", {COORDINATOR}),
+    ("DELETE", "/api/v1/events/{event_id}/tech-staff/{staff_user_id}", {COORDINATOR}),
     ("GET", "/api/v1/events/{event_id}/registrations", {ORGANISER, COORDINATOR}),
     ("GET", "/api/v1/me/managed-events", {ORGANISER, COORDINATOR}),
 ]

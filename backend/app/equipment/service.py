@@ -45,6 +45,17 @@ def may_manage(event: Event, coordinator: User) -> bool:
     return coordinator.holds(UserRole.COORDINATOR) and event.coordinator_id == coordinator.id
 
 
+def managed_event(db: Session, coordinator: User, event_id: uuid.UUID, lock: bool = False) -> Event:
+    """The event, if this coordinator manages it. Anyone else gets 404, as for venue bookings (D20),
+    and so does a draft, which is owner-only (D11). Also US14's (SCRUM-134). `lock` is FOR SHARE, so a
+    concurrent status change waits for the request."""
+    query = select(Event).where(Event.id == event_id)
+    event = db.scalars(query.with_for_update(read=True) if lock else query).one_or_none()
+    if event is None or event.status == EventStatus.DRAFT or not may_manage(event, coordinator):
+        raise DomainError(404, "NOT_FOUND")
+    return event
+
+
 def _type_id(value: Any) -> uuid.UUID | None:
     if isinstance(value, uuid.UUID):
         return value
@@ -229,7 +240,7 @@ class EquipmentService:
 
     def for_event(self, db: Session, coordinator: User, event_id: uuid.UUID) -> list[EquipmentLineOut]:
         """An event's lines in every status, oldest first, for its assigned coordinator."""
-        self._managed_event(db, coordinator, event_id)
+        managed_event(db, coordinator, event_id)
         return _lines(db, EquipmentRequestLine.event_id == event_id)
 
     def create(
@@ -237,7 +248,7 @@ class EquipmentService:
     ) -> EquipmentLineOut:
         """AC 1: a pending line for one equipment type, recording who asked."""
         # FOR SHARE: a concurrent status change waits for this request.
-        event = self._managed_event(db, coordinator, event_id, lock=True)
+        event = managed_event(db, coordinator, event_id, lock=True)
         if event.status not in ELIGIBLE_STATUSES:
             raise DomainError(409, "EVENT_NOT_ELIGIBLE", status=event.status.value)
         cleaned = _clean(db, body.model_dump())
@@ -409,15 +420,6 @@ class EquipmentService:
         result = _out(line, event, equipment_type)
         self._notify_coordinator(db, notifier, line, event, equipment_type)
         return result
-
-    def _managed_event(self, db: Session, coordinator: User, event_id: uuid.UUID, lock: bool = False) -> Event:
-        """The event, if this coordinator manages it. Anyone else gets 404, as for venue bookings (D20),
-        and so does a draft, which is owner-only (D11)."""
-        query = select(Event).where(Event.id == event_id)
-        event = db.scalars(query.with_for_update(read=True) if lock else query).one_or_none()
-        if event is None or event.status == EventStatus.DRAFT or not may_manage(event, coordinator):
-            raise DomainError(404, "NOT_FOUND")
-        return event
 
     def _managed_line(
         self, db: Session, coordinator: User, line_id: uuid.UUID

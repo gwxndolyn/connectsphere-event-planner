@@ -26,9 +26,9 @@
 Decided by the acting PO, Matthew, on 31 Oct (team channel).
 
 - **D79, one table is the assignments and their log:** a row per assignment, active until unassigned (who and when); reassigning is unassign then assign, so both are logged.
-- **Eligible (AC 1)** _(recorded with SCRUM-134)_: at least one approved equipment line (US26), and the event in `planning` or `confirmed`. That's what an "approved technical support request" is.
-- **Delivery window (AC 2)** _(SCRUM-134)_: the event's own start and end, with no venue setup or turnaround; back-to-back events don't overlap.
-- **The notification (AC 4)** _(SCRUM-134)_: the event's approved equipment lines and its `equipment_needs`; the venue as attendees see it (D70).
+- **D80, eligible (AC 1):** at least one approved equipment line (US26), and the event in `planning` or `confirmed`. That's what an "approved technical support request" is.
+- **D81, delivery window (AC 2):** the event's own start and end, with no venue setup or turnaround; back-to-back events don't overlap.
+- **D82, the notification (AC 4):** the event's approved equipment lines and its `equipment_needs`; the venue as attendees see it (D70).
 - **Where** _(SCRUM-135)_: on the coordinator's existing Equipment screen.
 
 TC-US14-04 isn't used: it was merged into 03 when the cases were drafted.
@@ -59,3 +59,4 @@ TC-US14-04 isn't used: it was merged into 03 when the cases were drafted.
 | Date | Subtask | What ran | Result |
 | --- | --- | --- | --- |
 | 31 Oct | SCRUM-133 | `pytest` (local Postgres): `tests/equipment/test_tech_staff_schema.py`, then the full backend suite; `alembic downgrade -1` and `upgrade head`; the seed | Tests written first: they failed on collection (no `TechStaffAssignment`). After the change: 11 items for TC-US14-01 to 03 pass. TC-US16A's seeded-login count changed from 12 to 13 for the second Tech support user. Whole backend suite 1198 passed; the migration round-trips and the seed runs. Built on SCRUM-118's branch (#102), so its migration chains after `20261106_1200_scrum118_grants` |
+| 31 Oct | SCRUM-134 | `pytest` (local Postgres): `tests/equipment/test_tech_staff_api.py` and `tests/user/test_role_scope.py`, then the full backend suite | Tests written first: the new file failed on collection (no `tech_staff_service`) and TC-US16B-14 failed on the three unknown routes. After the change: 28 items for TC-US14-05 to 14 pass, and the three routes pass the role matrix. TC-US14-13 fails with the staff row's lock taken out (`[201, 201]`) and passes with it, including three reruns. Whole backend suite 1232 passed. No migration |
