@@ -11,6 +11,7 @@ import {
   seedEquipmentLine,
   seedEquipmentType,
   server,
+  setAvailability,
   startMockBackend,
   TECH_SUPPORT_ID,
 } from "../../test/server";
@@ -307,6 +308,105 @@ describe("Tech Support's queue (US26 AC 3)", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "This line has already been reviewed (it's approved now), so it can't be changed.",
     );
+  });
+});
+
+describe("checking availability (US5, SCRUM-126)", () => {
+  it("shows the check's result on the row; the line's status and Approve / Reject stay (TC-US5-12)", async () => {
+    const event = seedEquipmentEvent();
+    const projector = seedEquipmentLine(event, seedEquipmentType("Projector"), { quantity: 4 });
+    setAvailability(projector, {
+      equipment_type: { id: projector.equipment_type.id, name: "Projector", storage_location: "AV store, Level B1" },
+      total: 10,
+      out_of_service: 2,
+      reserved_elsewhere: 3,
+      available: 5,
+    });
+    const speakers = seedEquipmentLine(event, seedEquipmentType("Speaker system"), { quantity: 5 });
+    setAvailability(speakers, { total: 3, out_of_service: 1, available: 2 });
+    const user = userEvent.setup();
+    await openEquipment(user, "tech_support");
+    const row = await screen.findByRole("listitem", { name: "Projector for Equipment Request Demo" });
+
+    await user.click(within(row).getByRole("button", { name: "Check availability" }));
+
+    const result = await within(row).findByRole("region", { name: "Availability" });
+    expect(result).toHaveTextContent("5 available for 4 requested: Sufficient");
+    expect(result).toHaveTextContent("Stock 10 · Out of service 2 · Reserved for other events 3");
+    expect(result).toHaveTextContent("Stored at AV store, Level B1");
+    const [check] = callsTo("POST", `/api/v1/equipment-lines/${projector.id}/availability-check`);
+    expect(check.headers.get("X-User-Id")).toBe("tech-support-id");
+    // A check only (AC 5): the line stays in the queue with its review buttons, and nothing is reviewed.
+    expect(within(row).getByRole("button", { name: "Approve" })).toBeEnabled();
+    expect(within(row).getByRole("button", { name: "Reject" })).toBeEnabled();
+    expect(callsTo("POST", `/api/v1/equipment-lines/${projector.id}/review`)).toHaveLength(0);
+
+    const short = screen.getByRole("listitem", { name: "Speaker system for Equipment Request Demo" });
+    await user.click(within(short).getByRole("button", { name: "Check availability" }));
+    const shortResult = await within(short).findByRole("region", { name: "Availability" });
+    expect(shortResult).toHaveTextContent("2 available for 5 requested: Short by 3");
+    expect(shortResult).toHaveTextContent("Storage location not recorded");
+  });
+
+  it("shows a failed check on that row only (TC-US5-12)", async () => {
+    const event = seedEquipmentEvent();
+    const projector = seedEquipmentLine(event, seedEquipmentType("Projector"));
+    seedEquipmentLine(event, seedEquipmentType("Laptop"));
+    server.use(
+      http.post(`http://api.test/api/v1/equipment-lines/${projector.id}/availability-check`, () =>
+        HttpResponse.json({ code: "NOT_FOUND" }, { status: 404 }),
+      ),
+    );
+    const user = userEvent.setup();
+    await openEquipment(user, "tech_support");
+    const row = await screen.findByRole("listitem", { name: "Projector for Equipment Request Demo" });
+
+    await user.click(within(row).getByRole("button", { name: "Check availability" }));
+
+    expect(await within(row).findByRole("alert")).toHaveTextContent(
+      "This event or equipment line is no longer available. Reload and try again.",
+    );
+    const other = screen.getByRole("listitem", { name: "Laptop for Equipment Request Demo" });
+    expect(within(other).queryByRole("alert")).not.toBeInTheDocument();
+    expect(within(row).getByRole("button", { name: "Approve" })).toBeEnabled();
+  });
+
+  it("shows each line's last recorded check, and none for a line never checked (TC-US5-15)", async () => {
+    const event = seedEquipmentEvent();
+    seedEquipmentLine(event, seedEquipmentType("Projector"), {
+      availability_check: {
+        sufficient: false,
+        shortfall: 2,
+        checked_by_user_id: TECH_SUPPORT_ID,
+        checked_at: "2026-10-02T01:30:00Z",
+      },
+    });
+    seedEquipmentLine(event, seedEquipmentType("Laptop"));
+    const user = userEvent.setup();
+    await openEquipment(user, "tech_support");
+
+    const checked = await screen.findByRole("listitem", { name: "Projector for Equipment Request Demo" });
+    expect(checked).toHaveTextContent("Last checked Fri, Oct 2, 9:30 AM: Short by 2");
+    const unchecked = screen.getByRole("listitem", { name: "Laptop for Equipment Request Demo" });
+    expect(unchecked).not.toHaveTextContent("Last checked");
+  });
+
+  it("approves a line just checked, without saying it changed (TC-US5-15)", async () => {
+    // Recording the check updates the line on the server; the queue must not take that for the
+    // coordinator's edit that Approve guards against (PR #78 review).
+    const event = seedEquipmentEvent();
+    const line = seedEquipmentLine(event, seedEquipmentType("Projector"));
+    const user = userEvent.setup();
+    await openEquipment(user, "tech_support");
+    const row = await screen.findByRole("listitem", { name: "Projector for Equipment Request Demo" });
+    await user.click(within(row).getByRole("button", { name: "Check availability" }));
+    expect(await within(row).findByText(/Last checked .*: Sufficient/)).toBeInTheDocument();
+
+    await user.click(within(screen.getByRole("listitem", { name: "Projector for Equipment Request Demo" })).getByRole("button", { name: "Approve" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("Approved: Projector for Equipment Request Demo.");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(callsTo("POST", `/api/v1/equipment-lines/${line.id}/review`)).toHaveLength(1);
   });
 });
 

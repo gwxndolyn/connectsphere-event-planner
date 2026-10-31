@@ -1,5 +1,6 @@
 import { ApiError, apiClient } from "../../api/client";
 import type {
+  EquipmentAvailability,
   EquipmentEvent,
   EquipmentLine,
   EquipmentLineWrite,
@@ -39,7 +40,16 @@ export const equipmentApi = {
 
   review: (lineId: string, body: EquipmentReviewWrite) =>
     apiClient.post<EquipmentLine>(`/api/v1/equipment-lines/${lineId}/review`, body),
+
+  // US5 (SCRUM-125): Tech support only; the outcome is recorded on the line (D64).
+  checkAvailability: (lineId: string) =>
+    apiClient.post<EquipmentAvailability>(`/api/v1/equipment-lines/${lineId}/availability-check`, {}),
 };
+
+/** "Sufficient" or "Short by N" (US5 AC 4). */
+export function availabilityOutcome(check: { sufficient: boolean; shortfall: number }): string {
+  return check.sufficient ? "Sufficient" : `Short by ${check.shortfall}`;
+}
 
 /**
  * The add or edit body. A whole number is sent as one, 0 and negatives included, and anything else as
