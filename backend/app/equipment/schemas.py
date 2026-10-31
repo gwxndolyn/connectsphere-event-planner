@@ -67,6 +67,15 @@ class EquipmentEventsOut(BaseModel):
     events: list[EquipmentEventOut]
 
 
+class AvailabilityCheckOut(BaseModel):
+    """The line's latest US5 availability check (AC 5 "records the outcome", D64)."""
+
+    sufficient: bool
+    shortfall: int
+    checked_by_user_id: uuid.UUID
+    checked_at: datetime
+
+
 class EquipmentLineOut(BaseModel):
     id: uuid.UUID
     event: LineEventOut
@@ -78,9 +87,47 @@ class EquipmentLineOut(BaseModel):
     requested_by_user_id: uuid.UUID
     reviewed_by_user_id: uuid.UUID | None
     reviewed_at: datetime | None
+    # US5 (SCRUM-125): null until Tech Support checks it, and again after its quantity or type is edited.
+    availability_check: AvailabilityCheckOut | None
     created_at: datetime
     updated_at: datetime
 
 
 class EquipmentLinesOut(BaseModel):
     lines: list[EquipmentLineOut]
+
+
+class AvailabilityTypeOut(BaseModel):
+    """The checked type, with where it's kept (US5 AC 7: for reference only)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    storage_location: str | None
+
+
+class AvailabilityWindowOut(BaseModel):
+    """The event's own times; no venue setup or turnaround (US5 AC 6)."""
+
+    starts_at: datetime
+    ends_at: datetime
+
+
+class EquipmentAvailabilityOut(BaseModel):
+    """POST /api/v1/equipment-lines/{id}/availability-check (US5, SCRUM-125): whether the line's type and
+    quantity are available for its event's times (AC 1–4). The outcome is recorded on the line; nothing is
+    reserved (AC 5, D64)."""
+
+    line_id: uuid.UUID
+    equipment_type: AvailabilityTypeOut
+    window: AvailabilityWindowOut
+    requested: int
+    total: int
+    out_of_service: int
+    reserved_elsewhere: int
+    available: int
+    sufficient: bool
+    shortfall: int
+    checked_by_user_id: uuid.UUID
+    checked_at: datetime

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.clock import get_now
 from app.core.database import get_db
 from app.equipment.schemas import (
+    EquipmentAvailabilityOut,
     EquipmentEventsOut,
     EquipmentLineOut,
     EquipmentLinesOut,
@@ -62,6 +63,15 @@ def pending_lines(
 ) -> EquipmentLinesOut:
     # Only the pending queue for now (AC 3); `status` is in the URL so other filters can follow.
     return EquipmentLinesOut(lines=equipment_service.pending(db))
+
+
+@router.post("/{line_id}/availability-check", response_model=EquipmentAvailabilityOut)
+def check_line_availability(
+    line_id: uuid.UUID, checker: TechSupport, db: Session = Depends(get_db), now: datetime = Depends(get_now)
+) -> EquipmentAvailabilityOut:
+    """US5 (SCRUM-125): is the line's type and quantity available for its event's times? The outcome is
+    recorded on the line (D64); nothing is reserved."""
+    return equipment_service.check_availability(db, checker, line_id, now)
 
 
 @router.patch("/{line_id}", response_model=EquipmentLineOut)
