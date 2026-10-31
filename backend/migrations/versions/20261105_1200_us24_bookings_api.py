@@ -1,7 +1,7 @@
 """require each booking's purpose and let a withdrawn booking keep its decision
 
 Revision ID: 20261105_1200_us24_bookings_api
-Revises: 20261103_1200_us24_multi_venue
+Revises: 20261104_1200_us27_reservations
 Create Date: 2026-11-05
 
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 revision: str = "20261105_1200_us24_bookings_api"
-down_revision: Union[str, None] = "20261103_1200_us24_multi_venue"
+down_revision: Union[str, None] = "20261104_1200_us27_reservations"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

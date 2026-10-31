@@ -15,6 +15,7 @@ const LINE: EquipmentLine = {
   requested_by_user_id: "coordinator-id",
   reviewed_by_user_id: null,
   reviewed_at: null,
+  availability_check: null,
   created_at: "2026-10-01T02:00:00Z",
   updated_at: "2026-10-01T02:00:00Z",
 };

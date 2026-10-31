@@ -9,8 +9,8 @@ rather than inserting duplicates.
     python -m app.seed          # against a local database
     python -m app.seed --yes    # required when DATABASE_URL is not localhost
 
-Reseeding also deletes every equipment line on Equipment Request Demo, approved ones included, so E2E
-reruns start clean (SCRUM-110); other events' lines are untouched.
+Reseeding also deletes every equipment line on Equipment Request Demo, approved ones included, and their
+reservations, so E2E reruns start clean (SCRUM-110, SCRUM-130); other events' lines are untouched.
 """
 
 import sys
@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import SessionLocal
-from app.equipment.models import EquipmentRequestLine, EquipmentType
+from app.equipment.models import EquipmentRequestLine, EquipmentReservation, EquipmentType
 from app.event.models import DeliveryMode, Event, EventStatus
 from app.registration.models import ACTIVE_STATUSES, Registration, RegistrationStatus
 from app.user.models import Attendee, User, UserRole
@@ -712,9 +712,12 @@ def upsert_equipment_event(
 ) -> Event:
     """The confirmed event the equipment screens add lines to, assigned to `coordinator`. Its lines are
     made through the app, and a reseed removes them all (SCRUM-110): an approved line can't be removed
-    and D41 allows one live line per type, so E2E reruns (TC-US26-17) would otherwise use up the types."""
+    and D41 allows one live line per type, so E2E reruns (TC-US26-17) would otherwise use up the types.
+    Their reservations go too (US27, SCRUM-130)."""
     event = upsert_event(db, spec, now, organiser)
     event.coordinator_id = coordinator.id
+    # Its reservations first: each points at one of its lines (US27, SCRUM-130).
+    db.execute(delete(EquipmentReservation).where(EquipmentReservation.event_id == event.id))
     db.execute(delete(EquipmentRequestLine).where(EquipmentRequestLine.event_id == event.id))
     return event
 
