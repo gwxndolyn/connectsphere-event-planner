@@ -175,7 +175,10 @@ export function venuesMissing(venues: EventVenues, audience: "coordinator" | "or
   if (venues.venues_arranged) return [];
   const live = venues.bookings.filter((b) => b.status === "requested" || b.status === "approved");
   const missing: string[] = [];
-  if (live.length === 0 && venues.allocated_attendees === 0) missing.push("No venue requested yet");
+  // None live, though some may have been rejected or withdrawn (PR #103 review).
+  if (live.length === 0 && venues.allocated_attendees === 0) {
+    missing.push(audience === "coordinator" ? "No venue booked: request one" : "No venue booked yet");
+  }
   const waiting = live.filter((b) => b.status === "requested").length;
   if (waiting > 0) missing.push(`${waiting} waiting for Venue staff`);
   const closed = live.filter((b) => b.unavailability?.kind === "venue_inactive").length;

@@ -116,8 +116,8 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
     setError(null);
     setNotice(null);
     try {
-      await bookingApi.makePrimary(booking.id);
-      setNotice({ kind: "primary", booking });
+      // The API's copy: its status says whether attendees see it yet (D70).
+      setNotice({ kind: "primary", booking: { ...booking, ...(await bookingApi.makePrimary(booking.id)) } });
     } catch (reason) {
       setError(primaryErrorMessage(reason));
     }
@@ -161,7 +161,10 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
             </>
           ) : notice.kind === "primary" ? (
             <p>
-              {notice.booking.venue.name} is now the primary venue. Attendees see it once Venue staff have approved it.
+              {notice.booking.venue.name} is now the primary venue.{" "}
+              {notice.booking.status === "approved"
+                ? "Attendees see it now."
+                : "Attendees see it once Venue staff have approved it."}
             </p>
           ) : (
             <p>

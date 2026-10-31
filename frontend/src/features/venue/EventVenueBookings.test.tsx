@@ -345,6 +345,37 @@ describe("EventVenueBookings with several venues (US24)", () => {
     expect(within(row(/^Hall A/)).queryByText("Primary")).not.toBeInTheDocument();
   });
 
+  it("TC-US24-22: a Requested new primary reaches attendees once Venue staff approve it (D70)", async () => {
+    serve([booking({ status: "approved" }), booking({ id: "booking-2", venue: ROOM_B, status: "requested", is_primary: false })]);
+    vi.spyOn(bookingApi, "makePrimary").mockResolvedValue(
+      booking({ id: "booking-2", venue: ROOM_B, status: "requested", is_primary: true }),
+    );
+    render(<EventVenueBookings event={EVENT} />);
+    const user = userEvent.setup();
+    await screen.findByRole("listitem", { name: /^Room B/ });
+
+    await user.click(within(row(/^Room B/)).getByRole("button", { name: "Make primary" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Room B is now the primary venue. Attendees see it once Venue staff have approved it.",
+    );
+  });
+
+  it("TC-US24-22: an Approved new primary reaches attendees now (D70)", async () => {
+    vi.spyOn(bookingApi, "makePrimary").mockResolvedValue(
+      booking({ id: "booking-2", venue: ROOM_B, status: "approved", is_primary: true }),
+    );
+    render(<EventVenueBookings event={EVENT} />);
+    const user = userEvent.setup();
+    await screen.findByRole("listitem", { name: /^Room B/ });
+
+    await user.click(within(row(/^Room B/)).getByRole("button", { name: "Make primary" }));
+
+    const notice = await screen.findByRole("status");
+    expect(notice).toHaveTextContent("Room B is now the primary venue. Attendees see it now.");
+    expect(notice).not.toHaveTextContent("once Venue staff have approved it");
+  });
+
   it("TC-US24-22: asks the coordinator to choose a primary venue when there's none", async () => {
     serve([booking({ is_primary: false }), booking({ id: "booking-2", venue: ROOM_B, status: "approved", is_primary: false })]);
     render(<EventVenueBookings event={EVENT} />);

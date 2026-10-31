@@ -329,7 +329,8 @@ describe("several venues for one event (US24, SCRUM-129)", () => {
   }
 
   it("says what's missing before the venues are arranged (D67, D72)", () => {
-    expect(venuesMissing(venues(), "coordinator")).toEqual(["No venue requested yet", "100 more attendees to allocate"]);
+    expect(venuesMissing(venues(), "coordinator")).toEqual(["No venue booked: request one", "100 more attendees to allocate"]);
+    expect(venuesMissing(venues(), "organiser")).toEqual(["No venue booked yet", "100 more attendees to allocate"]);
     expect(
       venuesMissing(venues({ next_action: "choose_primary", allocated_attendees: 120 }), "coordinator"),
     ).toEqual(["Choose a primary venue: attendees see none until you do"]);
@@ -337,5 +338,46 @@ describe("several venues for one event (US24, SCRUM-129)", () => {
       "The coordinator to choose a primary venue",
     ]);
     expect(venuesMissing(venues({ venues_arranged: true, allocated_attendees: 120 }), "coordinator")).toEqual([]);
+  });
+
+  it("says no venue is booked, not that none was requested, when the only one was rejected (PR #103 review)", () => {
+    const rejected: EventVenues["bookings"][number] = {
+      id: "booking-1",
+      reference: "VB-2026-000001",
+      event: { id: "event-1", name: "Venue Booking Demo", request_reference: null, status: "approved" },
+      venue: { id: "venue-1", name: "Hall A", location: "Building 1", capacity: 40 },
+      requested_by_user_id: "coordinator-id",
+      starts_at: "2026-11-20T02:00:00Z",
+      ends_at: "2026-11-20T04:00:00Z",
+      occupied_starts_at: "2026-11-20T01:30:00Z",
+      occupied_ends_at: "2026-11-20T04:15:00Z",
+      expected_attendees: 30,
+      room_layout: "theatre",
+      required_facilities: [],
+      required_accessibility_features: [],
+      special_requirements: null,
+      created_at: "2026-10-01T02:00:00Z",
+      updated_at: "2026-10-01T02:00:00Z",
+      withdrawn_at: null,
+      decided_at: "2026-10-02T02:00:00Z",
+      decided_by_user_id: "venue-staff-id",
+      alternative_suggestion: null,
+      purpose: "Main venue",
+      preparation_status: "not_started",
+      status: "rejected",
+      is_primary: false,
+      rejection_reason: "Closed that day",
+      unavailability: { kind: "rejected", reason: "Closed that day", alternative_suggestion: null },
+      next_action: "coordinator_to_rebook",
+    };
+
+    expect(venuesMissing(venues({ bookings: [rejected] }), "coordinator")).toEqual([
+      "No venue booked: request one",
+      "100 more attendees to allocate",
+    ]);
+    expect(venuesMissing(venues({ bookings: [rejected] }), "organiser")).toEqual([
+      "No venue booked yet",
+      "100 more attendees to allocate",
+    ]);
   });
 });
