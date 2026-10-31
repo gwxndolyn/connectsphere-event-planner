@@ -75,7 +75,9 @@ test("TC-US26-17: Tech support approves a pending line with a note; the coordina
 
   await openEquipment(page, "tech_support");
   await expect(page.getByRole("heading", { name: "Equipment requests to review" })).toBeVisible();
-  const queued = page.getByRole("listitem", { name: `Wireless microphone for ${EVENT}` });
+  // The pending queue only: once approved, the line shows in the approved list below it (US27, SCRUM-132).
+  const pending = page.getByRole("list", { name: "Pending equipment requests" });
+  const queued = pending.getByRole("listitem", { name: `Wireless microphone for ${EVENT}` });
   await expect(queued).toContainText("Quantity 2");
   await queued.getByLabel("Note").fill("Two from the AV store");
   await queued.getByRole("button", { name: "Approve" }).click();
@@ -87,7 +89,7 @@ test("TC-US26-17: Tech support approves a pending line with a note; the coordina
   await expect(
     page.getByRole("list", { name: "Pending equipment requests" }).or(page.getByText("No equipment requests are waiting for review.")),
   ).toBeVisible();
-  await expect(page.getByRole("listitem", { name: `Wireless microphone for ${EVENT}` })).toHaveCount(0);
+  await expect(pending.getByRole("listitem", { name: `Wireless microphone for ${EVENT}` })).toHaveCount(0);
 
   await openEvent(page);
   await expect(line(page, "Wireless microphone")).toContainText("Approved");
@@ -123,4 +125,32 @@ test("TC-US5-11: Tech support checks availability: sufficient with the storage l
   await openEvent(page);
   await remove(page, "Laptop");
   await remove(page, "Speaker system");
+});
+
+// US27 (SCRUM-132). Uses Extension cord (seeded stock 15), which no other test here touches. An approved
+// line can't be removed, so rerunning on the same database needs a reseed, as for TC-US26-17; the reseed
+// removes the demo event's reservations with its lines (SCRUM-130).
+test("TC-US27-18: Tech support reserves an approved line, the coordinator sees it Reserved, then it's released (AC 1, 4, 5)", async ({ page }) => {
+  await openEvent(page);
+  await addLine(page, "Extension cord", "1");
+  await expect(line(page, "Extension cord")).toContainText("Pending");
+
+  await openEquipment(page, "tech_support");
+  await page.getByRole("listitem", { name: `Extension cord for ${EVENT}` }).getByRole("button", { name: "Approve" }).click();
+  await expect(page.getByRole("status")).toContainText(`Approved: Extension cord for ${EVENT}.`);
+  const approved = page.getByRole("list", { name: "Approved equipment requests" }).getByRole("listitem", { name: `Extension cord for ${EVENT}` });
+  await expect(approved).toContainText("Not reserved");
+  await approved.getByRole("button", { name: "Reserve" }).click();
+  await expect(approved).toContainText("Reserved");
+  await expect(approved.getByRole("button", { name: "Release" })).toBeVisible();
+
+  await openEvent(page);
+  await expect(line(page, "Extension cord")).toContainText("Approved");
+  await expect(line(page, "Extension cord")).toContainText("Reserved");
+
+  await openEquipment(page, "tech_support");
+  const again = page.getByRole("list", { name: "Approved equipment requests" }).getByRole("listitem", { name: `Extension cord for ${EVENT}` });
+  await again.getByRole("button", { name: "Release" }).click();
+  await expect(again).toContainText("Not reserved");
+  await expect(again.getByRole("button", { name: "Reserve" })).toBeVisible();
 });
