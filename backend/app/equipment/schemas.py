@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.equipment.models import EquipmentLineStatus
 from app.event.models import EventStatus
@@ -150,3 +150,46 @@ class EquipmentAvailabilityOut(BaseModel):
     shortfall: int
     checked_by_user_id: uuid.UUID
     checked_at: datetime
+
+
+class TechStaffWrite(BaseModel):
+    """Assign body (US14, SCRUM-134, AC 3): one or more Tech support users, all assigned or none."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    staff_user_ids: list[uuid.UUID] = Field(min_length=1)
+
+
+class PersonOut(BaseModel):
+    """A staff member or the coordinator who acted: their full name, else their email."""
+
+    id: uuid.UUID
+    name: str
+
+
+class TechStaffAssignedOut(BaseModel):
+    staff: PersonOut
+    assigned_by: PersonOut
+    assigned_at: datetime
+
+
+class TechStaffLogEntryOut(BaseModel):
+    """One assign or unassign (AC 6): who it was, who did it and when."""
+
+    action: Literal["assigned", "unassigned"]
+    staff: PersonOut
+    by: PersonOut
+    at: datetime
+
+
+class TechStaffOut(BaseModel):
+    """GET, and POST's answer, for /api/v1/events/{id}/tech-staff (US14, SCRUM-134)."""
+
+    # AC 1 (D80): an approved equipment line, and the event in planning or confirmed.
+    eligible: bool
+    assigned: list[TechStaffAssignedOut]
+    # AC 2 (D81): active Tech support users not on an overlapping event, nor already assigned here;
+    # empty while the event isn't eligible.
+    available: list[PersonOut]
+    # AC 6: newest first.
+    log: list[TechStaffLogEntryOut]
