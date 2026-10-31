@@ -359,6 +359,7 @@ async def test_tc_us16b_24_leads_and_venue_staff_with_other_roles_still_get_thei
             "ends_at": (start + timedelta(hours=2)).isoformat(),
             "expected_attendees": 30,
             "room_layout": "theatre",
+            "purpose": "Main venue",
         },
     )
 

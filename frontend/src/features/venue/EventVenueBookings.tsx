@@ -81,7 +81,7 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
       setNotice({ kind: "withdrawn", booking: withdrawn });
       setConfirming(null);
     } catch (reason) {
-      // BOOKING_NOT_PENDING: Venue Staff decided it meanwhile, so show what it is now behind the dialog.
+      // BOOKING_NOT_LIVE: rejected or withdrawn meanwhile, so show what it is now behind the dialog.
       await reload();
       throw reason;
     }

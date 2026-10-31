@@ -82,6 +82,8 @@ class FakeNotifier:
         self.clarifications: list[dict[str, object]] = []
         self.venue_bookings: list[dict[str, object]] = []
         self.booking_decisions: list[dict[str, object]] = []
+        # US24 (SCRUM-128, D69): an approved booking withdrawn, told to Venue Staff.
+        self.booking_withdrawals: list[dict[str, object]] = []
         self.queued: list[dict[str, object]] = []
         self.assignments: list[dict[str, object]] = []
         self.reassignments: list[dict[str, object]] = []
@@ -149,6 +151,11 @@ class FakeNotifier:
         if self.fail:
             raise RuntimeError("mail server unavailable")
         self.booking_decisions.append(call)
+
+    def venue_booking_withdrawn(self, **call: object) -> None:
+        if self.fail:
+            raise RuntimeError("mail server unavailable")
+        self.booking_withdrawals.append(call)
 
     def request_queued(
         self,

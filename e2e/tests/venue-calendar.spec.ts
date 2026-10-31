@@ -42,7 +42,7 @@ async function openCalendar(page: Page, role: string, venue: string) {
   await page.getByLabel("Acting as").selectOption(role);
   await page.getByRole("banner").getByRole("button", { name: "Venues" }).click();
   const calendar = page.getByRole("region", { name: "Availability calendar" });
-  await calendar.getByLabel("Venue").selectOption({ label: venue });
+  await calendar.getByRole("combobox", { name: /^Venue/ }).selectOption({ label: venue });
   const { day, nextWeek } = seededDay();
   if (nextWeek) await calendar.getByRole("button", { name: "Next" }).click();
   return calendar.getByRole("group", { name: shownDay(day) });
@@ -65,7 +65,7 @@ test("TC-US21-23: Venue staff see the seeded booking and block, labelled, and th
   await dialog.getByRole("button", { name: "Close" }).click();
 
   const calendar = page.getByRole("region", { name: "Availability calendar" });
-  await calendar.getByLabel("Venue").selectOption({ label: "SMU Connexion Studio 3-2" });
+  await calendar.getByRole("combobox", { name: /^Venue/ }).selectOption({ label: "SMU Connexion Studio 3-2" });
   const connexion = calendar.getByRole("group", { name: shownDay(seededDay().day) });
   await expect(connexion.getByRole("button", { name: "Unavailable: Closed for AV maintenance, 8:00 AM – 6:00 PM" })).toBeVisible();
 });

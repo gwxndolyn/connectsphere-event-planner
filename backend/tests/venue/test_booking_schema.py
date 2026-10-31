@@ -97,6 +97,7 @@ def test_tc_us22_01_a_booking_with_every_field_round_trips(
         user=coordinator,
         expected_attendees=35,
         room_layout="classroom",
+        purpose="Main venue",
         required_facilities=["projector", "wifi"],
         required_accessibility_features=["wheelchair"],
         special_requirements="Lectern at the front, please.",
@@ -140,6 +141,7 @@ def test_tc_us22_01_new_bookings_start_as_requested(db: Session, event: Event, v
         occupied_ends_at=occupied_ends_at,
         expected_attendees=10,
         room_layout="theatre",
+        purpose="Main venue",
     )
     db.add(booking)
     db.flush()

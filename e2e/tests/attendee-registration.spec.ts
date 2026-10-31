@@ -59,7 +59,8 @@ test("attendee lists events, registers, sees it in My events and withdraws", asy
   await dialog.getByRole("button", { name: "Reserve my seat" }).click();
   await expect(dialog.getByRole("heading", { name: "You're going!" })).toBeVisible();
   await expect(dialog.getByText(TECH_TALK)).toBeVisible();
-  await expect(dialog.getByText("SMU SCIS Building")).toBeVisible();
+  // US24 (D70): attendees see the event's approved primary venue, which the seed books for Tech Talk.
+  await expect(dialog.getByText("SCIS Seminar Room 2-1")).toBeVisible();
   await expect(dialog.locator(".ticket__code")).toHaveText(/^[0-9A-F]{8}$/);
   await dialog.getByRole("button", { name: "Back to events" }).click();
   await expect(techTalkCard).toContainText("You're registered");
@@ -67,7 +68,10 @@ test("attendee lists events, registers, sees it in My events and withdraws", asy
   // It shows under Confirmed in My events, then he withdraws.
   await header.getByRole("button", { name: "My events" }).click();
   const confirmed = page.locator(".my-events__section").filter({ has: page.getByRole("heading", { name: "Confirmed" }) });
-  await expect(confirmed.getByRole("listitem").filter({ hasText: TECH_TALK })).toContainText("SMU SCIS Building");
+  const row = confirmed.getByRole("listitem").filter({ hasText: TECH_TALK });
+  await expect(row).toContainText("SCIS Seminar Room 2-1");
+  // The primary venue's location is the in-person joining information.
+  await expect(row).toContainText("School of Computing and Information Systems, Level 2");
   await withdrawFromTechTalk(page);
 });
 

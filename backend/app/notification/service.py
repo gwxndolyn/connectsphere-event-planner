@@ -58,6 +58,17 @@ class Notifier(Protocol):
         alternative_suggestion: str | None,
     ) -> None: ...
 
+    def venue_booking_withdrawn(
+        self,
+        *,
+        email: str,
+        booking_id: uuid.UUID,
+        event_name: str,
+        venue_name: str,
+        starts_at: datetime,
+        ends_at: datetime,
+    ) -> None: ...
+
     def request_queued(
         self,
         *,
@@ -205,6 +216,27 @@ class LoggingNotifier:
             booking_id,
             reason or "none given",
             alternative_suggestion or "none given",
+        )
+
+    def venue_booking_withdrawn(
+        self,
+        *,
+        email: str,
+        booking_id: uuid.UUID,
+        event_name: str,
+        venue_name: str,
+        starts_at: datetime,
+        ends_at: datetime,
+    ) -> None:
+        # US24 (SCRUM-128, D69): Venue Staff hear that a venue they approved is free again.
+        logger.info(
+            "approved venue booking withdrawn: %s, %r at %r from %s to %s (booking %s)",
+            email,
+            event_name,
+            venue_name,
+            starts_at,
+            ends_at,
+            booking_id,
         )
 
     def request_queued(

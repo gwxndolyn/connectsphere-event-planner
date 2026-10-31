@@ -29,6 +29,8 @@ from app.registration.schemas import (
     WithdrawResponse,
 )
 from app.user.models import Attendee
+from app.venue.models import Venue
+from app.venue.primary import attendee_venue, primary_venues
 
 logger = logging.getLogger(__name__)
 
@@ -254,7 +256,7 @@ class RegistrationService:
             )
         )
         db.flush()
-        response = self._confirmation(registration, event)
+        response = self._confirmation(db, registration, event)
         db.commit()
         return response
 
@@ -394,7 +396,7 @@ class RegistrationService:
         )
         db.commit()
 
-        return self._confirmation(registration, event)
+        return self._confirmation(db, registration, event)
 
     def _check_registration_open(self, event: Event, now: datetime) -> None:
         """The two gates (spec §2): a confirmed event with registration enabled, inside its window."""
@@ -405,7 +407,9 @@ class RegistrationService:
         if event.registration_closes_at is not None and now >= event.registration_closes_at:
             raise DomainError(403, "REGISTRATION_CLOSED")
 
-    def _confirmation(self, registration: Registration, event: Event) -> RegisterResponse:
+    def _confirmation(self, db: Session, registration: Registration, event: Event) -> RegisterResponse:
+        # US24 (D70): the event's approved primary venue, else its own venue_name.
+        venue_name, _ = attendee_venue(event, primary_venues(db, [event.id]).get(event.id))
         return RegisterResponse(
             registration_id=registration.id,
             status=registration.status,
@@ -413,7 +417,7 @@ class RegistrationService:
                 name=event.name,
                 start_at=event.start_at,
                 end_at=event.end_at,
-                venue_name=event.venue_name,
+                venue_name=venue_name,
                 join_link=event.join_link,
             ),
         )
@@ -490,10 +494,14 @@ class RegistrationService:
             position=self.waitlist_position(db, registration),
         )
 
-    def _my_registration_fields(self, registration: Registration, event: Event) -> dict[str, object]:
+    def _my_registration_fields(
+        self, registration: Registration, event: Event, venue: Venue | None = None
+    ) -> dict[str, object]:
         local_start = event.start_at.astimezone(EVENT_TIMEZONE)
         local_end = event.end_at.astimezone(EVENT_TIMEZONE)
-        joining_info = event.join_link if event.delivery_mode == DeliveryMode.ONLINE else event.room_number
+        # US24 (D70): an in-person event's primary venue and its location, else venue_name / room_number.
+        venue_name, location = attendee_venue(event, venue)
+        joining_info = event.join_link if event.delivery_mode == DeliveryMode.ONLINE else location
         return {
             "registration_id": registration.id,
             "event_id": event.id,
@@ -501,7 +509,7 @@ class RegistrationService:
             "date": local_start.date().isoformat(),
             "start_time": local_start.strftime("%H:%M"),
             "end_time": local_end.strftime("%H:%M"),
-            "venue_name": event.venue_name,
+            "venue_name": venue_name,
             "joining_info": joining_info or "",
             "delivery_mode": event.delivery_mode,
         }
@@ -538,8 +546,9 @@ class RegistrationService:
         confirmed: list[MyRegistrationOut] = []
         waitlisted: list[MyWaitlistedRegistrationOut] = []
         offered: list[MyOfferedRegistrationOut] = []
+        venues = primary_venues(db, {event.id for _, event in rows})
         for registration, event in rows:
-            fields = self._my_registration_fields(registration, event)
+            fields = self._my_registration_fields(registration, event, venues.get(event.id))
             if registration.status == RegistrationStatus.CONFIRMED:
                 confirmed.append(MyRegistrationOut(**fields))
             elif registration.status == RegistrationStatus.OFFERED:
