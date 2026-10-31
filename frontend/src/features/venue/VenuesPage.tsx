@@ -3,6 +3,7 @@ import { venueApi, venueErrorMessage } from "./api";
 import { ACCESSIBILITY_FEATURES, FACILITIES, tagLabel } from "./tags";
 import type { ActiveFilter, Venue, VenueFilters } from "./types";
 import { PendingBookings } from "./PendingBookings";
+import { VenueCalendar } from "./VenueCalendar";
 import { VenueForm } from "./VenueForm";
 import { VenueSearch } from "./VenueSearch";
 import "../eventRequest/eventRequests.css";
@@ -23,9 +24,11 @@ interface VenuesPageProps {
   staff: boolean;
   // US2: coordinators search for an available venue above the catalogue (D20).
   canSearch?: boolean;
+  // US21 (SCRUM-88): Coordinators, Leads and Venue staff see a venue's availability calendar (D56).
+  calendar?: boolean;
 }
 
-export function VenuesPage({ staff, canSearch = false }: VenuesPageProps) {
+export function VenuesPage({ staff, canSearch = false, calendar = false }: VenuesPageProps) {
   const [filters, setFilters] = useState<VenueFilters>(EMPTY_FILTERS);
   const [venues, setVenues] = useState<Venue[]>([]);
   const [loading, setLoading] = useState(true);
@@ -124,8 +127,9 @@ export function VenuesPage({ staff, canSearch = false }: VenuesPageProps) {
 
       {staff && <PendingBookings />}
       {canSearch && <VenueSearch />}
+      {calendar && <VenueCalendar staff={staff} />}
 
-      {canSearch && <h2 className="venue-catalogue__title">All venues</h2>}
+      {(canSearch || calendar) && <h2 className="venue-catalogue__title">All venues</h2>}
       <section className="venue-filters" aria-label="Venue filters">
         <label className="request-field">
           Search by name

@@ -105,6 +105,15 @@ export interface FakeAvailability {
   shortfall: number;
 }
 
+// US2's venue closures, which the US21 calendar shows as "Unavailable" (SCRUM-123).
+export interface FakeVenueBlock {
+  id: string;
+  venue_id: string;
+  starts_at: string;
+  ends_at: string;
+  note: string | null;
+}
+
 export interface RecordedCall {
   method: string;
   path: string;
@@ -127,6 +136,8 @@ interface Db {
   clarifications: Clarification[];
   // US22 venue bookings (SCRUM-113).
   bookings: VenueBooking[];
+  // US2 venue closures, for the US21 calendar (SCRUM-123).
+  blocks: FakeVenueBlock[];
   // US13 (SCRUM-116): what GET /venue-bookings/{id}/evaluation finds, by booking id (see setEvaluation).
   evaluations: Record<string, Pick<BookingEvaluation, "conflicts" | "outside_hours">>;
   // US26 equipment (SCRUM-110).
@@ -155,6 +166,7 @@ function emptyDb(): Db {
     clarifications: [],
     managedEvents: { organiser: [], coordinator: [] },
     bookings: [],
+    blocks: [],
     evaluations: {},
     equipmentTypes: [],
     equipmentEvents: [],
@@ -333,6 +345,20 @@ export function seedBooking(request: EventRequest, venue: Venue, overrides: Part
   return booking;
 }
 
+/** A US2 closure of `venue`, Singapore 13:00–15:00 on 20 Nov 2026 unless overridden. */
+export function seedBlock(venue: Venue, overrides: Partial<FakeVenueBlock> = {}): FakeVenueBlock {
+  const block: FakeVenueBlock = {
+    id: newId("block"),
+    venue_id: venue.id,
+    starts_at: "2026-11-20T05:00:00Z",
+    ends_at: "2026-11-20T07:00:00Z",
+    note: "Aircon repair",
+    ...overrides,
+  };
+  db.blocks.push(block);
+  return block;
+}
+
 /** US13 AC 4: what the evaluation of `booking` finds; by default nothing stands in its way. */
 export function setEvaluation(booking: VenueBooking, found: Partial<Pick<BookingEvaluation, "conflicts" | "outside_hours">>) {
   db.evaluations[booking.id] = { conflicts: found.conflicts ?? [], outside_hours: found.outside_hours ?? null };
@@ -446,6 +472,15 @@ export function callsTo(method: string, path: string | RegExp): RecordedCall[] {
 
 function error(status: number, code: string, extra: Record<string, JsonBodyType> = {}) {
   return HttpResponse.json({ code, ...extra }, { status });
+}
+
+const DAY = 24 * 60 * MINUTE;
+
+/** Exactly YYYY-MM-DD, and a day that exists (the calendar's INVALID_DATE_RANGE, deviation 51). */
+function isCalendarDay(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
 function occupancy(event: FakeEvent): number {
@@ -779,6 +814,89 @@ const handlers = [
         facilities: url.searchParams.getAll("facilities"),
         accessibility: url.searchParams.getAll("accessibility"),
       },
+    });
+  }),
+
+  // US21 (SCRUM-88) venue calendar, by the rules backend/tests/venue/test_calendar.py proves for
+  // app/venue/calendar_service.py: who (D56), the range (D61, deviation 51), an inactive venue as
+  // GET /venues/{id} has it, live bookings by their occupied window with a cancelled event's included
+  // (D57, D60), blocks, and the reference only for Venue staff, Leads and the event's coordinator (D58).
+  route("get", "/api/v1/venues/:venueId/calendar", ({ request, params }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "coordinator" && role !== "coordinator_lead" && role !== "venue_staff") return error(403, "FORBIDDEN");
+    const url = new URL(request.url);
+    const days: Record<string, string> = {};
+    const bad: string[] = [];
+    for (const field of ["from", "to"]) {
+      const value = url.searchParams.get(field) ?? "";
+      if (isCalendarDay(value)) days[field] = value;
+      else bad.push(field);
+    }
+    if (bad.length === 0) {
+      const span = (Date.parse(days.to) - Date.parse(days.from)) / DAY;
+      if (!(span >= 0 && span < 42)) bad.push("to");
+    }
+    if (bad.length > 0) {
+      return error(422, "INVALID_DATE_RANGE", {
+        fields: bad,
+        message: "Choose a from and to date (YYYY-MM-DD), to not before from, at most 42 days.",
+      });
+    }
+    const userId = request.headers.get("X-User-Id");
+    const live = (booking: VenueBooking) => booking.status === "requested" || booking.status === "approved";
+    const coordinates = (booking: VenueBooking) =>
+      db.requests.find((r) => r.id === booking.event.id)?.coordinator?.id === userId;
+    const venue = db.venues.find((v) => v.id === params.venueId);
+    const sees =
+      venue &&
+      (venue.is_active ||
+        role === "venue_staff" ||
+        role === "coordinator_lead" ||
+        db.bookings.some((b) => b.venue.id === venue.id && live(b) && coordinates(b)));
+    if (!venue || !sees) return error(404, "NOT_FOUND");
+
+    const start = Date.parse(`${days.from}T00:00:00+08:00`);
+    const end = Date.parse(`${days.to}T00:00:00+08:00`) + DAY;
+    const overlaps = (startsAt: string, endsAt: string) => Date.parse(startsAt) < end && Date.parse(endsAt) > start;
+    const seesEveryReference = role === "venue_staff" || role === "coordinator_lead";
+    const bookings = db.bookings
+      .filter((b) => b.venue.id === venue.id && live(b) && overlaps(b.occupied_starts_at, b.occupied_ends_at))
+      .map((b) => ({
+        kind: "booking",
+        label: "Booking",
+        starts_at: b.starts_at,
+        ends_at: b.ends_at,
+        occupied: { starts_at: b.occupied_starts_at, ends_at: b.occupied_ends_at },
+        booking: {
+          id: b.id,
+          reference: seesEveryReference || coordinates(b) ? b.reference : null,
+          status: b.status,
+          event: { name: b.event.name, request_reference: b.event.request_reference, status: b.event.status },
+        },
+        note: null,
+      }));
+    const blocks = db.blocks
+      .filter((block) => block.venue_id === venue.id && overlaps(block.starts_at, block.ends_at))
+      .map((block) => ({
+        kind: "block",
+        label: "Unavailable",
+        starts_at: block.starts_at,
+        ends_at: block.ends_at,
+        occupied: { starts_at: block.starts_at, ends_at: block.ends_at },
+        booking: null,
+        note: block.note,
+      }));
+    // By occupied start; a stable sort keeps bookings before blocks at the same start.
+    const items = [...bookings, ...blocks].sort(
+      (a, b) => Date.parse(a.occupied.starts_at) - Date.parse(b.occupied.starts_at),
+    );
+    const { id, name, is_active, opens_at, closes_at, setup_minutes, turnaround_minutes } = venue;
+    return HttpResponse.json({
+      venue: { id, name, is_active, opens_at, closes_at, setup_minutes, turnaround_minutes },
+      from: days.from,
+      to: days.to,
+      items,
     });
   }),
 
