@@ -9,7 +9,7 @@ interface RegistrationDialogProps {
   event: EventAvailability;
   waitlisted: boolean;
   onRegister: (answers: Record<string, string>) => Promise<RegistrationConfirmation>;
-  onJoinWaitlist: (email: string) => Promise<WaitlistConfirmation>;
+  onJoinWaitlist: () => Promise<WaitlistConfirmation>;
   onRefresh: () => Promise<void>;
   onClose: () => void;
 }
@@ -20,9 +20,9 @@ type Outcome =
 
 /**
  * Register for an open event (SCRUM-26), or join the waitlist of a full one that has one (US6a,
- * SCRUM-52). Registering identifies the attendee by X-Attendee-Id, so it asks only the event's own
- * questions; joining a waitlist takes an email (D7), which links the place to the attendee's
- * My events when it matches their account (D3).
+ * SCRUM-52). Both identify the attendee by X-Attendee-Id: registering asks only the event's own
+ * questions, and joining a waitlist is one button, since the place is the logged-in attendee's
+ * (SCRUM-136, D3, D7).
  */
 export function RegistrationDialog({
   event,
@@ -34,7 +34,6 @@ export function RegistrationDialog({
 }: RegistrationDialogProps) {
   const titleId = useId();
   const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [invalidFields, setInvalidFields] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -61,7 +60,7 @@ export function RegistrationDialog({
 
   async function handleJoinWaitlist() {
     try {
-      setOutcome({ kind: "waitlisted", confirmation: await onJoinWaitlist(email.trim()) });
+      setOutcome({ kind: "waitlisted", confirmation: await onJoinWaitlist() });
     } catch (reason) {
       if (reason instanceof ApiError && reason.code === "SEATS_AVAILABLE") {
         // A seat came free: back to the register form once the board has the new count.
@@ -70,7 +69,7 @@ export function RegistrationDialog({
       }
       setError(
         reason instanceof ApiError && reason.code === "ALREADY_REGISTERED"
-          ? "That email is already registered or on the waitlist for this event."
+          ? "You're already registered or on the waitlist for this event."
           : registrationErrorMessage(reason),
       );
     }
@@ -133,18 +132,6 @@ export function RegistrationDialog({
                 <p className="reg-form__notice">
                   This event is full. Join the waitlist and you'll be offered a seat if one opens up.
                 </p>
-
-                <label className="reg-form__field">
-                  Email
-                  <input
-                    type="email"
-                    required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    autoComplete="email"
-                  />
-                </label>
-                <p className="reg-form__hint">Use the email you registered with, so the place shows under My events.</p>
 
                 {error && (
                   <p className="reg-form__error" role="alert">

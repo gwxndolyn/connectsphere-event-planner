@@ -765,21 +765,26 @@ const handlers = [
     return HttpResponse.json(confirmationBody(registration), { status: 201 });
   }),
 
-  // Body-only, no identity header (D7); linked to the attendee when the email is theirs (D3).
-  route("post", "/api/v1/events/:eventId/waitlist", ({ params, body }) => {
+  // SCRUM-136 (D3, D7): the logged-in attendee joins; there's no body. An email-only place of
+  // theirs from before is linked to them and answered ALREADY_REGISTERED, as the API does.
+  route("post", "/api/v1/events/:eventId/waitlist", ({ request, params }) => {
+    const attendee = attendeeOf(request);
+    if (!attendee) return error(401, "UNAUTHENTICATED");
     const event = db.events.find((e) => e.id === params.eventId);
     if (!event) return error(404, "NOT_FOUND");
-    const email = (body as { email?: string } | null)?.email ?? "";
-    if (db.registrations.some((r) => r.event_id === event.id && r.email === email)) {
+    if (db.registrations.some((r) => r.event_id === event.id && r.attendee_id === attendee)) {
+      return error(409, "ALREADY_REGISTERED");
+    }
+    const emailOnly = db.registrations.find(
+      (r) => r.event_id === event.id && r.attendee_id === null && r.email === ATTENDEE_EMAIL,
+    );
+    if (emailOnly) {
+      emailOnly.attendee_id = attendee;
       return error(409, "ALREADY_REGISTERED");
     }
     if (!event.waitlist_enabled) return error(409, "WAITLIST_NOT_ENABLED");
     if (seatsRemaining(event) > 0) return error(409, "SEATS_AVAILABLE");
-    const registration = seedRegistration(event, {
-      attendee_id: email === ATTENDEE_EMAIL ? ATTENDEE_ID : null,
-      email,
-      status: "waitlisted",
-    });
+    const registration = seedRegistration(event, { attendee_id: attendee, email: ATTENDEE_EMAIL, status: "waitlisted" });
     return HttpResponse.json(
       { registration_id: registration.id, status: "waitlisted", position: waitlistPosition(registration) },
       { status: 201 },
