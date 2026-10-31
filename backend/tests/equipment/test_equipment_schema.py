@@ -53,7 +53,8 @@ def test_tc_us26_01_schema_is_installed(db: Session, engine) -> None:
 
     # US5 (SCRUM-124) adds stock, out of service and storage location to the catalogue.
     assert {"id", "name", "created_at"} <= {column["name"] for column in inspector.get_columns("equipment_types")}
-    assert {column["name"] for column in inspector.get_columns("equipment_request_lines")} == {
+    # US5 (SCRUM-125) adds the latest availability check to each line.
+    assert {column["name"] for column in inspector.get_columns("equipment_request_lines")} >= {
         "id",
         "event_id",
         "equipment_type_id",
