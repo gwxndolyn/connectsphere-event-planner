@@ -4,6 +4,7 @@ import {
   bookingApi,
   bookingErrorMessage,
   decisionErrorMessage,
+  eventName,
   formatBookingWindow,
   formatOccupied,
   formatVenueTime,
@@ -14,10 +15,6 @@ import { RejectBookingDialog } from "./RejectBookingDialog";
 import { tagLabel } from "./tags";
 import "../eventRequest/eventRequests.css";
 import "./venues.css";
-
-function eventName(booking: VenueBooking): string {
-  return booking.event.name || booking.event.request_reference || "Untitled event";
-}
 
 function pendingErrorMessage(error: unknown): string {
   if (error instanceof ApiError && error.code === "FORBIDDEN") return "Only Venue staff can see pending venue requests.";
@@ -174,8 +171,8 @@ export function PendingBookings() {
       {notice && (
         <div className="request-notice" role="status">
           {notice.kind === "approved"
-            ? `Approved: ${notice.booking.venue.name} is reserved for ${eventName(notice.booking)}, ${formatBookingWindow(notice.booking)}.`
-            : `Rejected the request for ${notice.booking.venue.name} for ${eventName(notice.booking)}.`}{" "}
+            ? `Approved: ${notice.booking.venue.name} is reserved for ${eventName(notice.booking.event)}, ${formatBookingWindow(notice.booking)}.`
+            : `Rejected the request for ${notice.booking.venue.name} for ${eventName(notice.booking.event)}.`}{" "}
           The coordinator has been notified.
         </div>
       )}
@@ -192,10 +189,10 @@ export function PendingBookings() {
           {bookings.map((booking) => {
             const needs = [...booking.required_facilities, ...booking.required_accessibility_features].map(tagLabel);
             return (
-              <li key={booking.id} className="venue-booking-row" aria-label={`${eventName(booking)} at ${booking.venue.name}`}>
+              <li key={booking.id} className="venue-booking-row" aria-label={`${eventName(booking.event)} at ${booking.venue.name}`}>
                 <div className="venue-booking-row__main">
                   <strong>
-                    {eventName(booking)} at {booking.venue.name}
+                    {eventName(booking.event)} at {booking.venue.name}
                   </strong>
                   <span>{formatBookingWindow(booking)}</span>
                   <span className="venue-booking-row__occupied">

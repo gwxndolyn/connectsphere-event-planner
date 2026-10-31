@@ -75,6 +75,11 @@ export function missingForVenue(form: BookingFormValues, venue: Venue): string[]
   ];
 }
 
+/** An event as the venue screens name it: its name, else its request reference (US22, US21 D58). */
+export function eventName(event: { name: string | null; request_reference: string | null }): string {
+  return event.name || event.request_reference || "Untitled event";
+}
+
 /** A booking's window in Singapore time, e.g. "Fri, Nov 20, 10:00 AM – 12:00 PM". */
 export function formatBookingWindow(booking: Pick<VenueBooking, "starts_at" | "ends_at">): string {
   const timed = { startsAt: booking.starts_at, endsAt: booking.ends_at };
