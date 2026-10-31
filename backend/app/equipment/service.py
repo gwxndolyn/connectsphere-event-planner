@@ -11,6 +11,7 @@ from app.core.exceptions import DomainError
 from app.equipment.models import EquipmentLineStatus, EquipmentRequestLine, EquipmentReservation, EquipmentType
 from app.equipment.schemas import (
     AvailabilityCheckOut,
+    ReservationOut,
     AvailabilityTypeOut,
     AvailabilityWindowOut,
     EquipmentAvailabilityOut,
@@ -109,7 +110,12 @@ def _not_pending(line: EquipmentRequestLine) -> DomainError:
     return DomainError(409, "LINE_NOT_PENDING", status=line.status.value)
 
 
-def _out(line: EquipmentRequestLine, event: Event, equipment_type: EquipmentType) -> EquipmentLineOut:
+def _out(
+    line: EquipmentRequestLine,
+    event: Event,
+    equipment_type: EquipmentType,
+    reservation: EquipmentReservation | None = None,
+) -> EquipmentLineOut:
     return EquipmentLineOut(
         id=line.id,
         event=LineEventOut.model_validate(event),
@@ -122,6 +128,7 @@ def _out(line: EquipmentRequestLine, event: Event, equipment_type: EquipmentType
         reviewed_by_user_id=line.reviewed_by_user_id,
         reviewed_at=line.reviewed_at,
         availability_check=_check_out(line),
+        reservation=_reservation_out(reservation, event),
         created_at=line.created_at,
         updated_at=line.updated_at,
     )
@@ -138,6 +145,46 @@ def _check_out(line: EquipmentRequestLine) -> AvailabilityCheckOut | None:
     )
 
 
+def _reservation_out(reservation: EquipmentReservation | None, event: Event) -> ReservationOut | None:
+    if reservation is None:
+        return None
+    return ReservationOut(
+        quantity=reservation.quantity,
+        reserved_by_user_id=reservation.reserved_by_user_id,
+        reserved_at=reservation.created_at,
+        released_because_event_cancelled=event.status == EventStatus.CANCELLED,
+    )
+
+
+def _reserved_elsewhere(db: Session, equipment_type_id: uuid.UUID, event: Event) -> int:
+    """Units of the type reserved for other events whose own times overlap `event`'s: [start, end), so
+    back-to-back doesn't overlap, as for venues (D21), and no venue setup or turnaround (US5 AC 6, US27
+    AC 1). The event's own reservations aren't counted against it (US5 AC 2).
+    D75 (approved 31 Oct): a cancelled event's reservations count as released until US9 deletes them."""
+    return db.scalar(
+        select(func.coalesce(func.sum(EquipmentReservation.quantity), 0))
+        .join(Event, Event.id == EquipmentReservation.event_id)
+        .where(
+            EquipmentReservation.equipment_type_id == equipment_type_id,
+            EquipmentReservation.event_id != event.id,
+            Event.status != EventStatus.CANCELLED,
+            Event.start_at < event.end_at,
+            Event.end_at > event.start_at,
+        )
+    )
+
+
+def _available(equipment_type: EquipmentType, reserved_elsewhere: int) -> int:
+    # Stock can fall below what's reserved (units going out of service later), so never below 0.
+    return max(equipment_type.total_quantity - equipment_type.out_of_service_quantity - reserved_elsewhere, 0)
+
+
+def _lock_type(db: Session, equipment_type_id: uuid.UUID) -> EquipmentType:
+    """The type's row FOR UPDATE: reservations of one type take turns, so the second counts the first's
+    units before it reserves (US27 AC 2, TC-US27-11)."""
+    return db.scalars(select(EquipmentType).where(EquipmentType.id == equipment_type_id).with_for_update()).one()
+
+
 def _clear_check(line: EquipmentRequestLine) -> None:
     line.availability_checked_at = None
     line.availability_checked_by_user_id = None
@@ -147,13 +194,14 @@ def _clear_check(line: EquipmentRequestLine) -> None:
 
 def _lines(db: Session, *conditions: Any) -> list[EquipmentLineOut]:
     rows = db.execute(
-        select(EquipmentRequestLine, Event, EquipmentType)
+        select(EquipmentRequestLine, Event, EquipmentType, EquipmentReservation)
         .join(Event, Event.id == EquipmentRequestLine.event_id)
         .join(EquipmentType, EquipmentType.id == EquipmentRequestLine.equipment_type_id)
+        .outerjoin(EquipmentReservation, EquipmentReservation.request_line_id == EquipmentRequestLine.id)
         .where(*conditions)
         .order_by(EquipmentRequestLine.created_at, EquipmentRequestLine.id)
     )
-    return [_out(line, event, equipment_type) for line, event, equipment_type in rows]
+    return [_out(*row) for row in rows]
 
 
 class EquipmentService:
@@ -229,9 +277,10 @@ class EquipmentService:
         db.delete(line)
         db.commit()
 
-    def pending(self, db: Session) -> list[EquipmentLineOut]:
-        """Tech Support's queue (AC 3): pending lines from every event, oldest first."""
-        return _lines(db, EquipmentRequestLine.status == EquipmentLineStatus.PENDING)
+    def queue(self, db: Session, status: EquipmentLineStatus) -> list[EquipmentLineOut]:
+        """Tech Support's lists from every event, oldest first: pending lines to review (US26 AC 3), and
+        approved lines to reserve (US27, SCRUM-131)."""
+        return _lines(db, EquipmentRequestLine.status == status)
 
     def check_availability(
         self, db: Session, checker: User, line_id: uuid.UUID, now: datetime
@@ -248,22 +297,8 @@ class EquipmentService:
         event = db.get(Event, line.event_id)
         equipment_type = db.get(EquipmentType, line.equipment_type_id)
 
-        # Overlap on the events' own [start, end): back-to-back doesn't overlap, as for venues (D21). No
-        # venue setup or turnaround (AC 6), and the line's own event isn't counted against itself (AC 2).
-        reserved_elsewhere = db.scalar(
-            select(func.coalesce(func.sum(EquipmentReservation.quantity), 0))
-            .join(Event, Event.id == EquipmentReservation.event_id)
-            .where(
-                EquipmentReservation.equipment_type_id == equipment_type.id,
-                EquipmentReservation.event_id != event.id,
-                Event.start_at < event.end_at,
-                Event.end_at > event.start_at,
-            )
-        )
-        # Stock can fall below what's reserved (units going out of service later), so never below 0.
-        available = max(
-            equipment_type.total_quantity - equipment_type.out_of_service_quantity - reserved_elsewhere, 0
-        )
+        reserved_elsewhere = _reserved_elsewhere(db, equipment_type.id, event)
+        available = _available(equipment_type, reserved_elsewhere)
         line.availability_sufficient = available >= line.quantity
         line.availability_shortfall = max(line.quantity - available, 0)
         line.availability_checked_by_user_id = checker.id
@@ -283,6 +318,61 @@ class EquipmentService:
             checked_by_user_id=checker.id,
             checked_at=now,
         )
+
+    def reserve(self, db: Session, reserver: User, line_id: uuid.UUID) -> EquipmentLineOut:
+        """US27 (SCRUM-131): the approved line's full quantity, or nothing (AC 1, 6), if it's available for
+        the event's own times by US5's count (AC 2). The line is locked, then the type, so a second
+        reservation of the type waits and counts this one (TC-US27-11)."""
+        line = db.scalars(
+            select(EquipmentRequestLine).where(EquipmentRequestLine.id == line_id).with_for_update()
+        ).one_or_none()
+        if line is None:
+            raise DomainError(404, "NOT_FOUND")
+        if line.status != EquipmentLineStatus.APPROVED:
+            raise DomainError(409, "LINE_NOT_APPROVED", status=line.status.value)
+        event = db.get(Event, line.event_id)
+        # D76 (approved 31 Oct): as for adding US26's lines.
+        if event.status not in ELIGIBLE_STATUSES:
+            raise DomainError(409, "EVENT_NOT_ELIGIBLE", status=event.status.value)
+        if self._reservation(db, line.id) is not None:
+            raise DomainError(409, "ALREADY_RESERVED")
+
+        equipment_type = _lock_type(db, line.equipment_type_id)
+        available = _available(equipment_type, _reserved_elsewhere(db, equipment_type.id, event))
+        if available < line.quantity:
+            raise DomainError(
+                409,
+                "INSUFFICIENT_EQUIPMENT",
+                available=available,
+                requested=line.quantity,
+                shortfall=line.quantity - available,
+            )
+        reservation = EquipmentReservation(
+            request_line_id=line.id,
+            event_id=line.event_id,
+            equipment_type_id=line.equipment_type_id,
+            quantity=line.quantity,
+            reserved_by_user_id=reserver.id,
+        )
+        db.add(reservation)
+        db.commit()
+        db.refresh(reservation)
+        return _out(line, event, equipment_type, reservation)
+
+    def release(self, db: Session, line_id: uuid.UUID) -> None:
+        """US27 AC 5: the units go back to availability. D74 (approved 31 Oct): releasing deletes the
+        reservation, so the line can be reserved again."""
+        if db.get(EquipmentRequestLine, line_id) is None:
+            raise DomainError(404, "NOT_FOUND")
+        reservation = self._reservation(db, line_id, lock=True)
+        if reservation is None:
+            raise DomainError(409, "NOT_RESERVED")
+        db.delete(reservation)
+        db.commit()
+
+    def _reservation(self, db: Session, line_id: uuid.UUID, lock: bool = False) -> EquipmentReservation | None:
+        query = select(EquipmentReservation).where(EquipmentReservation.request_line_id == line_id)
+        return db.scalars(query.with_for_update() if lock else query).one_or_none()
 
     def review(
         self,
