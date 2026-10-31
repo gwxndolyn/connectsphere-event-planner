@@ -1,10 +1,12 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import type { EventRequest } from "../eventRequest/types";
+import { formatEventDate, formatInstantDateTime } from "../registration/datetime";
 import { venueApi, venueErrorMessage } from "./api";
 import {
   bookingApi,
   bookingErrorMessage,
   bookingFieldErrors,
+  formatBookingWindow,
   formatVenueTime,
   formatWindowTimes,
   missingForVenue,
@@ -27,6 +29,31 @@ function occupiedText(form: BookingFormValues, venue: Venue): string {
   return occupied
     ? `The venue is occupied ${formatWindowTimes(occupied)} (${buffers}). ${hours}`
     : `This venue needs ${buffers}. ${hours}`;
+}
+
+/**
+ * US24 AC 1 (D65): the schedule a venue's window must fall within: the event's own start and end once
+ * it has them (a planned event), otherwise its preferred dates and times. Null when it has neither.
+ */
+function scheduleText(event: EventRequest): string | null {
+  if (event.start_at && event.end_at) {
+    const window = { starts_at: event.start_at, ends_at: event.end_at };
+    const sameDay =
+      formatEventDate({ startsAt: event.start_at, endsAt: event.start_at }) ===
+      formatEventDate({ startsAt: event.end_at, endsAt: event.end_at });
+    return sameDay
+      ? formatBookingWindow(window)
+      : `${formatInstantDateTime(event.start_at)} – ${formatInstantDateTime(event.end_at)}`;
+  }
+  const dates = (event.preferred_dates ?? []).map((day) =>
+    formatEventDate({ startsAt: `${day}T12:00:00+08:00`, endsAt: `${day}T12:00:00+08:00` }),
+  );
+  if (dates.length === 0) return null;
+  const times =
+    event.preferred_start_time && event.preferred_end_time
+      ? `, ${formatVenueTime(event.preferred_start_time)} – ${formatVenueTime(event.preferred_end_time)}`
+      : "";
+  return `${dates.join(" or ")}${times}`;
 }
 
 function toggle(list: string[], tag: string): string[] {
@@ -87,6 +114,7 @@ export function VenueBookingForm({ event, onBooked, onCancel }: VenueBookingForm
 
   const venue = venues.find((v) => v.id === form.venueId);
   const missing = venue ? missingForVenue(form, venue) : [];
+  const schedule = scheduleText(event);
 
   function update<K extends keyof BookingFormValues>(key: K, value: BookingFormValues[K], ...apiFields: string[]) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -135,6 +163,7 @@ export function VenueBookingForm({ event, onBooked, onCancel }: VenueBookingForm
   return (
     <form className="venue-booking-form" noValidate onSubmit={(submitted) => void handleSubmit(submitted)}>
       <h3>Request a venue</h3>
+      {schedule && <p className="venue-booking__schedule">Event schedule: {schedule}</p>}
       {error && (
         <div className="request-alert" role="alert">
           {error}
@@ -204,16 +233,24 @@ export function VenueBookingForm({ event, onBooked, onCancel }: VenueBookingForm
           />,
         )}
         {field(
-          "Expected attendance",
+          // US24 AC 3 (D67): how many of the event's attendees this venue takes, up to its capacity.
+          "Allocated attendees",
           "expected_attendees",
-          <input
-            id="venue-booking-expected_attendees"
-            type="number"
-            min={1}
-            value={form.attendees}
-            onChange={(changed) => update("attendees", changed.target.value, "expected_attendees")}
-            {...invalid("expected_attendees")}
-          />,
+          <>
+            <input
+              id="venue-booking-expected_attendees"
+              type="number"
+              min={1}
+              value={form.attendees}
+              onChange={(changed) => update("attendees", changed.target.value, "expected_attendees")}
+              {...invalid("expected_attendees")}
+            />
+            {venue && (
+              <span className="venue-field-hint">
+                {venue.name} holds {venue.capacity}.
+              </span>
+            )}
+          </>,
         )}
         {field(
           "Layout",

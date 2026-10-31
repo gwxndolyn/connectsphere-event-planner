@@ -11,6 +11,9 @@ rather than inserting duplicates.
 
 Reseeding also deletes every equipment line on Equipment Request Demo, approved ones included, and their
 reservations, so E2E reruns start clean (SCRUM-110, SCRUM-130); other events' lines are untouched.
+Likewise it deletes every venue booking on Multi-Venue Conference Demo that the seed didn't make, such as
+the Breakout C each E2E run of TC-US24-26 adds and withdraws (SCRUM-129); other events' bookings are
+untouched.
 """
 
 import sys
@@ -817,8 +820,9 @@ def upsert_primary_booking(db: Session, spec: EventSpec, event: Event, coordinat
 def upsert_multi_venue_event(
     db: Session, spec: MultiVenueEventSpec, organiser: User, coordinator: User, now: datetime
 ) -> Event:
-    """US24's demo event and its venues. Bookings the coordinator adds in the app are left alone; the
-    seeded ones are reset, and the main hall is primary again."""
+    """US24's demo event and its venues. The seeded ones are reset, and the main hall is primary again.
+    Bookings the coordinator added in the app are deleted (SCRUM-129), so E2E reruns (TC-US24-26) don't
+    pile withdrawn Breakout C rows onto the panel; nothing references a booking, so nothing else goes."""
     # DECISION-PENDING: D65 — before start_at is set, the schedule is a preferred day between the
     # preferred times, so each window sits on that day inside them.
     day = now.astimezone(SEED_TIMEZONE).date() + timedelta(days=spec.in_days)
@@ -843,6 +847,8 @@ def upsert_multi_venue_event(
         for key, value in values.items():
             setattr(event, key, value)
     db.flush()
+    seeded = [seed_id("venue-booking", booking_spec.slug) for booking_spec in spec.bookings]
+    db.execute(delete(VenueBooking).where(VenueBooking.event_id == event.id, VenueBooking.id.not_in(seeded)))
     # Non-primary ones first, so the main hall takes the flag last.
     for booking_spec in sorted(spec.bookings, key=lambda b: b.is_primary):
         venue = db.get(Venue, seed_id("venue", booking_spec.venue_slug))
@@ -1060,8 +1066,9 @@ def admin_from_settings() -> SupabaseAdmin | None:
 
 # PR #78 review: on a shared database these could be someone's real requests.
 REMOTE_RESEED_WARNING = (
-    "Reseeding also deletes every equipment line on Equipment Request Demo, approved ones included. "
-    "Other events' lines are untouched."
+    "Reseeding also deletes every equipment line on Equipment Request Demo, approved ones included, "
+    "and every venue booking on Multi-Venue Conference Demo that the seed didn't make. "
+    "Other events' lines and bookings are untouched."
 )
 
 
