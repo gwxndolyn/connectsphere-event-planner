@@ -9,8 +9,9 @@ rather than inserting duplicates.
     python -m app.seed          # against a local database
     python -m app.seed --yes    # required when DATABASE_URL is not localhost
 
-Reseeding also deletes every equipment line on Equipment Request Demo, approved ones included, and their
-reservations, so E2E reruns start clean (SCRUM-110, SCRUM-130); other events' lines are untouched.
+Reseeding also deletes every equipment line on Equipment Request Demo, approved ones included, their
+reservations and its Tech support staff assignments, so E2E reruns start clean (SCRUM-110, SCRUM-130,
+SCRUM-133); other events' lines are untouched.
 """
 
 import sys
@@ -25,7 +26,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import SessionLocal
-from app.equipment.models import EquipmentRequestLine, EquipmentReservation, EquipmentType
+from app.equipment.models import EquipmentRequestLine, EquipmentReservation, EquipmentType, TechStaffAssignment
 from app.event.models import DeliveryMode, Event, EventStatus
 from app.registration.models import ACTIVE_STATUSES, Registration, RegistrationStatus
 from app.user.models import Attendee, User, UserRole
@@ -98,6 +99,9 @@ EVENT_COORDINATOR_LEAD_EMAILS = ("lead.one@smu.edu.sg", "lead.two@smu.edu.sg")
 EVENT_COORDINATOR_LEAD_NAMES = {"lead.one@smu.edu.sg": "Lena Lim", "lead.two@smu.edu.sg": "Leo Lee"}
 TECH_SUPPORT_EMAIL = "tech.support@smu.edu.sg"
 TECH_SUPPORT_NAME = "Terry Ong"
+# US14 (SCRUM-133): a second Tech support user, so a coordinator can assign one or more (AC 3).
+SECOND_TECH_SUPPORT_EMAIL = "tech.support2@smu.edu.sg"
+SECOND_TECH_SUPPORT_NAME = "Priya Nair"
 # US16b (SCRUM-119): the Safety officer has no screens yet, but has a login (TC-US16B-04, 21).
 SAFETY_OFFICER_EMAIL = "safety.officer@smu.edu.sg"
 SAFETY_OFFICER_NAME = "Sam Koh"
@@ -112,6 +116,7 @@ SEEDED_LOGIN_EMAILS = [
     EVENT_COORDINATOR_EMAIL,
     VENUE_STAFF_EMAIL,
     TECH_SUPPORT_EMAIL,
+    SECOND_TECH_SUPPORT_EMAIL,
     SAFETY_OFFICER_EMAIL,
     MULTI_ROLE_EMAIL,
     *EVENT_COORDINATOR_LEAD_EMAILS,
@@ -563,6 +568,13 @@ def upsert_tech_support(db: Session) -> User:
     return upsert_staff_user(db, "tech-support", TECH_SUPPORT_EMAIL, TECH_SUPPORT_NAME, [UserRole.TECH_SUPPORT])
 
 
+def upsert_second_tech_support(db: Session) -> User:
+    """US14 (SCRUM-133): someone else for a coordinator to assign alongside Terry (AC 3)."""
+    return upsert_staff_user(
+        db, "tech-support-2", SECOND_TECH_SUPPORT_EMAIL, SECOND_TECH_SUPPORT_NAME, [UserRole.TECH_SUPPORT]
+    )
+
+
 def upsert_safety_officer(db: Session) -> User:
     return upsert_staff_user(
         db, "safety-officer", SAFETY_OFFICER_EMAIL, SAFETY_OFFICER_NAME, [UserRole.SAFETY_OFFICER]
@@ -713,11 +725,13 @@ def upsert_equipment_event(
     """The confirmed event the equipment screens add lines to, assigned to `coordinator`. Its lines are
     made through the app, and a reseed removes them all (SCRUM-110): an approved line can't be removed
     and D41 allows one live line per type, so E2E reruns (TC-US26-17) would otherwise use up the types.
-    Their reservations go too (US27, SCRUM-130)."""
+    Their reservations go too (US27, SCRUM-130), and its Tech support staff assignments (US14, SCRUM-133)."""
     event = upsert_event(db, spec, now, organiser)
     event.coordinator_id = coordinator.id
     # Its reservations first: each points at one of its lines (US27, SCRUM-130).
     db.execute(delete(EquipmentReservation).where(EquipmentReservation.event_id == event.id))
+    # And its Tech support staff (US14, SCRUM-133), so E2E reruns (TC-US14-17) start with nobody assigned.
+    db.execute(delete(TechStaffAssignment).where(TechStaffAssignment.event_id == event.id))
     db.execute(delete(EquipmentRequestLine).where(EquipmentRequestLine.event_id == event.id))
     return event
 
@@ -955,6 +969,7 @@ def seed(db: Session, now: datetime | None = None) -> None:
     upsert_venue_staff(db)
     upsert_coordinator_leads(db)
     upsert_tech_support(db)
+    upsert_second_tech_support(db)
     upsert_safety_officer(db)
     upsert_multi_role(db)
     attendees = {email: upsert_attendee(db, email) for email in ATTENDEES}
