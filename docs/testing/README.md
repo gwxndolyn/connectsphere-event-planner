@@ -1,6 +1,6 @@
 # Testing and CI
 
-How ConnectSphere is tested, what runs in CI, and how to add a test. Per-story test cases live beside this file (`US2-venue-search.md`, `US4-booking-decision.md`, `US5-equipment-availability.md`, `US13-buffers.md`, `US16a-sign-up-log-in.md`, `US17-approve-reject-request.md`, `US16b-role-based-access.md`, `US20-venue-catalogue.md`, `US21-venue-calendar.md`, `US22-venue-booking.md`, `US24-multi-venue.md`, `US27-equipment-reservations.md`, `US28-view-registrations.md`); the Sprint 1 and 2 cases are in `claude_instructions.md` §4.
+How ConnectSphere is tested, what runs in CI, and how to add a test. Per-story test cases live beside this file (`US2-venue-search.md`, `US4-booking-decision.md`, `US5-equipment-availability.md`, `US13-buffers.md`, `US14-tech-support-staff.md`, `US16a-sign-up-log-in.md`, `US17-approve-reject-request.md`, `US16b-role-based-access.md`, `US20-venue-catalogue.md`, `US21-venue-calendar.md`, `US22-venue-booking.md`, `US24-multi-venue.md`, `US27-equipment-reservations.md`, `US28-view-registrations.md`); the Sprint 1 and 2 cases are in `claude_instructions.md` §4.
 
 ## The four suites
 

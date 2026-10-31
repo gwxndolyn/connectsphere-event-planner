@@ -152,3 +152,35 @@ class EquipmentRequestLine(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class TechStaffAssignment(Base):
+    """A Tech support staff member assigned to an event (US14, SCRUM-17, AC 3). Active until unassigned,
+    and the rows are the log of every assign and unassign, with who and when (AC 6). D79 (decided by the
+    acting PO, 31 Oct): reassigning is an unassign and an assign, so both are logged."""
+
+    __tablename__ = "tech_staff_assignments"
+    __table_args__ = (
+        CheckConstraint(
+            "(unassigned_at IS NULL) = (unassigned_by_user_id IS NULL)",
+            name="tech_staff_assignments_unassigned_consistent",
+        ),
+        Index(
+            "tech_staff_assignments_one_active",
+            "event_id",
+            "staff_user_id",
+            unique=True,
+            postgresql_where=text("unassigned_at IS NULL"),
+        ),
+        Index(
+            "ix_tech_staff_assignments_active_staff", "staff_user_id", postgresql_where=text("unassigned_at IS NULL")
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, server_default=text("gen_random_uuid()"))
+    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id"))
+    staff_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    assigned_by_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    assigned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    unassigned_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    unassigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
