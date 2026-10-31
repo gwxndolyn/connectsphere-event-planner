@@ -14,6 +14,8 @@
 
 **Decisions:** D56 (who: Coordinator, Lead, Venue staff), D57 (Requested bookings shown, marked pending), D58 (event name and status for all; the `VB-` reference only for Venue staff, Leads and the event's coordinator), D59 (no holds until US25), D60 (withdrawn and rejected bookings left out; a cancelled event's live bookings shown with the event cancelled, the acting PO's decision of 30 Oct), D61 (range, timezone, hours; inactive venues for Venue staff, Leads and the booked event's coordinator). Deviations 50 and 51. All in `claude_instructions.md` §1a.
 
+**Known gap (#95 review):** the venue picker lists only active venues for Leads, though a Lead may open an inactive venue's calendar (D61): the venue list (`GET /venues`) shows inactive venues only to Venue staff. Showing Leads inactive venues needs `GET /venues` to include them for Leads, a backend follow-up outside SCRUM-123.
+
 **Delivery:** two PRs, no migration.
 
 | PR | Subtask | Scope | Tests |
@@ -42,7 +44,7 @@
 | TC-US21-15 | 1 | `calendarGrid`: a week is Monday to Sunday; a month is the full weeks covering it; the API range matches | Auto Vitest | 2 |
 | TC-US21-16 | 5 | The calendar is shown on Venues for the Coordinator, Lead and Venue staff roles, not the Organiser | Auto Vitest | 2 |
 | TC-US21-17 | 2 | Week view: a booking labelled "Booking" spans its occupied window, with setup and turnaround segments named | Auto Vitest | 2 |
-| TC-US21-18 | 1 | Week view: a Requested booking reads "Booking (requested)"; a block "Unavailable" with its note | Auto Vitest | 2 |
+| TC-US21-18 | 1 | Week view: a Requested booking reads "Booking (requested)"; a block "Unavailable" with its note; a booking whose event is cancelled reads "Booking (event cancelled)" in its label and accessible name, muted, in the week and month views (D60) | Auto Vitest | 2 |
 | TC-US21-19 | — | Week view: hours outside the venue's opening hours are shaded "Closed" (D61) | Auto Vitest | 2 |
 | TC-US21-20 | 3 | Opening an item shows the event's name and status, the booking's status and times; the reference only when the API gives one; a cancelled event's booking shows the event as cancelled (D60) | Auto Vitest | 2 |
 | TC-US21-21 | 1 | Month view, Previous / Today / Next and Week ↔ Month each request the right range | Auto Vitest | 2 |
@@ -57,3 +59,5 @@
 **PR 1 review (Calvin, #92), 30 Oct:** TC-US21-05 now expects a cancelled event's booking shown (D60, the acting PO's decision), TC-US21-12 adds a Lead on an inactive venue, and TC-US21-14 adds `2026-W42-1`. Changed first and run before the fix: all three failed (the booking was left out, the Lead got `404`, `2026-W42-1` was accepted). Now 26 pytest items pass; whole backend suite: 1011 passed.
 
 **PR 2 (SCRUM-123), 30 Oct:** TC-US21-15 to 24 pass: 33 Vitest tests (`calendarGrid.test.ts` 13 and `VenueCalendar.test.tsx` 13, unit; `venueCalendar.integration.test.tsx` 7, against the fake backend's calendar route) and 2 E2E (`e2e/tests/venue-calendar.spec.ts`). Written first and run against stubs (`calendarGrid` throwing, `VenueCalendar` rendering nothing): 32 failed; the one that passed is TC-US21-16's organiser case, which checks the calendar is absent. The E2E spec was first run after the build, with the screen taken off Venues: both failed (no Availability calendar), then passed with it. Whole frontend suite: 364 passed; lint and build clean. Whole E2E suite: 38 passed, 10 skipped (the logged-in and sign-up tests, without `E2E_SEED_PASSWORD` and Supabase keys).
+
+**PR 2 review (Calvin, #95), 31 Oct:** a cancelled event's booking reads "Booking (event cancelled)", muted, in both views (TC-US21-18, D60), and each cluster of overlapping items gets its own lane count, so a lone item stays full width (`calendarGrid.test.ts`: two overlapping morning items at half width, an afternoon one at full width, and a cluster held open by a long item). Changed first and run before the fix: the new TC-US21-18 case, TC-US21-20's cancelled-event case (its new label) and the half-width case failed; the held-open case already passed. Now 36 calendar tests pass; whole frontend suite: 367 passed.
