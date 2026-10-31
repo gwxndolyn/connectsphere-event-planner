@@ -446,12 +446,13 @@ class RegistrationService:
         if already is not None:
             raise DomainError(409, "ALREADY_REGISTERED")
         # A place joined by email before SCRUM-136 has no attendee, so it couldn't accept an offer.
-        # It's theirs: link it, keep its place in the queue, and say they're already on it.
+        # It's theirs: link it, keep its place in the queue, and say they're already on it. It kept the
+        # email as typed, so match it in any letter case, as logins match users (PR #106 review).
         email_only = db.scalars(
             select(Registration).where(
                 Registration.event_id == event_id,
                 Registration.attendee_id.is_(None),
-                Registration.attendee_email == attendee.email,
+                func.lower(Registration.attendee_email) == attendee.email.lower(),
                 Registration.status.in_(ACTIVE_STATUSES),
             )
         ).first()

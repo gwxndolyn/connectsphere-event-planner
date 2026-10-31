@@ -776,7 +776,7 @@ const handlers = [
       return error(409, "ALREADY_REGISTERED");
     }
     const emailOnly = db.registrations.find(
-      (r) => r.event_id === event.id && r.attendee_id === null && r.email === ATTENDEE_EMAIL,
+      (r) => r.event_id === event.id && r.attendee_id === null && r.email.toLowerCase() === ATTENDEE_EMAIL.toLowerCase(),
     );
     if (emailOnly) {
       emailOnly.attendee_id = attendee;

@@ -67,6 +67,10 @@ export function RegistrationDialog({
         setFilledWhileOpen(false);
         void onRefresh();
       }
+      if (reason instanceof ApiError && reason.code === "ALREADY_REGISTERED") {
+        // The API may just have linked an old email-only place to them (SCRUM-136): show it on the card.
+        void onRefresh();
+      }
       setError(
         reason instanceof ApiError && reason.code === "ALREADY_REGISTERED"
           ? "You're already registered or on the waitlist for this event."
