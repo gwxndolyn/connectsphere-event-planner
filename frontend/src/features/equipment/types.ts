@@ -80,3 +80,20 @@ export interface LineFormValues {
   quantity: string;
   notes: string;
 }
+
+/** US14 (SCRUM-134): a Tech support staff member, or the coordinator who acted. */
+export interface Person {
+  id: string;
+  name: string;
+}
+
+/** GET /api/v1/events/{id}/tech-staff, and POST's answer. */
+export interface TechStaff {
+  // D80: an approved equipment line, on a planning or confirmed event.
+  eligible: boolean;
+  assigned: { staff: Person; assigned_by: Person; assigned_at: string }[];
+  // Not on an overlapping event (D81), nor assigned here; empty while not eligible.
+  available: Person[];
+  // Newest first (AC 6).
+  log: { action: "assigned" | "unassigned"; staff: Person; by: Person; at: string }[];
+}
