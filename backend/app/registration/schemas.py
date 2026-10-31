@@ -80,11 +80,20 @@ class MyOfferedRegistrationOut(MyRegistrationOut):
     offer_expires_at: datetime
 
 
+class MyExpiredRegistrationOut(MyRegistrationOut):
+    """An offer that lapsed (SCRUM-137, TC-US7-22): shown to its holder as expired, with when it
+    ended. Nothing can be done with it; the place has moved on."""
+
+    offer_expires_at: datetime
+
+
 class MyRegistrationsResponse(BaseModel):
     confirmed: list[MyRegistrationOut]
     waitlisted: list[MyWaitlistedRegistrationOut]
     # Additive in Sprint 2 (SCRUM-50): older clients that read only the two lists above still work.
     offered: list[MyOfferedRegistrationOut] = []
+    # Additive (SCRUM-137), like `offered`.
+    expired: list[MyExpiredRegistrationOut] = []
 
 
 class ManagedEventOut(BaseModel):

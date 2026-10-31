@@ -118,7 +118,8 @@ async def test_tc_us6b_05_a_lapsed_offer_cannot_be_accepted(client: AsyncClient,
     assert response.status_code == 409
     assert response.json() == {"code": "OFFER_EXPIRED"}
     db.refresh(b)
-    assert b.status == RegistrationStatus.OFFERED
+    # Expired on read before accept refused, and the place went to the next person (SCRUM-137, D2).
+    assert b.status == RegistrationStatus.EXPIRED
 
 
 async def test_tc_us6b_06_accepted_place_shows_under_confirmed(client: AsyncClient, db: Session) -> None:
