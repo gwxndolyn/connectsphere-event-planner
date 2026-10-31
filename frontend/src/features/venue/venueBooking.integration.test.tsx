@@ -116,7 +116,7 @@ describe("venue booking (US22)", () => {
     await user.selectOptions(screen.getByLabelText("Layout"), "theatre");
     await user.click(screen.getByRole("button", { name: "Send request" }));
 
-    expect(await screen.findByLabelText("Expected attendance")).toHaveAccessibleDescription(
+    expect(await screen.findByLabelText("Allocated attendees")).toHaveAccessibleDescription(
       "Expected attendance is more than this venue's capacity of 12.",
     );
   });

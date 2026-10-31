@@ -107,6 +107,7 @@ def _booking_items(db: Session, venue_id: uuid.UUID, window: Window, reader: Use
                         event=CalendarEventOut(
                             name=event.name, request_reference=event.request_reference, status=event.status
                         ),
+                        preparation_status=booking.preparation_status,
                     ),
                     note=None,
                 ),

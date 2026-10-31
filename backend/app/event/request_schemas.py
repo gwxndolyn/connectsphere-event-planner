@@ -79,6 +79,10 @@ class EventRequestOut(BaseModel):
     decided_at: datetime | None = None
     decided_by: CoordinatorOut | None = None
     rejection_reason: str | None = None
+    # US24 (SCRUM-129, D65): the event's own dates once planned, which a venue booking's window must
+    # fall within; null for a request, which has only its preferred dates and times.
+    start_at: datetime | None = None
+    end_at: datetime | None = None
 
 
 class RequestRejectWrite(BaseModel):

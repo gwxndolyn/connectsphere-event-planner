@@ -740,3 +740,19 @@ async def test_tc_us24_28_only_venue_staff_set_preparation(
     unknown = await client.post(preparation_url(uuid.uuid4()), json={"preparation_status": "ready"}, headers=auth(staff))
     assert unknown.status_code == 404
     assert db.scalar(select(VenueBooking.preparation_status).where(VenueBooking.id == main.id)) == "not_started"
+
+
+# --- TC-US24-20 the request read gives the form the event's own dates (D65, SCRUM-129) ---
+
+
+async def test_tc_us24_20_the_request_read_carries_start_at_and_end_at_once_set(
+    client: AsyncClient, db: Session, organiser: User, event: Event
+) -> None:
+    approved = (await client.get(f"/api/v1/event-requests/{event.id}", headers=auth(organiser))).json()
+    assert (approved["start_at"], approved["end_at"]) == (None, None)
+
+    event.start_at, event.end_at, event.capacity = at(10), at(16), 100
+    event.status = EventStatus.PLANNING
+    db.flush()
+    planned = (await client.get(f"/api/v1/event-requests/{event.id}", headers=auth(organiser))).json()
+    assert (datetime.fromisoformat(planned["start_at"]), datetime.fromisoformat(planned["end_at"])) == (at(10), at(16))

@@ -2,7 +2,19 @@ import { type CSSProperties, useEffect, useId, useState } from "react";
 import { statusLabel } from "../eventRequest/clarificationSections";
 import { formatInstantTime } from "../registration/datetime";
 import { calendarErrorMessage, venueApi, venueErrorMessage } from "./api";
-import { bookingStatusLabel, eventName, formatBookingWindow, formatVenueTime, formatWindowTimes } from "./bookingApi";
+import {
+  PREPARATION_STATUSES,
+  bookingApi,
+  bookingStatusLabel,
+  eventName,
+  formatBookingWindow,
+  formatVenueTime,
+  formatWindowTimes,
+  preparationErrorMessage,
+  preparationLabel,
+} from "./bookingApi";
+import type { PreparationStatus } from "./bookingTypes";
+import { ApiError } from "../../api/client";
 import {
   type CalendarView,
   type HourSpan,
@@ -90,6 +102,8 @@ export function VenueCalendar({ staff, today = singaporeToday() }: VenueCalendar
   // The answer for one venue and range; anything else is still loading.
   const [result, setResult] = useState<{ key: string; calendar?: Calendar; error?: string } | null>(null);
   const [selected, setSelected] = useState<CalendarItem | null>(null);
+  // Bumped to read the calendar again, e.g. when a booking changed under the dialog (US24, D78).
+  const [reloads, setReloads] = useState(0);
 
   useEffect(() => {
     let current = true;
@@ -125,7 +139,25 @@ export function VenueCalendar({ staff, today = singaporeToday() }: VenueCalendar
     return () => {
       current = false;
     };
-  }, [venueId, range.from, range.to]);
+  }, [venueId, range.from, range.to, reloads]);
+
+  /** A booking changed in the dialog (its preparation status): the calendar and the dialog show it. */
+  function replaceItem(updated: CalendarItem) {
+    setResult((current) =>
+      current?.calendar
+        ? {
+            ...current,
+            calendar: {
+              ...current.calendar,
+              items: current.calendar.items.map((item) =>
+                item.booking && item.booking.id === updated.booking?.id ? updated : item,
+              ),
+            },
+          }
+        : current,
+    );
+    setSelected(updated);
+  }
 
   const answer = result?.key === key ? result : null;
 
@@ -193,7 +225,15 @@ export function VenueCalendar({ staff, today = singaporeToday() }: VenueCalendar
         <CalendarBody calendar={answer.calendar} view={view} anchor={anchor} onOpen={setSelected} />
       )}
 
-      {selected && <ItemDetails item={selected} onClose={() => setSelected(null)} />}
+      {selected && (
+        <ItemDetails
+          item={selected}
+          staff={staff}
+          onClose={() => setSelected(null)}
+          onChanged={replaceItem}
+          onStale={() => setReloads((count) => count + 1)}
+        />
+      )}
     </section>
   );
 }
@@ -366,11 +406,79 @@ function MonthGrid({ days, month, items, onOpen }: MonthGridProps) {
 
 interface ItemDetailsProps {
   item: CalendarItem;
+  // Venue Staff record an approved booking's preparation here (US24, D73, D78); others read it.
+  staff: boolean;
   onClose: () => void;
+  onChanged: (item: CalendarItem) => void;
+  // The booking isn't what the calendar showed (e.g. withdrawn meanwhile): read the calendar again.
+  onStale: () => void;
+}
+
+interface PreparationControlProps {
+  item: CalendarItem;
+  onChanged: (item: CalendarItem) => void;
+  onStale: () => void;
+}
+
+/** US24 AC 7 (D73, D78): Venue staff move an approved booking from Not started to In progress to Ready. */
+function PreparationControl({ item, onChanged, onStale }: PreparationControlProps) {
+  const booking = item.booking!;
+  const id = useId();
+  const [value, setValue] = useState<PreparationStatus>(booking.preparation_status);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save() {
+    setSaving(true);
+    setSaved(null);
+    setError(null);
+    try {
+      const result = await bookingApi.setPreparation(booking.id, value);
+      onChanged({ ...item, booking: { ...booking, preparation_status: result.preparation_status } });
+      setSaved(`Preparation saved: ${preparationLabel(result.preparation_status)}.`);
+    } catch (reason) {
+      setError(preparationErrorMessage(reason));
+      if (reason instanceof ApiError && reason.code === "BOOKING_NOT_APPROVED") onStale();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="venue-calendar__preparation">
+      <label htmlFor={id}>Preparation</label>
+      <select id={id} value={value} onChange={(changed) => setValue(changed.target.value as PreparationStatus)}>
+        {PREPARATION_STATUSES.map((status) => (
+          <option key={status} value={status}>
+            {preparationLabel(status)}
+          </option>
+        ))}
+      </select>
+      <button
+        type="button"
+        className="request-button request-button--secondary"
+        disabled={saving}
+        onClick={() => void save()}
+      >
+        Save preparation
+      </button>
+      {saved && (
+        <p className="request-notice" role="status">
+          {saved}
+        </p>
+      )}
+      {error && (
+        <p className="request-alert" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
+  );
 }
 
 /** AC 3: what an item is. The reference only when the API gives it (D58); no link into the request. */
-function ItemDetails({ item, onClose }: ItemDetailsProps) {
+function ItemDetails({ item, staff, onClose, onChanged, onStale }: ItemDetailsProps) {
   const titleId = useId();
   const { booking } = item;
 
@@ -430,7 +538,17 @@ function ItemDetails({ item, onClose }: ItemDetailsProps) {
               <dd>{item.note}</dd>
             </div>
           )}
+          {/* US24 AC 7 (D73): read-only here; Venue Staff get the control below. */}
+          {booking?.status === "approved" && !staff && (
+            <div>
+              <dt>Preparation</dt>
+              <dd>{preparationLabel(booking.preparation_status)}</dd>
+            </div>
+          )}
         </dl>
+        {booking?.status === "approved" && staff && (
+          <PreparationControl key={booking.id} item={item} onChanged={onChanged} onStale={onStale} />
+        )}
       </div>
     </div>
   );

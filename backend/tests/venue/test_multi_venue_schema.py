@@ -501,3 +501,24 @@ def test_tc_us24_04_reseeding_puts_the_primary_back_on_the_main_hall(db: Session
         select(VenueBooking.purpose).where(VenueBooking.event_id == event_id, VenueBooking.is_primary.is_(True))
     ).all()
     assert primary == ["Main hall"]
+
+
+def test_tc_us24_04_reseeding_removes_bookings_the_seed_did_not_make_on_the_demo_event(db: Session) -> None:
+    """E2E (TC-US24-26) adds and withdraws a Breakout C on the demo event each run; a reseed takes it
+    and anything else made in the app off that event, so the panel shows only the seeded three again.
+    Other events' bookings are left alone."""
+    seed(db, now=NOW)
+    event = db.get(Event, seed_id("event", MULTI_VENUE_EVENT.slug))
+    coordinator = db.get(User, seed_id("user", "event-coordinator"))
+    venue = db.get(Venue, seed_id("venue", "connexion-studio-3-2"))
+    other_event = make_event(db, coordinator_id=coordinator.id)
+    for status in (VenueBookingStatus.WITHDRAWN, VenueBookingStatus.REQUESTED):
+        make_venue_booking(db, event=event, venue=venue, user=coordinator, status=status, purpose="Breakout C", is_primary=False)
+    other = make_venue_booking(db, event=other_event, venue=venue, user=coordinator, status=VenueBookingStatus.WITHDRAWN)
+
+    seed(db, now=NOW)
+
+    db.expire_all()
+    purposes = db.scalars(select(VenueBooking.purpose).where(VenueBooking.event_id == event.id)).all()
+    assert sorted(purposes) == ["Breakout A", "Breakout B", "Main hall"]
+    assert db.get(VenueBooking, other.id) is not None

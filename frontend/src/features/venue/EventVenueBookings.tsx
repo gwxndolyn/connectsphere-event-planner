@@ -1,9 +1,18 @@
 import { useEffect, useState } from "react";
 import { ApiError } from "../../api/client";
 import type { EventRequest } from "../eventRequest/types";
-import { bookingApi, bookingErrorMessage, bookingStatusLabel, formatBookingWindow, formatOccupied } from "./bookingApi";
-import type { VenueBooking, VenueBookingCreated } from "./bookingTypes";
+import {
+  bookingApi,
+  bookingErrorMessage,
+  bookingStatusLabel,
+  formatBookingWindow,
+  formatOccupied,
+  preparationLabel,
+  primaryErrorMessage,
+} from "./bookingApi";
+import type { EventVenueBooking, EventVenues, VenueBookingCreated } from "./bookingTypes";
 import { tagLabel } from "./tags";
+import { VenueArrangements } from "./VenueArrangements";
 import { VenueBookingForm } from "./VenueBookingForm";
 import { WithdrawBookingDialog } from "./WithdrawBookingDialog";
 import "../eventRequest/eventRequests.css";
@@ -14,34 +23,44 @@ interface EventVenueBookingsProps {
   event: EventRequest;
 }
 
-type Notice = { kind: "booked"; booking: VenueBookingCreated } | { kind: "withdrawn"; booking: VenueBooking };
+type Notice =
+  | { kind: "booked"; booking: VenueBookingCreated }
+  | { kind: "withdrawn"; booking: EventVenueBooking }
+  | { kind: "primary"; booking: EventVenueBooking };
+
+function live(booking: EventVenueBooking): boolean {
+  return booking.status === "requested" || booking.status === "approved";
+}
 
 /**
- * US22 (SCRUM-113): an event's venue bookings with their status, Withdraw on a pending one (AC 5),
- * and Request venue (AC 2). Only the event's assigned coordinator may book it (US10a, D20): the API
- * answers anyone else with 404, which this panel explains instead of offering Request venue. US13
- * (SCRUM-116): each booking shows its reference and the window its setup and turnaround occupy.
+ * US22 (SCRUM-113): an event's venue bookings with their status, Withdraw (AC 5) and Request venue
+ * (AC 2). Only the event's assigned coordinator may book it (US10a, D20): the API answers anyone else
+ * with 404, which this panel explains instead of offering Request venue. US13 (SCRUM-116): each booking
+ * shows its reference and the window its setup and turnaround occupy. US24 (SCRUM-129): an event can have
+ * several venues, each with its purpose and allocation; one is primary (D68, Make primary); an approved
+ * one can be withdrawn too (D69); and the panel says whether the venues are arranged (D67, D72).
  */
 export function EventVenueBookings({ event }: EventVenueBookingsProps) {
-  const [bookings, setBookings] = useState<VenueBooking[]>([]);
+  const [venues, setVenues] = useState<EventVenues | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [requesting, setRequesting] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   // The booking whose Withdraw is waiting for confirmation (PR #69 review).
-  const [confirming, setConfirming] = useState<VenueBooking | null>(null);
+  const [confirming, setConfirming] = useState<EventVenueBooking | null>(null);
   // The API refused this event's bookings (404): it's assigned to another coordinator (D20).
   const [notMine, setNotMine] = useState(false);
   const assigned = event.coordinator !== null;
+  const bookings = venues?.bookings ?? [];
 
   useEffect(() => {
     // Nobody may book an unassigned event, so there's nothing to load.
     if (!assigned) return;
     let current = true;
     bookingApi
-      .forEvent(event.id)
+      .eventVenues(event.id)
       .then((result) => {
-        if (current) setBookings(result);
+        if (current) setVenues(result);
       })
       .catch((reason: unknown) => {
         if (!current) return;
@@ -62,29 +81,47 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
       ? `Only ${event.coordinator?.name}, the coordinator assigned to this event, can request a venue for it.`
       : null;
 
-  // After a booking or a refused withdrawal: show the list as the API now has it.
+  // After any change: the venues, the primary and the summary as the API now has them.
   async function reload() {
     try {
-      setBookings(await bookingApi.forEvent(event.id));
+      setVenues(await bookingApi.eventVenues(event.id));
     } catch (reason) {
       setError(bookingErrorMessage(reason));
     }
   }
 
   /** Runs once the coordinator confirms in the dialog; a refusal is rethrown for it to explain. */
-  async function withdraw(booking: VenueBooking) {
+  async function withdraw(booking: EventVenueBooking) {
     setError(null);
     setNotice(null);
     try {
       const withdrawn = await bookingApi.withdraw(booking.id);
-      setBookings((current) => current.map((b) => (b.id === withdrawn.id ? withdrawn : b)));
-      setNotice({ kind: "withdrawn", booking: withdrawn });
+      const updated = { ...booking, ...withdrawn };
+      setVenues((current) =>
+        current && { ...current, bookings: current.bookings.map((b) => (b.id === updated.id ? updated : b)) },
+      );
+      setNotice({ kind: "withdrawn", booking: updated });
       setConfirming(null);
+      // US24: the primary and the summary may have changed too.
+      await reload();
     } catch (reason) {
       // BOOKING_NOT_LIVE: rejected or withdrawn meanwhile, so show what it is now behind the dialog.
       await reload();
       throw reason;
     }
+  }
+
+  /** US24 AC 4 (D68): the venue attendees see, once it's approved (D70). */
+  async function makePrimary(booking: EventVenueBooking) {
+    setError(null);
+    setNotice(null);
+    try {
+      // The API's copy: its status says whether attendees see it yet (D70).
+      setNotice({ kind: "primary", booking: { ...booking, ...(await bookingApi.makePrimary(booking.id)) } });
+    } catch (reason) {
+      setError(primaryErrorMessage(reason));
+    }
+    await reload();
   }
 
   return (
@@ -122,8 +159,17 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
                 </ul>
               )}
             </>
+          ) : notice.kind === "primary" ? (
+            <p>
+              {notice.booking.venue.name} is now the primary venue.{" "}
+              {notice.booking.status === "approved"
+                ? "Attendees see it now."
+                : "Attendees see it once Venue staff have approved it."}
+            </p>
           ) : (
-            <p>Request for {notice.booking.venue.name} withdrawn.</p>
+            <p>
+              {notice.booking.decided_at ? `${notice.booking.venue.name} withdrawn.` : `Request for ${notice.booking.venue.name} withdrawn.`}
+            </p>
           )}
         </div>
       )}
@@ -150,51 +196,72 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
       ) : bookings.length === 0 ? (
         <p className="request-empty">No venue requested for this event yet.</p>
       ) : (
-        <ul className="venue-booking-list" aria-label="This event's venue bookings">
-          {bookings.map((booking) => {
-            const window = formatBookingWindow(booking);
-            return (
-              <li key={booking.id} className="venue-booking-row" aria-label={`${booking.venue.name}, ${window}`}>
-                <div className="venue-booking-row__main">
-                  <strong>{booking.venue.name}</strong>
-                  <span>{window}</span>
-                  <span className="venue-booking-row__occupied">
-                    {booking.reference} · Occupied {formatOccupied(booking)} with setup and turnaround
+        <>
+          {venues && <VenueArrangements venues={venues} audience="coordinator" />}
+          <ul className="venue-booking-list" aria-label="This event's venue bookings">
+            {bookings.map((booking) => {
+              const window = formatBookingWindow(booking);
+              return (
+                <li key={booking.id} className="venue-booking-row" aria-label={`${booking.venue.name}, ${window}`}>
+                  <div className="venue-booking-row__main">
+                    <strong>
+                      {booking.venue.name} · {booking.purpose}
+                    </strong>
+                    <span>{window}</span>
+                    <span className="venue-booking-row__occupied">
+                      {booking.reference} · Occupied {formatOccupied(booking)} with setup and turnaround
+                    </span>
+                    <span>
+                      {booking.expected_attendees} attending · {tagLabel(booking.room_layout)}
+                    </span>
+                    {/* US24 AC 7 (D73): Venue staff record it; the coordinator reads it. */}
+                    {booking.status === "approved" && <span>Preparation: {preparationLabel(booking.preparation_status)}</span>}
+                    {/* US4 AC 5, 8: why Venue staff said no, and what they'd suggest; the event can book again. */}
+                    {booking.status === "rejected" && (
+                      <>
+                        {booking.rejection_reason && (
+                          <span className="venue-booking-row__decision">Reason: {booking.rejection_reason}</span>
+                        )}
+                        {booking.alternative_suggestion && (
+                          <span className="venue-booking-row__decision">Suggested instead: {booking.alternative_suggestion}</span>
+                        )}
+                      </>
+                    )}
+                    {booking.unavailability?.kind === "venue_inactive" && (
+                      <span className="venue-booking-row__decision">This venue is no longer available.</span>
+                    )}
+                  </div>
+                  {booking.is_primary && <span className="venue-badge venue-badge--primary">Primary</span>}
+                  <span className={`venue-booking-status venue-booking-status--${booking.status}`}>
+                    {bookingStatusLabel(booking.status)}
                   </span>
-                  <span>
-                    {booking.expected_attendees} attending · {tagLabel(booking.room_layout)}
-                  </span>
-                  {/* US4 AC 5, 8: why Venue staff said no, and what they'd suggest; the event can book again. */}
-                  {booking.status === "rejected" && (
-                    <>
-                      {booking.rejection_reason && (
-                        <span className="venue-booking-row__decision">Reason: {booking.rejection_reason}</span>
-                      )}
-                      {booking.alternative_suggestion && (
-                        <span className="venue-booking-row__decision">Suggested instead: {booking.alternative_suggestion}</span>
-                      )}
-                    </>
+                  {live(booking) && !booking.is_primary && (
+                    <button
+                      type="button"
+                      className="request-button request-button--secondary"
+                      onClick={() => void makePrimary(booking)}
+                    >
+                      Make primary
+                    </button>
                   )}
-                </div>
-                <span className={`venue-booking-status venue-booking-status--${booking.status}`}>
-                  {bookingStatusLabel(booking.status)}
-                </span>
-                {booking.status === "requested" && (
-                  <button
-                    type="button"
-                    className="request-button request-button--quiet"
-                    onClick={() => {
-                      setNotice(null);
-                      setConfirming(booking);
-                    }}
-                  >
-                    Withdraw
-                  </button>
-                )}
-              </li>
-            );
-          })}
-        </ul>
+                  {/* US24 (D69): an approved venue can be withdrawn too; Venue staff are told. */}
+                  {live(booking) && (
+                    <button
+                      type="button"
+                      className="request-button request-button--quiet"
+                      onClick={() => {
+                        setNotice(null);
+                        setConfirming(booking);
+                      }}
+                    >
+                      Withdraw
+                    </button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </>
       )}
 
       {confirming && (

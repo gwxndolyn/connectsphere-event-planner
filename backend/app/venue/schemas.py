@@ -273,6 +273,8 @@ class CalendarBookingOut(BaseModel):
     reference: str | None
     status: VenueBookingStatus  # requested or approved (D57)
     event: CalendarEventOut
+    # US24 (SCRUM-129, D73, D78): how far Venue staff are with getting it ready; they set it from here.
+    preparation_status: str
 
 
 class CalendarItemOut(BaseModel):
