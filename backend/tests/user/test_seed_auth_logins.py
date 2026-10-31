@@ -51,8 +51,9 @@ def test_tc_us16a_27_every_seeded_user_gets_a_confirmed_linked_login(db: Session
 
     seed_auth_logins(db, admin, PASSWORD)
 
-    # The organiser, four staff, the two-role user (SCRUM-119), two Leads and four attendees.
-    assert len(SEEDED_LOGIN_EMAILS) == 12
+    # The organiser, five staff (a second Tech support user since US14, SCRUM-133), the two-role user
+    # (SCRUM-119), two Leads and four attendees.
+    assert len(SEEDED_LOGIN_EMAILS) == 13
     assert {account["email"] for account in admin.created} == set(SEEDED_LOGIN_EMAILS)
     assert all(account["password"] == PASSWORD and account["email_confirm"] for account in admin.created)
     users = seeded_users(db)
