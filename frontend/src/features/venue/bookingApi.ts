@@ -63,6 +63,7 @@ export function toBookingBody(eventId: string, form: BookingFormValues): VenueBo
   if (/^\d+$/.test(form.attendees.trim())) body.expected_attendees = Number(form.attendees.trim());
   if (form.roomLayout) body.room_layout = form.roomLayout;
   if (form.specialRequirements.trim()) body.special_requirements = form.specialRequirements.trim();
+  if (form.purpose.trim()) body.purpose = form.purpose.trim();
   return body;
 }
 

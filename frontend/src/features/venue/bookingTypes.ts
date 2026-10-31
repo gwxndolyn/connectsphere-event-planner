@@ -41,6 +41,11 @@ export interface VenueBooking {
   decided_by_user_id: string | null;
   rejection_reason: string | null;
   alternative_suggestion: string | null;
+  // US24 (SCRUM-128): what the venue is for (D66), whether attendees see it (D68), and how far Venue
+  // staff are with getting it ready (D73). PR 3 shows them.
+  purpose: string;
+  is_primary: boolean;
+  preparation_status: "not_started" | "in_progress" | "ready";
 }
 
 /** US4 AC 5: both optional; left out when blank. */
@@ -109,6 +114,8 @@ export interface VenueBookingWrite {
   required_facilities: string[];
   required_accessibility_features: string[];
   special_requirements?: string;
+  // US24 (SCRUM-128): required; blank is left out so MISSING_REQUIRED_FIELD names it (D66).
+  purpose?: string;
 }
 
 // The form as typed. Date and times are Singapore wall-clock (D9).
@@ -122,4 +129,6 @@ export interface BookingFormValues {
   facilities: string[];
   accessibility: string[];
   specialRequirements: string;
+  // US24: what this venue is for, e.g. "Main hall" or "Breakout A".
+  purpose: string;
 }

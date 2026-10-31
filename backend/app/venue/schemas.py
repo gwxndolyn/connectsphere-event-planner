@@ -1,6 +1,8 @@
 import uuid
 from datetime import date, datetime, time
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.event.models import EventStatus
@@ -62,6 +64,8 @@ class VenueBookingWrite(BaseModel):
     required_facilities: list[str] | None = None
     required_accessibility_features: list[str] | None = None
     special_requirements: str | None = None
+    # US24 (SCRUM-128) AC 1: what the venue is for, e.g. "Main hall" (D66).
+    purpose: str | None = None
 
 
 class BookingEventOut(BaseModel):
@@ -80,6 +84,15 @@ class BookingVenueOut(BaseModel):
     name: str
     location: str
     capacity: int
+
+
+class BookingUnavailabilityOut(BaseModel):
+    """US24 AC 4 (D71): why a venue needs replacing: Venue staff rejected it (with their reason and
+    alternative, if given), or the venue has been deactivated."""
+
+    kind: Literal["rejected", "venue_inactive"]
+    reason: str | None = None
+    alternative_suggestion: str | None = None
 
 
 class VenueBookingOut(BaseModel):
@@ -107,6 +120,23 @@ class VenueBookingOut(BaseModel):
     decided_by_user_id: uuid.UUID | None
     rejection_reason: str | None
     alternative_suggestion: str | None
+    # US24 (SCRUM-128): what it's for (D66), whether it's the venue attendees see (D68), how far Venue
+    # staff are with getting it ready (D73), and, for the coordinator and the Organiser, what stands in
+    # its way and who acts next (D71).
+    purpose: str
+    is_primary: bool
+    preparation_status: str
+    unavailability: BookingUnavailabilityOut | None
+    next_action: Literal["venue_staff_to_decide", "coordinator_to_rebook", "none"]
+
+
+class BookingPreparationWrite(BaseModel):
+    """US24 AC 7 (D73): Venue staff's preparation status for an approved booking. Optional here so a
+    missing or unknown value is INVALID_BOOKING, naming the field."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    preparation_status: str | None = None
 
 
 class BookingApproveWrite(BaseModel):
@@ -143,6 +173,18 @@ class VenueBookingCreatedOut(VenueBookingOut):
 
 class VenueBookingsOut(BaseModel):
     bookings: list[VenueBookingOut]
+
+
+class EventVenueBookingsOut(VenueBookingsOut):
+    """US24 (SCRUM-128): an event's bookings, with whether its venues are arranged (D67, D72), its
+    primary booking (D68), the allocations against expected attendance (D67), and choose_primary when
+    it has live bookings but no primary."""
+
+    venues_arranged: bool
+    primary_booking_id: uuid.UUID | None
+    allocated_attendees: int
+    expected_attendees: int | None
+    next_action: Literal["choose_primary"] | None
 
 
 class WindowOut(BaseModel):

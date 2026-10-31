@@ -16,6 +16,8 @@ export interface EventAvailability {
   startsAt: string;
   endsAt: string;
   venue?: string;
+  // US24 (D70): where the venue is (its primary venue's location), so the search matches it too.
+  venueLocation?: string;
   joinUrl?: string;
   capacity: number;
   seatsRemaining: number;

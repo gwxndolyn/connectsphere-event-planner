@@ -1,27 +1,38 @@
 import logging
 import uuid
 from datetime import datetime
+from typing import Literal
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import exists, select, update
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import DomainError
-from app.event.models import Event, EventStatus
+from app.event.models import DeliveryMode, Event, EventStatus
 from app.event.self_decision import refuse_self_decision
 from app.notification.service import BookingDecision, Notifier
 from app.user.models import User, UserRole
 from app.venue.availability import Conflict, Evaluation, HoursBreach, Window, evaluate_booking, evaluate_window
-from app.venue.models import ROOM_LAYOUTS, Venue, VenueBooking, VenueBookingStatus
+from app.venue.models import (
+    LIVE_BOOKING_STATUSES,
+    ROOM_LAYOUTS,
+    PreparationStatus,
+    Venue,
+    VenueBooking,
+    VenueBookingStatus,
+)
 from app.venue.schemas import (
     BookingConflictOut,
     BookingEvaluationOut,
     BookingEventOut,
     BookingHoursOut,
+    BookingPreparationWrite,
     BookingRejectWrite,
+    BookingUnavailabilityOut,
     BookingVenueOut,
     BookingWarning,
+    EventVenueBookingsOut,
     VenueBookingCreatedOut,
     VenueBookingOut,
     VenueBookingWrite,
@@ -33,7 +44,17 @@ logger = logging.getLogger(__name__)
 
 # US22 AC 1: only an Approved event or one in Planning can have a venue requested.
 BOOKABLE_STATUSES = (EventStatus.APPROVED, EventStatus.PLANNING)
-REQUIRED_FIELDS = ("event_id", "venue_id", "starts_at", "ends_at", "expected_attendees", "room_layout")
+# US24 (SCRUM-128): a purpose too, for each of an event's venues (D66).
+REQUIRED_FIELDS = ("event_id", "venue_id", "starts_at", "ends_at", "expected_attendees", "room_layout", "purpose")
+PURPOSE_MAX_LENGTH = 100
+# US24 (D71): the Organiser reads an event's venues once its request is approved, not before.
+ORGANISER_VISIBLE_STATUSES = (
+    EventStatus.APPROVED,
+    EventStatus.PLANNING,
+    EventStatus.CONFIRMED,
+    EventStatus.CANCELLED,
+    EventStatus.COMPLETED,
+)
 # A booking's tag field → the D18 list it draws from (TAG_FIELDS in app/venue/service.py).
 TAG_VOCABULARIES = {
     "required_facilities": "facilities",
@@ -52,6 +73,7 @@ CONSTRAINT_FIELDS = {
     "venue_bookings_room_layout_known": "room_layout",
     "venue_bookings_required_facilities_known": "required_facilities",
     "venue_bookings_required_accessibility_features_known": "required_accessibility_features",
+    "venue_bookings_purpose_valid": "purpose",
 }
 
 
@@ -205,11 +227,88 @@ def _validate(values: dict[str, object], now: datetime) -> dict[str, object]:
         cleaned[field] = _clean_tags(field, values[field] or [], errors, vocabulary)
     requirements = values["special_requirements"]
     cleaned["special_requirements"] = requirements.strip() or None if requirements is not None else None
+    # DECISION-PENDING: D66 — US24 AC 1: what the venue is for, 1 to 100 characters once trimmed.
+    cleaned["purpose"] = str(values["purpose"]).strip()
+    if not cleaned["purpose"]:
+        errors["purpose"] = "Say what this venue is for, e.g. Main hall or Breakout A."
+    elif len(cleaned["purpose"]) > PURPOSE_MAX_LENGTH:
+        errors["purpose"] = f"Keep the purpose to {PURPOSE_MAX_LENGTH} characters."
     if errors:
         # Fields in the body's order, so a form marks them top to bottom.
         ordered = {field: errors[field] for field in VenueBookingWrite.model_fields if field in errors}
         raise DomainError(422, "INVALID_BOOKING", fields=list(ordered), errors=ordered)
     return cleaned
+
+
+def _schedule_errors(event: Event, starts_at: datetime, ends_at: datetime) -> dict[str, str]:
+    """US24 AC 1: a booking's own window falls within the event's schedule; setup and turnaround may
+    run outside it. Nothing to check for an event with no schedule yet."""
+    # DECISION-PENDING: D65 — start_at to end_at once set; before that, a preferred day between the
+    # preferred times (Singapore time).
+    errors: dict[str, str] = {}
+    if event.start_at is not None and event.end_at is not None:
+        span = f"{_local(event.start_at)} to {_local(event.end_at)}"
+        if starts_at < event.start_at:
+            errors["starts_at"] = f"Starts before the event's schedule ({span})."
+        if ends_at > event.end_at:
+            errors["ends_at"] = f"Ends after the event's schedule ({span})."
+        return errors
+    if not (event.preferred_dates and event.preferred_start_time and event.preferred_end_time):
+        return errors
+    local_start = starts_at.astimezone(VENUE_TIMEZONE)
+    if local_start.date() not in event.preferred_dates:
+        days = ", ".join(day.strftime("%d %b") for day in sorted(event.preferred_dates))
+        return {"starts_at": f"Not on a day in the event's schedule ({days})."}
+    opens = datetime.combine(local_start.date(), event.preferred_start_time, VENUE_TIMEZONE)
+    closes = datetime.combine(local_start.date(), event.preferred_end_time, VENUE_TIMEZONE)
+    hours = f"{event.preferred_start_time:%H:%M} to {event.preferred_end_time:%H:%M}"
+    if starts_at < opens:
+        errors["starts_at"] = f"Starts before the event's schedule ({hours})."
+    if ends_at > closes:
+        errors["ends_at"] = f"Ends after the event's schedule ({hours})."
+    return errors
+
+
+def _unavailability(booking: VenueBooking, venue: Venue) -> BookingUnavailabilityOut | None:
+    """US24 AC 4 (D71): why this venue needs replacing, if it does."""
+    if booking.status == VenueBookingStatus.REJECTED:
+        return BookingUnavailabilityOut(
+            kind="rejected", reason=booking.rejection_reason, alternative_suggestion=booking.alternative_suggestion
+        )
+    if booking.status in LIVE_BOOKING_STATUSES and not venue.is_active:
+        return BookingUnavailabilityOut(kind="venue_inactive")
+    return None
+
+
+def _next_action(booking: VenueBooking, venue: Venue) -> Literal["venue_staff_to_decide", "coordinator_to_rebook", "none"]:
+    """US24 AC 4 (D71): who acts next on this booking."""
+    # DECISION-PENDING: D71 — an inactive venue can't be approved (D39) or used, so it's rebooked.
+    if _unavailability(booking, venue) is not None:
+        return "coordinator_to_rebook"
+    if booking.status == VenueBookingStatus.REQUESTED:
+        return "venue_staff_to_decide"
+    return "none"
+
+
+def _arranged(event: Event, live: list[VenueBooking]) -> bool:
+    """US24 AC 7: every required venue approved."""
+    # DECISION-PENDING: D72 — an online event needs none; otherwise every live booking is Approved,
+    # exactly one is primary, and (D67, CS3-24) together they hold the expected attendance.
+    if event.delivery_mode == DeliveryMode.ONLINE:
+        return True
+    if not live or any(booking.status != VenueBookingStatus.APPROVED for booking in live):
+        return False
+    if sum(booking.is_primary for booking in live) != 1:
+        return False
+    return event.expected_attendees is None or sum(b.expected_attendees for b in live) >= event.expected_attendees
+
+
+def venues_arranged(db: Session, event: Event) -> bool:
+    """US24 AC 7, for US18 (SCRUM-85) to confirm an event by: whether its venues are arranged (D72)."""
+    live = db.scalars(
+        select(VenueBooking).where(VenueBooking.event_id == event.id, VenueBooking.status.in_(LIVE_BOOKING_STATUSES))
+    ).all()
+    return _arranged(event, list(live))
 
 
 def _warnings(booking: VenueBooking, venue: Venue) -> list[BookingWarning]:
@@ -258,6 +357,11 @@ def _out(booking: VenueBooking, event: Event, venue: Venue) -> VenueBookingOut:
         decided_by_user_id=booking.decided_by_user_id,
         rejection_reason=booking.rejection_reason,
         alternative_suggestion=booking.alternative_suggestion,
+        purpose=booking.purpose,
+        is_primary=booking.is_primary,
+        preparation_status=booking.preparation_status,
+        unavailability=_unavailability(booking, venue),
+        next_action=_next_action(booking, venue),
     )
 
 
@@ -296,14 +400,18 @@ class VenueBookingService:
             raise DomainError(422, "MISSING_REQUIRED_FIELD", fields=missing)
         cleaned = _validate(values, now)
 
-        # FOR SHARE: a concurrent status change or venue edit waits for this request, and two
-        # requests don't block each other. The overlap race is the exclusion constraint's job.
-        event = db.scalars(select(Event).where(Event.id == cleaned["event_id"]).with_for_update(read=True)).one_or_none()
+        # FOR UPDATE (US24): two requests for the same event wait for each other, so only one can become
+        # its first, primary booking (D68); requests for other events don't. A status change waits too.
+        # The overlap race is the exclusion constraint's job.
+        event = db.scalars(select(Event).where(Event.id == cleaned["event_id"]).with_for_update()).one_or_none()
         # A draft is owner-only (D11): refusing it with 409 would reveal that it exists.
         if event is None or event.status == EventStatus.DRAFT or not may_book(event, coordinator):
             raise DomainError(404, "NOT_FOUND")
         if event.status not in BOOKABLE_STATUSES:
             raise DomainError(409, "EVENT_NOT_BOOKABLE", status=event.status.value)
+        schedule_errors = _schedule_errors(event, cleaned["starts_at"], cleaned["ends_at"])
+        if schedule_errors:
+            raise DomainError(422, "INVALID_BOOKING", fields=list(schedule_errors), errors=schedule_errors)
         venue = db.scalars(select(Venue).where(Venue.id == cleaned["venue_id"]).with_for_update(read=True)).one_or_none()
         if venue is None or not venue.is_active:
             raise DomainError(404, "NOT_FOUND")
@@ -327,10 +435,21 @@ class VenueBookingService:
         if evaluation.conflicts:
             raise _unavailable(evaluation.conflicts[0], evaluation.occupied)
 
+        # DECISION-PENDING: D68 — the event's first live booking is its primary venue.
+        has_primary = db.scalar(
+            select(
+                exists().where(
+                    VenueBooking.event_id == event.id,
+                    VenueBooking.is_primary.is_(True),
+                    VenueBooking.status.in_(LIVE_BOOKING_STATUSES),
+                )
+            )
+        )
         booking = VenueBooking(
             requested_by_user_id=coordinator.id,
             occupied_starts_at=evaluation.occupied.starts_at,
             occupied_ends_at=evaluation.occupied.ends_at,
+            is_primary=not has_primary,
             **cleaned,
         )
         db.add(booking)
@@ -338,20 +457,87 @@ class VenueBookingService:
         db.refresh(booking)
         return booking, event, venue
 
-    def withdraw(self, db: Session, coordinator: User, booking_id: uuid.UUID, now: datetime) -> VenueBookingOut:
+    def withdraw(
+        self, db: Session, coordinator: User, booking_id: uuid.UUID, now: datetime, notifier: Notifier
+    ) -> VenueBookingOut:
         """AC 5: a pending request can be withdrawn by the coordinator now assigned to its event, which
         frees the window. After a reassignment (SCRUM-83) that is the new coordinator, not whoever
-        made the request. Anyone else's booking is 404, never 403."""
+        made the request. Anyone else's booking is 404, never 403. Since US24 (SCRUM-128) an approved
+        booking can be withdrawn too, to change or cancel one of an event's venues; Venue staff hear of
+        it, and it keeps who approved it (D77). The event's other bookings are untouched."""
         booking = db.scalars(
             select(VenueBooking).where(VenueBooking.id == booking_id).with_for_update()
         ).one_or_none()
         event = db.get(Event, booking.event_id) if booking is not None else None
         if booking is None or event is None or not may_book(event, coordinator):
             raise DomainError(404, "NOT_FOUND")
-        if booking.status != VenueBookingStatus.REQUESTED:
+        # DECISION-PENDING: D69 — withdraw, then request again, is how one venue is changed or cancelled.
+        if booking.status not in LIVE_BOOKING_STATUSES:
             raise DomainError(409, "BOOKING_NOT_PENDING", status=booking.status.value)
+        was_approved = booking.status == VenueBookingStatus.APPROVED
         booking.status = VenueBookingStatus.WITHDRAWN
         booking.withdrawn_at = now
+        booking.updated_at = now
+        db.commit()
+        db.refresh(booking)
+        venue = db.get(Venue, booking.venue_id)
+        result = _out(booking, event, venue)
+        if was_approved:
+            self._notify_staff_withdrawn(db, notifier, booking, event, venue)
+        return result
+
+    def make_primary(self, db: Session, coordinator: User, booking_id: uuid.UUID, now: datetime) -> VenueBookingOut:
+        """US24 AC 4: the event's coordinator makes one of its live bookings the venue attendees see.
+        Anyone else's booking is 404, as for withdraw."""
+        found = db.get(VenueBooking, booking_id)
+        if found is None:
+            raise DomainError(404, "NOT_FOUND")
+        # The event FOR UPDATE, as create locks it, so this and a first booking for the same event can't
+        # both make a primary (D68).
+        event = db.scalars(select(Event).where(Event.id == found.event_id).with_for_update()).one()
+        if not may_book(event, coordinator):
+            raise DomainError(404, "NOT_FOUND")
+        booking = db.scalars(select(VenueBooking).where(VenueBooking.id == booking_id).with_for_update()).one()
+        # DECISION-PENDING: D68 — only a live booking can be the primary venue.
+        if booking.status not in LIVE_BOOKING_STATUSES:
+            raise DomainError(409, "BOOKING_NOT_LIVE", status=booking.status.value)
+        if not booking.is_primary:
+            db.execute(
+                update(VenueBooking)
+                .where(
+                    VenueBooking.event_id == event.id,
+                    VenueBooking.id != booking.id,
+                    VenueBooking.is_primary.is_(True),
+                    VenueBooking.status.in_(LIVE_BOOKING_STATUSES),
+                )
+                .values(is_primary=False, updated_at=now)
+            )
+            booking.is_primary = True
+            booking.updated_at = now
+            db.commit()
+            db.refresh(booking)
+        return _out(booking, event, db.get(Venue, booking.venue_id))
+
+    def set_preparation(
+        self, db: Session, staff: User, booking_id: uuid.UUID, body: BookingPreparationWrite, now: datetime
+    ) -> VenueBookingOut:
+        """US24 AC 7: Venue staff record how far they are with getting an approved venue ready."""
+        # DECISION-PENDING: D73 — not_started, in_progress or ready, on an approved booking (CS3-49).
+        value = body.preparation_status
+        if value not in {status.value for status in PreparationStatus}:
+            allowed = ", ".join(status.value for status in PreparationStatus)
+            raise DomainError(
+                422,
+                "INVALID_BOOKING",
+                fields=["preparation_status"],
+                errors={"preparation_status": f"Choose one of: {allowed}."},
+            )
+        booking = db.scalars(select(VenueBooking).where(VenueBooking.id == booking_id).with_for_update()).one_or_none()
+        if booking is None:
+            raise DomainError(404, "NOT_FOUND")
+        if booking.status != VenueBookingStatus.APPROVED:
+            raise DomainError(409, "BOOKING_NOT_APPROVED", status=booking.status.value)
+        booking.preparation_status = value
         booking.updated_at = now
         db.commit()
         db.refresh(booking)
@@ -507,21 +693,37 @@ class VenueBookingService:
             raise DomainError(404, "NOT_FOUND")
         return _evaluation_out(booking, evaluate_booking(db, booking))
 
-    def for_event(self, db: Session, reader: User, event_id: uuid.UUID) -> list[VenueBookingOut]:
-        """An event's bookings in every status, soonest first. Venue Staff see any event's;
-        a coordinator only one they may book (D20). A draft is 404 to both (D11)."""
+    def for_event(self, db: Session, reader: User, event_id: uuid.UUID) -> EventVenueBookingsOut:
+        """An event's bookings in every status, soonest first, with whether its venues are arranged.
+        Venue Staff see any event's; a coordinator only one they may book (D20); since US24 the
+        Organiser who created it, once the request is approved (D71). A draft is 404 to all (D11)."""
         event = db.get(Event, event_id)
         if event is None or event.status == EventStatus.DRAFT:
             raise DomainError(404, "NOT_FOUND")
-        if not reader.holds(*VENUE_STAFF_ROLES) and not may_book(event, reader):
+        # DECISION-PENDING: D71 — the event's own Organiser reads its venues from approved on.
+        organiser = (
+            reader.holds(UserRole.ORGANISER)
+            and event.created_by_user_id == reader.id
+            and event.status in ORGANISER_VISIBLE_STATUSES
+        )
+        if not reader.holds(*VENUE_STAFF_ROLES) and not may_book(event, reader) and not organiser:
             raise DomainError(404, "NOT_FOUND")
         rows = db.execute(
             select(VenueBooking, Venue)
             .join(Venue, Venue.id == VenueBooking.venue_id)
             .where(VenueBooking.event_id == event_id)
             .order_by(VenueBooking.starts_at, VenueBooking.created_at, VenueBooking.id)
+        ).all()
+        live = [booking for booking, _ in rows if booking.status in LIVE_BOOKING_STATUSES]
+        primary = next((booking for booking in live if booking.is_primary), None)
+        return EventVenueBookingsOut(
+            bookings=[_out(booking, event, venue) for booking, venue in rows],
+            venues_arranged=_arranged(event, live),
+            primary_booking_id=primary.id if primary else None,
+            allocated_attendees=sum(booking.expected_attendees for booking in live),
+            expected_attendees=event.expected_attendees,
+            next_action="choose_primary" if live and primary is None else None,
         )
-        return [_out(booking, event, venue) for booking, venue in rows]
 
     def _commit(self, db: Session, venue: Venue, starts_at: datetime, ends_at: datetime) -> None:
         try:
@@ -565,6 +767,31 @@ class VenueBookingService:
                 )
         except Exception:
             logger.exception("could not notify Venue Staff about venue booking %s", booking.id)
+
+
+    def _notify_staff_withdrawn(
+        self, db: Session, notifier: Notifier, booking: VenueBooking, event: Event, venue: Venue
+    ) -> None:
+        """US24 (D69): every active Venue Staff member hears that a venue they approved is free again.
+        Runs after the commit; a failure is logged and the withdrawal stands."""
+        try:
+            staff = db.scalars(
+                select(User)
+                .where(User.roles.any(UserRole.VENUE_STAFF), User.is_active.is_(True))
+                .order_by(User.email)
+            ).all()
+            event_name = event.name or event.request_reference or str(event.id)
+            for member in staff:
+                notifier.venue_booking_withdrawn(
+                    email=member.email,
+                    booking_id=booking.id,
+                    event_name=event_name,
+                    venue_name=venue.name,
+                    starts_at=booking.starts_at,
+                    ends_at=booking.ends_at,
+                )
+        except Exception:
+            logger.exception("could not notify Venue Staff about withdrawn venue booking %s", booking.id)
 
 
 booking_service = VenueBookingService()

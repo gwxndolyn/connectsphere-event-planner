@@ -8,6 +8,7 @@ from app.event.schemas import AvailableEventOut, AvailableEventsResponse, Regist
 from app.registration.models import ACTIVE_STATUSES, Registration
 from app.registration.service import registration_service
 from app.user.models import Attendee
+from app.venue.primary import attendee_venue, primary_venues
 
 
 class EventService:
@@ -51,8 +52,11 @@ class EventService:
             )
         )
 
+        # US24 (D70): each event's approved primary venue, the one attendees see.
+        venues = primary_venues(db, event_ids)
         out = []
         for event in events:
+            venue_name, venue_location = attendee_venue(event, venues.get(event.id))
             seats_remaining = registration_service.seats_remaining(db, event, now)
             out.append(
                 AvailableEventOut(
@@ -61,7 +65,8 @@ class EventService:
                     start_at=event.start_at,
                     end_at=event.end_at,
                     delivery_mode=event.delivery_mode,
-                    venue_name=event.venue_name,
+                    venue_name=venue_name,
+                    venue_location=venue_location,
                     join_link=event.join_link,
                     capacity=event.capacity,
                     seats_remaining=max(seats_remaining, 0),
