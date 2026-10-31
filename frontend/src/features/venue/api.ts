@@ -3,6 +3,7 @@ import { formatEventDate } from "../registration/datetime";
 import { tagLabel } from "./tags";
 import type {
   Venue,
+  VenueCalendar,
   VenueFilters,
   VenueSearchCriteria,
   VenueSearchForm,
@@ -48,7 +49,26 @@ export const venueApi = {
 
   setActive: (id: string, active: boolean) =>
     apiClient.post<Venue>(`/api/v1/venues/${id}/${active ? "reactivate" : "deactivate"}`, {}),
+
+  // US21 (SCRUM-88): what occupies a venue over Singapore days `from` to `to`, both included (D61).
+  calendar: (id: string, from: string, to: string) =>
+    apiClient.get<VenueCalendar>(`/api/v1/venues/${id}/calendar?${new URLSearchParams({ from, to }).toString()}`),
 };
+
+/** The calendar's wording for a refusal (US21, D56, deviation 51), falling back to the catalogue's. */
+export function calendarErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    switch (error.code) {
+      case "FORBIDDEN":
+        return "Only coordinators, Leads and Venue staff can see venue calendars. Switch Acting as.";
+      case "NOT_FOUND":
+        return "This venue is no longer available. Choose another venue.";
+      case "INVALID_DATE_RANGE":
+        return typeof error.body.message === "string" ? error.body.message : "Choose a range of at most 42 days.";
+    }
+  }
+  return venueErrorMessage(error);
+}
 
 const FALLBACK_MESSAGE = "The request could not be completed. Check the backend connection and try again.";
 

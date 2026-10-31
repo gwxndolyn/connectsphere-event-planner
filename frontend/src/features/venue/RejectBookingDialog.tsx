@@ -1,5 +1,5 @@
 import { useId, useState } from "react";
-import { decisionErrorMessage, formatBookingWindow } from "./bookingApi";
+import { decisionErrorMessage, eventName, formatBookingWindow } from "./bookingApi";
 import type { BookingRejectWrite, VenueBooking } from "./bookingTypes";
 import "../registration/registration.css";
 import "../eventRequest/eventRequests.css";
@@ -41,8 +41,6 @@ export function RejectBookingDialog({ booking, onConfirm, onClose }: RejectBooki
     }
   }
 
-  const eventName = booking.event.name || booking.event.request_reference || "Untitled event";
-
   return (
     <div className="dialog-overlay" onClick={onClose}>
       <div className="dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} onClick={(e) => e.stopPropagation()}>
@@ -53,7 +51,7 @@ export function RejectBookingDialog({ booking, onConfirm, onClose }: RejectBooki
           Reject this venue request?
         </h3>
         <p className="reg-form__meta">
-          {eventName} at {booking.venue.name} · {formatBookingWindow(booking)}
+          {eventName(booking.event)} at {booking.venue.name} · {formatBookingWindow(booking)}
         </p>
         <p className="reg-form__notice">
           The whole request is rejected and the window is freed. The coordinator is told, and the event stays open for
