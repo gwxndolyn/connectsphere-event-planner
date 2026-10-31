@@ -56,12 +56,14 @@ def make_type(
     return equipment_type
 
 
-def make_line(db: Session, event: Event, equipment_type: EquipmentType, quantity: int) -> EquipmentRequestLine:
+def make_line(
+    db: Session, event: Event, equipment_type: EquipmentType, quantity: int, requested_by: User | None = None
+) -> EquipmentRequestLine:
     line = EquipmentRequestLine(
         event_id=event.id,
         equipment_type_id=equipment_type.id,
         quantity=quantity,
-        requested_by_user_id=event.coordinator_id,
+        requested_by_user_id=(requested_by.id if requested_by else event.coordinator_id),
     )
     db.add(line)
     db.flush()
@@ -72,8 +74,27 @@ def other_event(db: Session, start_at: datetime, end_at: datetime) -> Event:
     return make_event(db, name="Other event", status=EventStatus.CONFIRMED, start_at=start_at, end_at=end_at)
 
 
-def reserve(db: Session, event: Event, equipment_type: EquipmentType, quantity: int) -> EquipmentReservation:
-    reservation = EquipmentReservation(event_id=event.id, equipment_type_id=equipment_type.id, quantity=quantity)
+def reserve(
+    db: Session,
+    event: Event,
+    equipment_type: EquipmentType,
+    quantity: int,
+    line: EquipmentRequestLine | None = None,
+) -> EquipmentReservation:
+    """Units reserved for `event`. A reservation fulfils one line (US27, SCRUM-130): an approved line
+    made for it, or `line`."""
+    if line is None:
+        reviewer = make_user(db, UserRole.TECH_SUPPORT)
+        line = make_line(db, event, equipment_type, quantity, requested_by=make_user(db, UserRole.COORDINATOR))
+        line.status, line.reviewed_by_user_id, line.reviewed_at = EquipmentLineStatus.APPROVED, reviewer.id, NOW
+        db.flush()
+    reservation = EquipmentReservation(
+        request_line_id=line.id,
+        event_id=event.id,
+        equipment_type_id=equipment_type.id,
+        quantity=quantity,
+        reserved_by_user_id=make_user(db, UserRole.TECH_SUPPORT).id,
+    )
     db.add(reservation)
     db.flush()
     return reservation
@@ -134,9 +155,10 @@ async def test_tc_us5_05_only_overlapping_other_events_reservations_count(
     reserve(db, other_event(db, ENDS, ENDS + timedelta(hours=2)), projector, 4)  # back-to-back after
     reserve(db, other_event(db, STARTS - timedelta(hours=2), STARTS), projector, 5)  # back-to-back before
     reserve(db, other_event(db, STARTS + timedelta(days=1), ENDS + timedelta(days=1)), projector, 6)  # another day
-    reserve(db, event, projector, 2)  # the line's own event
     reserve(db, other_event(db, STARTS, ENDS), make_type(db), 7)  # another type
     line = make_line(db, event, projector, quantity=1)
+    # The line's own event: the line itself reserved (D41 allows no second live line of the type there).
+    reserve(db, event, projector, 2, line=line)
 
     body = await check(client, tech, line)
 

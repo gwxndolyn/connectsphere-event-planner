@@ -11,10 +11,11 @@ from sqlalchemy import inspect, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.equipment.models import EquipmentReservation, EquipmentType
+from app.equipment.models import EquipmentLineStatus, EquipmentRequestLine, EquipmentReservation, EquipmentType
 from app.seed import EQUIPMENT_STOCK, EQUIPMENT_TYPES, seed, seed_id
+from app.user.models import UserRole
 from tests.conftest import BACKEND_DIR
-from tests.factories import NOW, make_event
+from tests.factories import NOW, make_event, make_user
 
 REVISION = "20261101_1200_us5_equipment"
 
@@ -27,7 +28,26 @@ def make_type(db: Session, **fields) -> EquipmentType:
 
 
 def make_reservation(db: Session, **overrides) -> EquipmentReservation:
-    fields = {"event_id": make_event(db).id, "equipment_type_id": make_type(db, total_quantity=5).id, "quantity": 2}
+    # A reservation fulfils one approved line (US27, SCRUM-130).
+    coordinator = make_user(db, UserRole.COORDINATOR)
+    line = EquipmentRequestLine(
+        event_id=make_event(db).id,
+        equipment_type_id=make_type(db, total_quantity=5).id,
+        quantity=2,
+        requested_by_user_id=coordinator.id,
+        status=EquipmentLineStatus.APPROVED,
+        reviewed_by_user_id=make_user(db, UserRole.TECH_SUPPORT).id,
+        reviewed_at=NOW,
+    )
+    db.add(line)
+    db.flush()
+    fields = {
+        "request_line_id": line.id,
+        "event_id": line.event_id,
+        "equipment_type_id": line.equipment_type_id,
+        "quantity": 2,
+        "reserved_by_user_id": make_user(db, UserRole.TECH_SUPPORT).id,
+    }
     reservation = EquipmentReservation(**(fields | overrides))
     db.add(reservation)
     db.flush()
@@ -40,7 +60,8 @@ def test_tc_us5_01_schema_is_installed(db: Session, engine) -> None:
     assert {"total_quantity", "out_of_service_quantity", "storage_location"} <= {
         column["name"] for column in inspector.get_columns("equipment_types")
     }
-    assert {column["name"] for column in inspector.get_columns("equipment_reservations")} == {
+    # US27 (SCRUM-130) adds the reservation's line and who reserved it.
+    assert {column["name"] for column in inspector.get_columns("equipment_reservations")} >= {
         "id",
         "event_id",
         "equipment_type_id",
