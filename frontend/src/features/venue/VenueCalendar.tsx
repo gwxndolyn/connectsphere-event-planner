@@ -27,8 +27,17 @@ import "./venues.css";
 // Every venue the reader may list: Venue staff see inactive ones too (US20 AC 6).
 const ALL_VENUES: VenueFilters = { q: "", minCapacity: "", facilities: [], accessibility: [], active: "all" };
 
-/** "Booking", "Booking (requested)" for a pending request (D57), or "Unavailable" for a block. */
+/** A live booking whose event was cancelled: it still holds the window, so it's shown, muted (D60). */
+function eventCancelled(item: CalendarItem): boolean {
+  return item.booking?.event.status === "cancelled";
+}
+
+/**
+ * "Booking", "Booking (requested)" for a pending request (D57), "Booking (event cancelled)" when its
+ * event was cancelled (D60), or "Unavailable" for a block.
+ */
 function itemLabel(item: CalendarItem): string {
+  if (eventCancelled(item)) return `${item.label} (event cancelled)`;
   return item.booking?.status === "requested" ? `${item.label} (requested)` : item.label;
 }
 
@@ -48,6 +57,7 @@ function itemClass(item: CalendarItem): string {
     "venue-calendar__item",
     `venue-calendar__item--${item.kind}`,
     item.booking?.status === "requested" ? "venue-calendar__item--pending" : "",
+    eventCancelled(item) ? "venue-calendar__item--cancelled" : "",
   ]
     .filter(Boolean)
     .join(" ");

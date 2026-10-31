@@ -25,7 +25,8 @@ export interface Segment {
   // The part of the booking's setup and turnaround on this day (US13 AC 2); 0 for a block.
   setupMinutes: number;
   turnaroundMinutes: number;
-  // Side by side when items overlap on the day.
+  // Side by side when items overlap: this item's lane, and how many lanes its cluster of overlapping
+  // items has.
   lane: number;
   lanes: number;
 }
@@ -132,7 +133,7 @@ function clip(minute: number): number {
 
 /**
  * The items occupying part of `day`, each clipped to the day, so one past midnight shows on both
- * days. Items overlapping on the day get lanes, earliest first.
+ * days. Overlapping items share lanes, earliest first, counted per cluster of items that overlap.
  */
 export function daySegments(items: CalendarItem[], day: string): Segment[] {
   const segments: Segment[] = [];
@@ -153,13 +154,26 @@ export function daySegments(items: CalendarItem[], day: string): Segment[] {
     });
   }
   segments.sort((a, b) => a.startMinute - b.startMinute);
-  const laneEnds: number[] = [];
+  // Items that overlap, directly or through each other, form a cluster and share its lanes; a cluster
+  // ends where the next item starts after everything in it has ended. So a lone item keeps the full
+  // width, whatever overlaps elsewhere that day (#95 review).
+  let cluster: Segment[] = [];
+  let laneEnds: number[] = [];
+  let clusterEnd = 0;
+  const close = () => {
+    for (const member of cluster) member.lanes = laneEnds.length;
+    cluster = [];
+    laneEnds = [];
+  };
   for (const segment of segments) {
+    if (cluster.length > 0 && segment.startMinute >= clusterEnd) close();
     const free = laneEnds.findIndex((end) => end <= segment.startMinute);
     segment.lane = free === -1 ? laneEnds.length : free;
     laneEnds[segment.lane] = segment.endMinute;
+    clusterEnd = cluster.length === 0 ? segment.endMinute : Math.max(clusterEnd, segment.endMinute);
+    cluster.push(segment);
   }
-  for (const segment of segments) segment.lanes = laneEnds.length;
+  close();
   return segments;
 }
 

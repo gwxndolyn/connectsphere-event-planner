@@ -435,6 +435,14 @@
   background: var(--chip-bg);
 }
 
+/* D60: a cancelled event's booking still holds the window, so it's shown, but muted. */
+.venue-calendar__item--cancelled {
+  border-color: var(--border);
+  background: var(--chip-bg);
+  color: var(--text-muted);
+  opacity: 0.75;
+}
+
 .venue-calendar__item-main {
   flex: 1;
   padding: 2px 6px;
