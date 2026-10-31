@@ -2,7 +2,19 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, Text, func, text
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Index,
+    Integer,
+    Text,
+    UniqueConstraint,
+    func,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base, pg_enum
@@ -42,20 +54,36 @@ class EquipmentType(Base):
 
 
 class EquipmentReservation(Base):
-    """Units of a type committed to an event (US27, SCRUM-95). Created by US5 (SCRUM-124) because the
-    availability check subtracts other events' reservations (US5 AC 2); US27 adds reserving, release and
-    the link to the approved line in its own migration."""
+    """Units of a type committed to an event: one approved request line, for its full quantity (US27,
+    SCRUM-95, AC 1, 6). The table came with US5 (SCRUM-124), whose check subtracts other events'
+    reservations (US5 AC 2); the line and who reserved it came with SCRUM-130. Releasing deletes the row
+    (approved 31 Oct), so there's no history."""
 
     __tablename__ = "equipment_reservations"
     __table_args__ = (
         CheckConstraint("quantity > 0", name="equipment_reservations_quantity_positive"),
         Index("ix_equipment_reservations_equipment_type_id", "equipment_type_id"),
+        UniqueConstraint("request_line_id", name="equipment_reservations_request_line_id_key"),
+        # The event and type are the line's, so they can't disagree with it (SCRUM-130).
+        ForeignKeyConstraint(
+            ["request_line_id", "event_id", "equipment_type_id"],
+            [
+                "equipment_request_lines.id",
+                "equipment_request_lines.event_id",
+                "equipment_request_lines.equipment_type_id",
+            ],
+            name="equipment_reservations_line_fkey",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, server_default=text("gen_random_uuid()"))
+    request_line_id: Mapped[uuid.UUID] = mapped_column()
     event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id"))
     equipment_type_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("equipment_types.id"))
     quantity: Mapped[int] = mapped_column(Integer)
+    reserved_by_user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", name="equipment_reservations_reserved_by_user_id_fkey")
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -78,6 +106,8 @@ class EquipmentRequestLine(Base):
         CheckConstraint(
             "reviewed_by_user_id <> requested_by_user_id", name="equipment_request_lines_reviewer_not_requester"
         ),
+        # The target of equipment_reservations_line_fkey (US27, SCRUM-130).
+        UniqueConstraint("id", "event_id", "equipment_type_id", name="equipment_request_lines_id_event_type_key"),
         Index("ix_equipment_request_lines_event_id", "event_id"),
         Index("ix_equipment_request_lines_pending", "created_at", postgresql_where=text("status = 'pending'")),
         # DECISION-PENDING: D41 — one pending or approved line per type per event.
