@@ -226,7 +226,8 @@ class RegistrationService:
         """The offer holder takes up the seat (SCRUM-51, US6b AC 2): offered → confirmed.
         Anyone not holding a live offer is refused and keeps their status (AC 3)."""
         registration = db.get(Registration, registration_id)
-        # Email-only waitlist entries (D3) have no attendee to match, so they 404 here too.
+        # Email-only waitlist entries from before SCRUM-136 (D3) have no attendee to match, so they
+        # 404 here too, until their attendee tries to join and join_waitlist links them.
         if registration is None or registration.attendee_id != attendee.id:
             raise DomainError(404, "NOT_FOUND")
 
@@ -423,18 +424,11 @@ class RegistrationService:
         )
 
     def join_waitlist(
-        self, db: Session, event_id: uuid.UUID, email: str, now: datetime
+        self, db: Session, event_id: uuid.UUID, attendee: Attendee, now: datetime
     ) -> WaitlistJoinResponse:
         """SCRUM-27: TC-US3-11 … TC-US3-14. The explicit follow-up to an `EVENT_FULL` offer.
         SCRUM-49: refused unless that offer would have been made (US6a AC 1, 2).
-
-        # DECISION-PENDING: D7 — §3's identity paragraph says every endpoint depends on
-        # get_current_attendee, but this endpoint's own contract is body-only (`{"email": ...}`),
-        # matching SCRUM-2's AC ("offered to be put on a waitlist using their email") and D3's
-        # email-only case. Sprint 1 default: no X-Attendee-Id required here; `attendee_id` is
-        # still attached below when an Attendee row matches the email, so it still surfaces in
-        # "My Events" (SCRUM-5) once that attendee does authenticate elsewhere.
-        """
+        SCRUM-136: the logged-in attendee joins, so every new place has an attendee (D3, D7 settled)."""
         event = db.scalars(select(Event).where(Event.id == event_id).with_for_update()).one_or_none()
         if event is None:
             raise DomainError(404, "NOT_FOUND")
@@ -445,11 +439,27 @@ class RegistrationService:
         already = db.scalars(
             select(Registration).where(
                 Registration.event_id == event_id,
-                Registration.attendee_email == email,
+                Registration.attendee_id == attendee.id,
                 Registration.status.in_(ACTIVE_STATUSES),
             )
         ).first()
         if already is not None:
+            raise DomainError(409, "ALREADY_REGISTERED")
+        # A place joined by email before SCRUM-136 has no attendee, so it couldn't accept an offer.
+        # It's theirs: link it, keep its place in the queue, and say they're already on it. It kept the
+        # email as typed, so match it in any letter case, as logins match users (PR #106 review).
+        email_only = db.scalars(
+            select(Registration).where(
+                Registration.event_id == event_id,
+                Registration.attendee_id.is_(None),
+                func.lower(Registration.attendee_email) == attendee.email.lower(),
+                Registration.status.in_(ACTIVE_STATUSES),
+            )
+        ).first()
+        if email_only is not None:
+            email_only.attendee_id = attendee.id
+            email_only.updated_at = now
+            db.commit()
             raise DomainError(409, "ALREADY_REGISTERED")
 
         if not self.waitlist_available(db, event, now):
@@ -458,14 +468,12 @@ class RegistrationService:
             code = "WAITLIST_NOT_ENABLED" if not event.waitlist_enabled else "SEATS_AVAILABLE"
             raise DomainError(409, code)
 
-        # D3: store both when we can. `attendee_id` links the row to "My Events" (SCRUM-5);
-        # `attendee_email` is always set, since the AC only promises an email for the waitlist.
-        attendee = db.scalars(select(Attendee).where(Attendee.email == email)).first()
-
+        # D3: both, always. `attendee_id` links the row to "My Events" (SCRUM-5) and lets it accept
+        # an offer; `attendee_email` is the attendee's own, never a typed one (SCRUM-136).
         registration = Registration(
             event_id=event.id,
-            attendee_id=attendee.id if attendee else None,
-            attendee_email=email,
+            attendee_id=attendee.id,
+            attendee_email=attendee.email,
             status=RegistrationStatus.WAITLISTED,
             waitlist_joined_at=now,
             updated_at=now,

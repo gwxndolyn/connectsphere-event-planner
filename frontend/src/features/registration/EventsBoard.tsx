@@ -93,7 +93,7 @@ export function EventsBoard({ registry, search }: EventsBoardProps) {
           event={selectedEvent}
           waitlisted={waitlistPositions.has(selectedEvent.id)}
           onRegister={(answers) => register(selectedEvent.id, answers)}
-          onJoinWaitlist={(email) => joinWaitlist(selectedEvent.id, email)}
+          onJoinWaitlist={() => joinWaitlist(selectedEvent.id)}
           onRefresh={refresh}
           onClose={() => setSelectedId(null)}
         />

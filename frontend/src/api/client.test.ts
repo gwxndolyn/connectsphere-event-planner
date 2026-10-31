@@ -69,9 +69,9 @@ describe("apiClient identity headers", () => {
     expect(sentHeaders().get("X-User-Id")).toBeNull();
   });
 
-  it("sends no identity header for routes that take none (D7)", async () => {
+  it("sends no identity header for routes that take none", async () => {
     const { apiClient } = await loadClient();
-    await apiClient.post("/api/v1/events/e1/waitlist", { email: "a@smu.edu.sg" }, "none");
+    await apiClient.get("/api/events/health", "none");
 
     expect(sentHeaders().get("X-Attendee-Id")).toBeNull();
     expect(sentHeaders().get("X-User-Id")).toBeNull();
