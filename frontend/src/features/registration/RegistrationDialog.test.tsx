@@ -104,28 +104,28 @@ describe("RegistrationDialog — joining a waitlist", () => {
     renderDialog(FULL);
     expect(screen.getByRole("button", { name: "Join the waitlist" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Reserve my seat" })).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Email")).toBeRequired();
+    // SCRUM-136: the place is the logged-in attendee's, so nothing is typed.
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(screen.queryByText(/email/i)).not.toBeInTheDocument();
   });
 
-  it("joins with the trimmed email and confirms the position (US6a AC 3)", async () => {
+  it("joins with one click and confirms the position (US6a AC 3, SCRUM-136)", async () => {
     const { onJoinWaitlist } = renderDialog(FULL);
 
-    await userEvent.type(screen.getByLabelText("Email"), "  calvin@smu.edu.sg ");
     await userEvent.click(screen.getByRole("button", { name: "Join the waitlist" }));
 
-    expect(onJoinWaitlist).toHaveBeenCalledWith("calvin@smu.edu.sg");
+    expect(onJoinWaitlist).toHaveBeenCalledWith();
     expect(await screen.findByText("You're #3 in the queue")).toBeInTheDocument();
   });
 
-  it("says the email is already on the list for ALREADY_REGISTERED", async () => {
+  it("says they're already on the list for ALREADY_REGISTERED", async () => {
     const { onJoinWaitlist } = renderDialog(FULL);
     onJoinWaitlist.mockRejectedValue(new ApiError(409, "ALREADY_REGISTERED"));
 
-    await userEvent.type(screen.getByLabelText("Email"), "calvin@smu.edu.sg");
     await userEvent.click(screen.getByRole("button", { name: "Join the waitlist" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "That email is already registered or on the waitlist for this event.",
+      "You're already registered or on the waitlist for this event.",
     );
   });
 
@@ -133,7 +133,6 @@ describe("RegistrationDialog — joining a waitlist", () => {
     const { onJoinWaitlist, onRefresh } = renderDialog(FULL);
     onJoinWaitlist.mockRejectedValue(new ApiError(409, "SEATS_AVAILABLE"));
 
-    await userEvent.type(screen.getByLabelText("Email"), "calvin@smu.edu.sg");
     await userEvent.click(screen.getByRole("button", { name: "Join the waitlist" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("A seat is free now");

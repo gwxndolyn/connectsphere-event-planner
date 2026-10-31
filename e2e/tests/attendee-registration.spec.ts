@@ -6,7 +6,6 @@ import { type APIRequestContext, expect, type Page, test } from "@playwright/tes
 // seat; the seed withdraws any leftover active rows for its pairs, so that's safe after any run.
 const TECH_TALK = "Tech Talk: Agile at Scale";
 const BOOTCAMP = "Design Sprint Bootcamp";
-const CALVIN_EMAIL = "calvin.ng.2024@smu.edu.sg";
 // Seeded attendees on the Bootcamp (deterministic ids from app.seed): Mei holds a seat, Sofia is
 // first in the queue. The US6b test moves them through the API so Calvin gets the offer.
 const MEI_ID = "435d97da-c100-5efe-90e1-56fb6c514897";
@@ -76,8 +75,8 @@ test("attendee lists events, registers, sees it in My events and withdraws", asy
 });
 
 // US6a (SCRUM-52). Design Sprint Bootcamp is the seed's only full event with a waitlist, and Calvin
-// is already on it (#2, behind Sofia). He leaves, then rejoins from the board with his email, which
-// puts him back at #2. The run ends as it started, so it can rerun without a reseed; a reseed
+// is already on it (#2, behind Sofia). He leaves, then rejoins from the board with one click, as
+// himself (SCRUM-136: no email is typed), which puts him back at #2. The run ends as it started, so it can rerun without a reseed; a reseed
 // afterwards restores his seeded row and withdraws the new one.
 test("attendee joins the waitlist of a full event and sees the position", async ({ page }) => {
   const header = page.getByRole("banner");
@@ -99,18 +98,15 @@ test("attendee joins the waitlist of a full event and sees the position", async 
   await dialog.getByRole("button", { name: "Done" }).click();
   await expect(waitlistedRow).toHaveCount(0);
 
-  // The full event with a waitlist offers it (AC 1); the email is required.
+  // The full event with a waitlist offers it (AC 1), with nothing to type (SCRUM-136).
   await header.getByRole("button", { name: "Browse events" }).click();
   await expect(bootcampCard).toContainText("Full · waitlist open");
   await bootcampCard.click();
   await expect(dialog).toContainText("This event is full. Join the waitlist");
   await expect(dialog.getByRole("button", { name: "Reserve my seat" })).toHaveCount(0);
-  const email = dialog.getByLabel("Email");
-  await dialog.getByRole("button", { name: "Join the waitlist" }).click();
-  await expect.poll(() => email.evaluate((input: HTMLInputElement) => input.validity.valueMissing)).toBe(true);
+  await expect(dialog.getByRole("textbox")).toHaveCount(0);
 
   // Joining confirms the position (AC 3).
-  await email.fill(CALVIN_EMAIL);
   await dialog.getByRole("button", { name: "Join the waitlist" }).click();
   await expect(dialog.getByRole("heading", { name: "You're on the waitlist" })).toBeVisible();
   await expect(dialog.locator(".ticket__code")).toHaveText("You're #2 in the queue");
@@ -123,7 +119,7 @@ test("attendee joins the waitlist of a full event and sees the position", async 
   await expect(dialog.getByRole("button", { name: "Join the waitlist" })).toHaveCount(0);
   await dialog.getByRole("button", { name: "Close" }).click();
 
-  // The place shows under My events, linked to him by the email.
+  // The place shows under My events: it's his, so the next test can accept an offer for it.
   await header.getByRole("button", { name: "My events" }).click();
   await expect(waitlistedRow).toContainText("Position 2 on the waitlist");
 });

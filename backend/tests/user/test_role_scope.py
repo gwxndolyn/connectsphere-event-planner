@@ -296,15 +296,16 @@ ATTENDEE_ROUTES = {
     ("GET", "/api/v1/events/available"),
     ("GET", "/api/v1/me/registrations"),
     ("POST", "/api/v1/events/{event_id}/registrations"),
+    # SCRUM-136: joining a waitlist takes the logged-in attendee (D3, D7).
+    ("POST", "/api/v1/events/{event_id}/waitlist"),
     ("POST", "/api/v1/registrations/{registration_id}/withdraw"),
     ("POST", "/api/v1/registrations/{registration_id}/expire-offer"),
     ("POST", "/api/v1/registrations/{registration_id}/decline"),
     ("POST", "/api/v1/registrations/{registration_id}/accept"),
 }
-# No users row needed: the health check, joining a waitlist by email (D7), and sign-up's profile (token only).
+# No users row needed: the health check and sign-up's profile (token only).
 OPEN_ROUTES = {
     ("GET", "/api/events/health"),
-    ("POST", "/api/v1/events/{event_id}/waitlist"),
     ("POST", "/api/v1/auth/profile"),
 }
 
