@@ -75,6 +75,7 @@ def book(
         occupied_ends_at=occupied_ends_at,
         expected_attendees=20,
         room_layout="classroom",
+        purpose="Main venue",
         status=status,
         withdrawn_at=NOW if status == VenueBookingStatus.WITHDRAWN else None,
         # US4's venue_bookings_decided_consistent: a decided booking carries its decision time.
@@ -417,6 +418,7 @@ def _fill_calendar(db: Session, venue_count: int, days: int) -> list[Venue]:
             occupied_ends_at=occupied_ends_at,
             expected_attendees=20,
             room_layout="classroom",
+            purpose="Main venue",
             status=VenueBookingStatus.APPROVED,
             decided_at=NOW,
         )

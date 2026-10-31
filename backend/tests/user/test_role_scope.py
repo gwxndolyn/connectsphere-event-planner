@@ -266,7 +266,11 @@ ROUTES = [
     ("GET", "/api/v1/venue-bookings/{booking_id}/evaluation", {VENUE_STAFF}),
     ("POST", "/api/v1/venue-bookings/{booking_id}/approve", {VENUE_STAFF}),
     ("POST", "/api/v1/venue-bookings/{booking_id}/reject", {VENUE_STAFF}),
-    ("GET", "/api/v1/events/{event_id}/venue-bookings", {COORDINATOR, VENUE_STAFF}),
+    # US24 (SCRUM-128): the event's coordinator moves the primary venue (D68); Venue staff record
+    # preparation (D73); the event's Organiser reads its venues (D71).
+    ("POST", "/api/v1/venue-bookings/{booking_id}/make-primary", {COORDINATOR}),
+    ("POST", "/api/v1/venue-bookings/{booking_id}/preparation", {VENUE_STAFF}),
+    ("GET", "/api/v1/events/{event_id}/venue-bookings", {ORGANISER, COORDINATOR, VENUE_STAFF}),
     ("GET", "/api/v1/me/equipment-events", {COORDINATOR}),
     ("GET", "/api/v1/events/{event_id}/equipment-lines", {COORDINATOR}),
     ("POST", "/api/v1/events/{event_id}/equipment-lines", {COORDINATOR}),

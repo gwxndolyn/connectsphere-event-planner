@@ -53,6 +53,7 @@ def body(event: Event, venue: Venue, starts_at: datetime, ends_at: datetime, **o
         "ends_at": ends_at.isoformat(),
         "expected_attendees": 30,
         "room_layout": "theatre",
+        "purpose": "Main venue",
         **overrides,
     }
 
@@ -630,6 +631,7 @@ def test_tc_us13_14_simultaneous_requests_clashing_only_through_buffers(
                 ends_at=ends_at,
                 expected_attendees=20,
                 room_layout="theatre",
+                purpose="Main venue",
             )
             try:
                 booking_service.create(session, session.get(User, user_id), write, NOW, notifier)

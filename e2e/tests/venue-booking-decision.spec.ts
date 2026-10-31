@@ -42,6 +42,8 @@ async function requestVenue(page: Page, venue: string, day: string, start: strin
   const panel = await openEvent(page);
   await panel.getByRole("button", { name: "Request venue" }).click();
   await page.getByLabel("Venue", { exact: true }).selectOption({ label: venue });
+  // US24 (D66): every venue request says what the venue is for.
+  await page.getByLabel("Purpose").fill("Main hall");
   await page.getByLabel("Date").fill(day);
   await page.getByLabel("Start time").fill(start);
   await page.getByLabel("End time").fill(end);

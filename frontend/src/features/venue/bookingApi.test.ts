@@ -36,6 +36,7 @@ const FORM: BookingFormValues = {
   facilities: ["projector"],
   accessibility: ["wheelchair"],
   specialRequirements: "  Lectern at the front  ",
+  purpose: "  Breakout A  ",
 };
 
 const VENUE: Venue = {
@@ -69,6 +70,8 @@ describe("toBookingBody (US22 AC 2)", () => {
       required_facilities: ["projector"],
       required_accessibility_features: ["wheelchair"],
       special_requirements: "Lectern at the front",
+      // US24 (D66): trimmed, as the API stores it.
+      purpose: "Breakout A",
     });
   });
 
@@ -80,6 +83,7 @@ describe("toBookingBody (US22 AC 2)", () => {
       attendees: " ",
       roomLayout: "",
       specialRequirements: "   ",
+      purpose: "   ",
     });
 
     expect(body).toEqual({

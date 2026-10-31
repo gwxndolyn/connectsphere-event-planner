@@ -29,7 +29,8 @@ CREATE_URL = "/api/v1/venue-bookings"
 PENDING_URL = "/api/v1/venue-bookings/pending"
 START = NOW + timedelta(days=7)
 END = START + timedelta(hours=2)
-REQUIRED = ["event_id", "venue_id", "starts_at", "ends_at", "expected_attendees", "room_layout"]
+# US24 (SCRUM-128): every request says what the venue is for (D66).
+REQUIRED = ["event_id", "venue_id", "starts_at", "ends_at", "expected_attendees", "room_layout", "purpose"]
 # Every status that isn't bookable and isn't a draft (a draft is 404, D11).
 UNBOOKABLE = [
     EventStatus.SUBMITTED,
@@ -62,6 +63,7 @@ def booking_body(event: Event, venue: Venue, **overrides: object) -> dict[str, o
         "ends_at": END.isoformat(),
         "expected_attendees": 30,
         "room_layout": "theatre",
+        "purpose": "Main venue",
     }
     body.update(overrides)
     return body
@@ -153,7 +155,8 @@ async def test_tc_us22_04_coordinator_requests_a_venue_for_an_approved_event(
 async def test_tc_us22_05_planning_events_can_be_booked(
     client: AsyncClient, db: Session, coordinator: User, venue: Venue
 ) -> None:
-    event = make_event(db, status=EventStatus.PLANNING, coordinator_id=coordinator.id)
+    # A planned event has its dates; since US24 the window must sit within them (D65).
+    event = make_event(db, status=EventStatus.PLANNING, coordinator_id=coordinator.id, start_at=START, end_at=END)
 
     response = await client.post(CREATE_URL, headers=auth(coordinator), json=booking_body(event, venue))
 
@@ -259,7 +262,9 @@ async def test_tc_us22_06_others_cannot_read_booking_lists(
     user = make_user(db, role)
 
     assert (await client.get(PENDING_URL, headers=auth(user))).status_code == 403
-    assert (await client.get(event_bookings_url(event.id), headers=auth(user))).status_code == 403
+    # Since US24 (D71) an Organiser may read their own event's venues, so another's is 404, not 403.
+    expected = 404 if role == UserRole.ORGANISER else 403
+    assert (await client.get(event_bookings_url(event.id), headers=auth(user))).status_code == expected
 
 
 async def test_tc_us22_06_coordinators_cannot_read_the_pending_list(
@@ -523,6 +528,7 @@ async def test_tc_us22_10_missing_facilities_and_layout_warn_but_save(
             event,
             venue,
             room_layout="classroom",
+            purpose="Main venue",
             required_facilities=["wifi", "projector", "stage"],
             required_accessibility_features=["wheelchair"],
         ),
@@ -650,9 +656,9 @@ async def test_tc_us22_13_withdrawing_frees_the_window(
     assert again.status_code == 201
 
 
-@pytest.mark.parametrize(
-    "status", [VenueBookingStatus.APPROVED, VenueBookingStatus.REJECTED, VenueBookingStatus.WITHDRAWN]
-)
+# Since US24 (SCRUM-128, D69) an approved booking can be withdrawn too (TC-US24-16); only a rejected or
+# already withdrawn one can't.
+@pytest.mark.parametrize("status", [VenueBookingStatus.REJECTED, VenueBookingStatus.WITHDRAWN])
 async def test_tc_us22_13_only_a_pending_request_can_be_withdrawn(
     client: AsyncClient, db: Session, coordinator: User, event: Event, venue: Venue, status: VenueBookingStatus
 ) -> None:
@@ -774,6 +780,7 @@ class Committed:
             ends_at=END + offset,
             expected_attendees=20,
             room_layout="theatre",
+            purpose="Main venue",
         )
 
     def request(self, engine: Engine, coordinator: uuid.UUID, notifier: FakeNotifier, offset: timedelta) -> object:
