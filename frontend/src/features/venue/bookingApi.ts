@@ -63,6 +63,7 @@ export function toBookingBody(eventId: string, form: BookingFormValues): VenueBo
   if (/^\d+$/.test(form.attendees.trim())) body.expected_attendees = Number(form.attendees.trim());
   if (form.roomLayout) body.room_layout = form.roomLayout;
   if (form.specialRequirements.trim()) body.special_requirements = form.specialRequirements.trim();
+  if (form.purpose.trim()) body.purpose = form.purpose.trim();
   return body;
 }
 
@@ -195,8 +196,9 @@ export function bookingErrorMessage(error: unknown): string {
     }
     case "EVENT_NOT_BOOKABLE":
       return `Venues can only be requested for approved events or events in planning${status ? `; this one is ${status}` : ""}.`;
-    case "BOOKING_NOT_PENDING":
-      return `This booking is no longer pending${status ? ` (it's ${status} now)` : ""}, so it can't be withdrawn.`;
+    case "BOOKING_NOT_LIVE":
+      // US24 (D69): withdraw refuses only a rejected or already withdrawn booking.
+      return `This booking can't be withdrawn${status ? `: it's ${status} now` : ""}.`;
     case "NOT_FOUND":
       return "This event, venue or booking is no longer available. Reload and try again.";
     case "FORBIDDEN":

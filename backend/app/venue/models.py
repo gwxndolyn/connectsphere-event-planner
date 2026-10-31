@@ -132,8 +132,11 @@ class VenueBooking(Base):
             "(status = 'withdrawn') = (withdrawn_at IS NOT NULL)", name="venue_bookings_withdrawn_consistent"
         ),
         # US4 (SCRUM-8): a decision time exactly when approved or rejected; notes only on a rejection.
+        # DECISION-PENDING: D77 — US24 PR 2: a withdrawn booking may keep the decision it had (D69).
         CheckConstraint(
-            "(status IN ('approved', 'rejected')) = (decided_at IS NOT NULL)", name="venue_bookings_decided_consistent"
+            "(status NOT IN ('approved', 'rejected') OR decided_at IS NOT NULL) "
+            "AND (status <> 'requested' OR decided_at IS NULL)",
+            name="venue_bookings_decided_consistent",
         ),
         CheckConstraint(
             "status = 'rejected' OR (rejection_reason IS NULL AND alternative_suggestion IS NULL)",
@@ -197,9 +200,9 @@ class VenueBooking(Base):
     decided_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
     rejection_reason: Mapped[str | None] = mapped_column(Text)
     alternative_suggestion: Mapped[str | None] = mapped_column(Text)
-    # US24 (SCRUM-92, PR 1 SCRUM-127) AC 1: what this venue is for, e.g. "Main hall" or "Breakout A".
-    # The default is the migration's backfill, and keeps US22's create working until PR 2 asks for one.
-    purpose: Mapped[str] = mapped_column(Text, server_default=text("'Main venue'"))
+    # US24 (SCRUM-92) AC 1: what this venue is for, e.g. "Main hall" or "Breakout A". Required since PR 2
+    # (SCRUM-128, D66); bookings older than US24 became "Main venue".
+    purpose: Mapped[str] = mapped_column(Text)
     # AC 4: the one venue attendees see (D68, D70).
     is_primary: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
     # AC 7: Venue staff move an approved booking on from not_started (PR 2's endpoint, PR 3's screen).

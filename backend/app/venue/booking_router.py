@@ -14,7 +14,9 @@ from app.venue.booking_service import booking_service
 from app.venue.schemas import (
     BookingApproveWrite,
     BookingEvaluationOut,
+    BookingPreparationWrite,
     BookingRejectWrite,
+    EventVenueBookingsOut,
     VenueBookingCreatedOut,
     VenueBookingOut,
     VenueBookingsOut,
@@ -28,7 +30,10 @@ events_router = APIRouter(prefix="/api/v1/events", tags=["venue-bookings"])
 
 Coordinator = Annotated[User, Depends(require_user_roles(UserRole.COORDINATOR))]
 VenueStaff = Annotated[User, Depends(require_user_roles(*VENUE_STAFF_ROLES))]
-BookingReader = Annotated[User, Depends(require_user_roles(UserRole.COORDINATOR, *VENUE_STAFF_ROLES))]
+# US24 (SCRUM-128, D71): the event's Organiser reads its venues too; the service checks it's theirs.
+BookingReader = Annotated[
+    User, Depends(require_user_roles(UserRole.ORGANISER, UserRole.COORDINATOR, *VENUE_STAFF_ROLES))
+]
 
 
 @router.post("", status_code=201, response_model=VenueBookingCreatedOut)
@@ -59,8 +64,33 @@ def withdraw_booking(
     coordinator: Coordinator,
     db: Session = Depends(get_db),
     now: datetime = Depends(get_now),
+    notifier: Notifier = Depends(get_notifier),
 ) -> VenueBookingOut:
-    return booking_service.withdraw(db, coordinator, booking_id, now)
+    # US24 (D69): an approved booking too; Venue staff are told.
+    return booking_service.withdraw(db, coordinator, booking_id, now, notifier)
+
+
+@router.post("/{booking_id}/make-primary", response_model=VenueBookingOut)
+def make_primary(
+    booking_id: uuid.UUID,
+    coordinator: Coordinator,
+    db: Session = Depends(get_db),
+    now: datetime = Depends(get_now),
+) -> VenueBookingOut:
+    # US24 AC 4 (D68): the venue attendees see.
+    return booking_service.make_primary(db, coordinator, booking_id, now)
+
+
+@router.post("/{booking_id}/preparation", response_model=VenueBookingOut)
+def set_preparation(
+    booking_id: uuid.UUID,
+    staff: VenueStaff,
+    body: BookingPreparationWrite | None = Body(default=None),
+    db: Session = Depends(get_db),
+    now: datetime = Depends(get_now),
+) -> VenueBookingOut:
+    # US24 AC 7 (D73): how far Venue staff are with getting an approved venue ready.
+    return booking_service.set_preparation(db, staff, booking_id, body or BookingPreparationWrite(), now)
 
 
 @router.post("/{booking_id}/approve", response_model=VenueBookingOut)
@@ -88,6 +118,6 @@ def reject_booking(
     return booking_service.reject(db, staff, booking_id, body or BookingRejectWrite(), now, notifier)
 
 
-@events_router.get("/{event_id}/venue-bookings", response_model=VenueBookingsOut)
-def event_bookings(event_id: uuid.UUID, reader: BookingReader, db: Session = Depends(get_db)) -> VenueBookingsOut:
-    return VenueBookingsOut(bookings=booking_service.for_event(db, reader, event_id))
+@events_router.get("/{event_id}/venue-bookings", response_model=EventVenueBookingsOut)
+def event_bookings(event_id: uuid.UUID, reader: BookingReader, db: Session = Depends(get_db)) -> EventVenueBookingsOut:
+    return booking_service.for_event(db, reader, event_id)

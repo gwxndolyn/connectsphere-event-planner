@@ -6,7 +6,7 @@ import "../eventRequest/eventRequests.css";
 
 interface WithdrawBookingDialogProps {
   booking: VenueBooking;
-  // Withdraws; throws the API's refusal (e.g. BOOKING_NOT_PENDING) for the dialog to explain.
+  // Withdraws; throws the API's refusal (e.g. BOOKING_NOT_LIVE) for the dialog to explain.
   onConfirm: () => Promise<void>;
   onClose: () => void;
 }

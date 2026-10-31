@@ -22,6 +22,9 @@ from tests.conftest import BACKEND_DIR
 from tests.factories import NOW, make_event, make_user, make_venue, make_venue_booking
 
 REVISION = "20261103_1200_us24_multi_venue"
+# PR 2 (SCRUM-128): drops purpose's default and lets a withdrawn booking keep its decision (D77).
+API_REVISION = "20261105_1200_us24_bookings_api"
+DECIDED_CHECK = "venue_bookings_decided_consistent"
 PREVIOUS_REVISION = "20261102_1200_us5_check_outcome"  # US24 follows US5 PR 2 since #94 merged
 ONE_PRIMARY = "venue_bookings_one_primary_per_event"
 PURPOSE_CHECK = "venue_bookings_purpose_valid"
@@ -110,6 +113,9 @@ def insert_old_rows(connection: Connection, bookings: list[tuple[str, str, int]]
     )
     events: dict[str, uuid.UUID] = {}
     ids: dict[str, uuid.UUID] = {}
+    # Once US24 is in, every booking needs a purpose; since PR 2 it has no default (D66).
+    columns = {column["name"] for column in inspect(connection).get_columns("venue_bookings")}
+    purpose = ("purpose, ", "'Main venue', ") if "purpose" in columns else ("", "")
     for hour, (name, event, minutes) in enumerate(bookings, start=8):
         if event not in events:
             events[event] = uuid.uuid4()
@@ -120,10 +126,10 @@ def insert_old_rows(connection: Connection, bookings: list[tuple[str, str, int]]
         connection.execute(
             text(
                 "insert into venue_bookings (id, event_id, venue_id, requested_by_user_id, starts_at, ends_at, "
-                "occupied_starts_at, occupied_ends_at, expected_attendees, room_layout, status, created_at, "
+                f"occupied_starts_at, occupied_ends_at, expected_attendees, room_layout, {purpose[0]}status, created_at, "
                 "withdrawn_at, decided_at) "
-                "values (:id, :event, :venue, :user, :starts, :ends, :starts, :ends, 10, 'theatre', :status, :made, "
-                ":withdrawn, :decided)"
+                "values (:id, :event, :venue, :user, :starts, :ends, :starts, :ends, 10, 'theatre', "
+                f"{purpose[1]}:status, :made, :withdrawn, :decided)"
             ),
             {
                 "id": ids[name],
@@ -224,6 +230,61 @@ def test_tc_us24_01_downgrade_refuses_to_discard_a_purpose_or_preparation_progre
     assert "Refusing lossy downgrade" in str(raised.value)
     columns = {column["name"] for column in inspect(migration_connection).get_columns("venue_bookings")}
     assert {"purpose", "is_primary", "preparation_status"} <= columns
+
+
+# --- PR 2 (SCRUM-128): purpose has no default (D66); a withdrawn booking keeps its decision (D77) ---
+
+
+def test_tc_us24_07_purpose_has_no_default_now_that_the_api_requires_it(engine: Engine) -> None:
+    columns = {column["name"]: column for column in inspect(engine).get_columns("venue_bookings")}
+
+    assert columns["purpose"]["nullable"] is False
+    assert columns["purpose"]["default"] is None
+
+
+def test_tc_us24_16_a_withdrawn_booking_may_keep_the_decision_it_had(
+    db: Session, event: Event, venue: Venue, coordinator: User
+) -> None:
+    staff = make_user(db, UserRole.VENUE_STAFF)
+    withdrawn = make_venue_booking(
+        db, event=event, venue=venue, user=coordinator, starts_at=at(9), status=VenueBookingStatus.WITHDRAWN,
+        decided_at=NOW, decided_by_user_id=staff.id,
+    )
+
+    assert withdrawn.decided_by_user_id == staff.id
+    # Still: an approved or rejected booking has its decision time, and a pending one has none.
+    assert refused_constraint(db, event=event, venue=venue, user=coordinator, starts_at=at(12),
+                              status=VenueBookingStatus.APPROVED, decided_at=None) == DECIDED_CHECK
+    assert refused_constraint(db, event=event, venue=venue, user=coordinator, starts_at=at(15),
+                              status=VenueBookingStatus.REQUESTED, decided_at=NOW) == DECIDED_CHECK
+
+
+def test_tc_us24_16_downgrade_refuses_to_discard_a_withdrawn_bookings_decision(migration_connection: Connection) -> None:
+    config = alembic_config(migration_connection)
+    ids = insert_old_rows(migration_connection, [("approved then withdrawn", "A", 0)])
+    migration_connection.execute(
+        text("update venue_bookings set status = 'withdrawn', withdrawn_at = created_at where id = :id"),
+        {"id": ids["approved then withdrawn"]},
+    )
+
+    with pytest.raises(RuntimeError) as raised:
+        command.downgrade(config, REVISION)
+
+    assert "Refusing lossy downgrade" in str(raised.value)
+
+
+def test_tc_us24_16_downgrade_restores_the_purpose_default_and_the_strict_check(migration_connection: Connection) -> None:
+    config = alembic_config(migration_connection)
+
+    command.downgrade(config, REVISION)
+
+    columns = {column["name"]: column for column in inspect(migration_connection).get_columns("venue_bookings")}
+    assert "Main venue" in str(columns["purpose"]["default"])
+    definition = migration_connection.scalar(
+        text("select pg_get_constraintdef(oid) from pg_constraint where conname = :name"), {"name": DECIDED_CHECK}
+    )
+    assert "withdrawn" not in definition
+    command.upgrade(config, "head")
 
 
 # --- TC-US24-02 one live primary per event ---

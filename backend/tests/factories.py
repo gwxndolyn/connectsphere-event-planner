@@ -25,6 +25,17 @@ def make_attendee(db: Session) -> Attendee:
     return attendee
 
 
+# Statuses before an event is planned: events_final_fields_required lets these go without a date.
+REQUEST_STATUSES = (
+    EventStatus.DRAFT,
+    EventStatus.SUBMITTED,
+    EventStatus.UNDER_REVIEW,
+    EventStatus.AWAITING_CLARIFICATION,
+    EventStatus.APPROVED,
+    EventStatus.REJECTED,
+)
+
+
 def make_event(
     db: Session,
     *,
@@ -46,7 +57,10 @@ def make_event(
     # US10a (SCRUM-13): the coordinator assigned to the event; None leaves it unassigned.
     coordinator_id: uuid.UUID | None = None,
 ) -> Event:
-    start_at = start_at or NOW + timedelta(days=1)
+    # A request (draft to approved, or rejected) has no confirmed date yet, as in the app (US17, D53):
+    # US24's schedule check (D65) then uses its preferred dates. Pass start_at to give it one anyway.
+    if start_at is None and status not in REQUEST_STATUSES:
+        start_at = NOW + timedelta(days=1)
     registration_opens_at = (
         NOW - timedelta(days=7) if registration_opens_at is None else registration_opens_at
     )
@@ -58,7 +72,7 @@ def make_event(
         registration_opens_at=registration_opens_at,
         registration_closes_at=registration_closes_at,
         start_at=start_at,
-        end_at=end_at or start_at + timedelta(hours=2),
+        end_at=end_at or (start_at + timedelta(hours=2) if start_at else None),
         capacity=capacity,
         delivery_mode=delivery_mode,
         venue_name=venue_name,
@@ -167,6 +181,8 @@ def make_venue_booking(
         "occupied_ends_at": occupied_ends_at,
         "expected_attendees": 30,
         "room_layout": "theatre",
+        # US24 (SCRUM-128): required since the column lost its default (D66).
+        "purpose": "Main venue",
         "status": status,
         # venue_bookings_withdrawn_consistent: a withdrawn booking always carries its timestamp.
         "withdrawn_at": NOW if status == VenueBookingStatus.WITHDRAWN else None,

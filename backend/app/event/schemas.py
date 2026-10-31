@@ -21,6 +21,9 @@ class AvailableEventOut(BaseModel):
     end_at: datetime
     delivery_mode: DeliveryMode
     venue_name: str | None = None
+    # US24 (SCRUM-128, D70): where the venue is, so the board's search matches it; the event's
+    # room_number without an approved primary venue, null for an online event.
+    venue_location: str | None = None
     join_link: str | None = None
     capacity: int
     seats_remaining: int

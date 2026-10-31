@@ -339,6 +339,9 @@ export function seedBooking(request: EventRequest, venue: Venue, overrides: Part
     decided_by_user_id: null,
     rejection_reason: null,
     alternative_suggestion: null,
+    purpose: "Main venue",
+    is_primary: true,
+    preparation_status: "not_started",
     ...overrides,
   };
   db.bookings.push(booking);
@@ -635,7 +638,8 @@ function cleanNotes(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-const BOOKING_REQUIRED = ["event_id", "venue_id", "starts_at", "ends_at", "expected_attendees", "room_layout"];
+// US24 (SCRUM-128): a purpose too (D66).
+const BOOKING_REQUIRED = ["event_id", "venue_id", "starts_at", "ends_at", "expected_attendees", "room_layout", "purpose"];
 const SECTION_ORDER = ["details", "schedule", "attendance", "layout", "accessibility", "equipment", "registration"];
 
 // --- Handlers -------------------------------------------------------------------------------
@@ -675,6 +679,8 @@ const handlers = [
           end_at: event.end_at,
           delivery_mode: event.delivery_mode,
           venue_name: event.venue_name,
+          // US24 (D70): the API gives the primary venue's location, else room_number; these have no bookings.
+          venue_location: event.delivery_mode === "online" ? null : event.room_number,
           join_link: event.join_link,
           capacity: event.capacity,
           seats_remaining: seats,
@@ -948,6 +954,11 @@ const handlers = [
       required_facilities: (sent.required_facilities as string[] | undefined) ?? [],
       required_accessibility_features: (sent.required_accessibility_features as string[] | undefined) ?? [],
       special_requirements: (sent.special_requirements as string | undefined) ?? null,
+      purpose: String(sent.purpose).trim(),
+      // D68: the event's first live booking is its primary venue.
+      is_primary: !db.bookings.some(
+        (b) => b.event.id === event.id && b.is_primary && (b.status === "requested" || b.status === "approved"),
+      ),
     });
     return HttpResponse.json({ ...booking, warnings: [] }, { status: 201 });
   }),
@@ -958,7 +969,10 @@ const handlers = [
     if (role !== "coordinator") return error(403, "FORBIDDEN");
     const booking = db.bookings.find((b) => b.id === params.id);
     if (!booking || booking.requested_by_user_id !== request.headers.get("X-User-Id")) return error(404, "NOT_FOUND");
-    if (booking.status !== "requested") return error(409, "BOOKING_NOT_PENDING", { status: booking.status });
+    // US24 (D69): an approved booking can be withdrawn too, so the refusal says it isn't live.
+    if (booking.status !== "requested" && booking.status !== "approved") {
+      return error(409, "BOOKING_NOT_LIVE", { status: booking.status });
+    }
     Object.assign(booking, { status: "withdrawn", withdrawn_at: "2026-10-01T03:00:00Z", updated_at: "2026-10-01T03:00:00Z" });
     return HttpResponse.json(booking);
   }),

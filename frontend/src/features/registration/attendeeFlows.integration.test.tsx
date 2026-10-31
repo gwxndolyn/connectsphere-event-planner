@@ -59,7 +59,7 @@ describe("events board", () => {
   it("filters by tab and by the header search, across title and venue", async () => {
     const user = userEvent.setup();
     seedEvent({ name: "Tech Talk: Agile at Scale" });
-    const full = seedEvent({ name: "Design Sprint Bootcamp", capacity: 1, venue_name: "SMU Connexion" });
+    const full = seedEvent({ name: "Design Sprint Bootcamp", capacity: 1, venue_name: "SMU Connexion", room_number: "Studio 3-2" });
     fillSeats(full, 1);
     render(<App />);
     await card("Tech Talk");
@@ -77,6 +77,14 @@ describe("events board", () => {
     expect(screen.getByRole("button", { name: /Design Sprint Bootcamp/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Tech Talk/ })).not.toBeInTheDocument();
 
+    // US24 (TC-US24-19): where the venue is matches too, though the card shows only its name.
+    await user.clear(screen.getByRole("searchbox", { name: "Search campus events" }));
+    await user.type(screen.getByRole("searchbox", { name: "Search campus events" }), "studio");
+    expect(screen.getByRole("button", { name: /Design Sprint Bootcamp/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Tech Talk/ })).not.toBeInTheDocument();
+
+    await user.clear(screen.getByRole("searchbox", { name: "Search campus events" }));
+    await user.type(screen.getByRole("searchbox", { name: "Search campus events" }), "connexion");
     await user.type(screen.getByRole("searchbox", { name: "Search campus events" }), "zzz");
     expect(screen.getByText('No events match "connexionzzz". Try another search.')).toBeInTheDocument();
   });

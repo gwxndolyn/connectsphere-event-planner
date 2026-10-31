@@ -45,6 +45,7 @@ function initialValues(event: EventRequest): BookingFormValues {
     facilities: [],
     accessibility: [],
     specialRequirements: "",
+    purpose: "",
   };
 }
 
@@ -156,6 +157,19 @@ export function VenueBookingForm({ event, onBooked, onCancel }: VenueBookingForm
               </option>
             ))}
           </select>,
+        )}
+        {field(
+          "Purpose",
+          "purpose",
+          <input
+            id="venue-booking-purpose"
+            type="text"
+            maxLength={100}
+            placeholder="e.g. Main hall or Breakout A"
+            value={form.purpose}
+            onChange={(changed) => update("purpose", changed.target.value, "purpose")}
+            {...invalid("purpose")}
+          />,
         )}
         {field(
           "Date",

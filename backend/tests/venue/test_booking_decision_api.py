@@ -133,6 +133,7 @@ async def test_tc_us4_02_approving_reserves_the_venue(
             "ends_at": END.isoformat(),
             "expected_attendees": 30,
             "room_layout": "theatre",
+            "purpose": "Main venue",
         },
     )
     assert clash.status_code == 409
@@ -507,6 +508,7 @@ async def test_tc_us4_04_a_rejected_window_is_free_again(
             "ends_at": END.isoformat(),
             "expected_attendees": 30,
             "room_layout": "theatre",
+            "purpose": "Main venue",
         },
     )
     assert again.status_code == 201
@@ -696,7 +698,8 @@ async def test_tc_us4_07_a_decided_request_cannot_be_withdrawn(
     response = await client.post(f"/api/v1/venue-bookings/{booking.id}/withdraw", headers=auth(coordinator))
 
     assert response.status_code == 409
-    assert response.json() == {"code": "BOOKING_NOT_PENDING", "status": "rejected"}
+    # Withdraw's refusal since US24 (#100 review): a rejected booking isn't live (D69).
+    assert response.json() == {"code": "BOOKING_NOT_LIVE", "status": "rejected"}
 
 
 # --- TC-US4-08 a rejection leaves the event in Planning ---
@@ -706,7 +709,8 @@ async def test_tc_us4_07_a_decided_request_cannot_be_withdrawn(
 async def test_tc_us4_08_rejecting_keeps_the_event_bookable(
     client: AsyncClient, db: Session, staff: User, coordinator: User, venue: Venue, status: EventStatus
 ) -> None:
-    event = make_event(db, status=status, coordinator_id=coordinator.id)
+    # Dated over the window, so the request again sits within the event's schedule (US24, D65).
+    event = make_event(db, status=status, coordinator_id=coordinator.id, start_at=START, end_at=END)
     booking = make_venue_booking(db, event=event, venue=venue, user=coordinator, starts_at=START)
 
     await client.post(reject_url(booking.id), headers=auth(staff))
@@ -724,6 +728,7 @@ async def test_tc_us4_08_rejecting_keeps_the_event_bookable(
             "ends_at": END.isoformat(),
             "expected_attendees": 30,
             "room_layout": "theatre",
+            "purpose": "Main venue",
         },
     )
     assert again.status_code == 201
@@ -733,6 +738,8 @@ async def test_tc_us4_08_rejecting_keeps_the_event_bookable(
 async def test_tc_us4_08_an_event_no_longer_bookable_cannot_be_approved(
     client: AsyncClient, db: Session, staff: User, event: Event, booking: VenueBooking, status: EventStatus
 ) -> None:
+    # Past the request stage an event has its dates (events_final_fields_required).
+    event.start_at, event.end_at = START, END
     event.status = status
     db.flush()
 

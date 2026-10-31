@@ -28,6 +28,7 @@ interface AvailableEventOut {
   end_at: string;
   delivery_mode: DeliveryMode;
   venue_name: string | null;
+  venue_location: string | null;
   join_link: string | null;
   capacity: number;
   seats_remaining: number;
@@ -94,6 +95,7 @@ function toEvent(event: AvailableEventOut): EventAvailability {
     startsAt: event.start_at,
     endsAt: event.end_at,
     venue: event.venue_name ?? undefined,
+    venueLocation: event.venue_location ?? undefined,
     joinUrl: event.join_link ?? undefined,
     capacity: event.capacity,
     seatsRemaining: event.seats_remaining,
