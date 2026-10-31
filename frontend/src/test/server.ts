@@ -80,8 +80,25 @@ export interface FakeEquipmentLine {
   reviewed_at: string | null;
   // US5 (SCRUM-125, D64): the latest availability check, or null.
   availability_check: FakeAvailabilityCheck | null;
+  // US27 (SCRUM-131): the line's reservation, or null.
+  reservation: FakeReservation | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface FakeReservation {
+  quantity: number;
+  reserved_by_user_id: string;
+  reserved_at: string;
+  // D75: a cancelled event's reservation counts as released until US9 deletes it.
+  released_because_event_cancelled: boolean;
+}
+
+/** Why POST /equipment-lines/{id}/reservation refuses a line short of stock (SCRUM-131). */
+export interface FakeReservationShortfall {
+  available: number;
+  requested: number;
+  shortfall: number;
 }
 
 export interface FakeAvailabilityCheck {
@@ -146,6 +163,8 @@ interface Db {
   equipmentLines: FakeEquipmentLine[];
   // US5 (SCRUM-126): what each line's availability check finds, by line id (see setAvailability).
   availability: Record<string, FakeAvailability>;
+  // US27 (SCRUM-132): lines whose reservation the API refuses for want of stock (see refuseReservation).
+  reservationShortfalls: Record<string, FakeReservationShortfall>;
   // US28: the events each managing role sees, and what each event's registrations call returns.
   managedEvents: Record<"organiser" | "coordinator", EventRegistrations[]>;
   calls: RecordedCall[];
@@ -172,6 +191,7 @@ function emptyDb(): Db {
     equipmentEvents: [],
     equipmentLines: [],
     availability: {},
+    reservationShortfalls: {},
     calls: [],
     nextId: 1,
     nextReference: 1,
@@ -402,6 +422,7 @@ export function seedEquipmentLine(
     reviewed_by_user_id: null,
     reviewed_at: null,
     availability_check: null,
+    reservation: null,
     created_at: `2026-10-01T02:00:${String(db.nextId).padStart(2, "0")}Z`,
     updated_at: "2026-10-01T02:00:00Z",
     ...overrides,
@@ -431,6 +452,14 @@ export function setAvailability(line: FakeEquipmentLine, found: Partial<FakeAvai
   };
   db.availability[line.id] = result;
   return result;
+}
+
+/**
+ * Reserving `line` is refused for want of stock (US27, SCRUM-131): the API counts availability, not the
+ * fake, so a test says when it falls short. By default a reservation fits.
+ */
+export function refuseReservation(line: FakeEquipmentLine, available: number): void {
+  db.reservationShortfalls[line.id] = { available, requested: line.quantity, shortfall: line.quantity - available };
 }
 
 /** The venues the next search returns, in that order: the API decides which venues fit, not the fake. */
@@ -1372,10 +1401,44 @@ const handlers = [
     const role = userRole(request);
     if (!role) return error(401, "UNAUTHENTICATED");
     if (role !== "tech_support") return error(403, "FORBIDDEN");
-    const pending = db.equipmentLines
-      .filter((l) => l.status === "pending")
+    // Pending lines to review (US26), or approved ones to reserve (US27, SCRUM-131).
+    const status = new URL(request.url).searchParams.get("status") ?? "pending";
+    const listed = db.equipmentLines
+      .filter((l) => l.status === status)
       .sort((a, b) => a.created_at.localeCompare(b.created_at));
-    return HttpResponse.json({ lines: pending });
+    return HttpResponse.json({ lines: listed });
+  }),
+
+  // US27 (SCRUM-131): the approved line's full quantity, or nothing; no fields.
+  route("post", "/api/v1/equipment-lines/:id/reservation", ({ request, params }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "tech_support") return error(403, "FORBIDDEN");
+    const line = db.equipmentLines.find((l) => l.id === params.id);
+    if (!line) return error(404, "NOT_FOUND");
+    if (line.status !== "approved") return error(409, "LINE_NOT_APPROVED", { status: line.status });
+    if (line.reservation) return error(409, "ALREADY_RESERVED");
+    const short = db.reservationShortfalls[line.id];
+    if (short) return error(409, "INSUFFICIENT_EQUIPMENT", { ...short });
+    line.reservation = {
+      quantity: line.quantity,
+      reserved_by_user_id: request.headers.get("X-User-Id")!,
+      reserved_at: "2026-10-02T04:00:00Z",
+      released_because_event_cancelled: false,
+    };
+    return HttpResponse.json(line, { status: 201 });
+  }),
+
+  // US27 AC 5: releasing deletes the reservation (D74).
+  route("delete", "/api/v1/equipment-lines/:id/reservation", ({ request, params }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "tech_support") return error(403, "FORBIDDEN");
+    const line = db.equipmentLines.find((l) => l.id === params.id);
+    if (!line) return error(404, "NOT_FOUND");
+    if (!line.reservation) return error(409, "NOT_RESERVED");
+    line.reservation = null;
+    return new HttpResponse(null, { status: 204 });
   }),
 
   // US5 (SCRUM-125): records the latest check on the line (D64), which updates the line like any change.
