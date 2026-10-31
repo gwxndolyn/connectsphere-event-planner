@@ -1,5 +1,6 @@
 import logging
 import uuid
+from collections.abc import Iterable
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -19,6 +20,7 @@ from app.registration.models import (
 )
 from app.registration.schemas import (
     EventConfirmationOut,
+    MyExpiredRegistrationOut,
     MyOfferedRegistrationOut,
     MyRegistrationOut,
     MyRegistrationsResponse,
@@ -41,9 +43,14 @@ WITHDRAWABLE_STATUSES = (RegistrationStatus.CONFIRMED, RegistrationStatus.WAITLI
 # an ISO instant, so it's the one place that has to pick a display timezone.
 EVENT_TIMEZONE = ZoneInfo("Asia/Singapore")
 
-# DECISION-PENDING: D1 — SCRUM-6 says "a fixed window to accept" and names no duration.
-# One constant, one edit when the team decides.
+# D1, decided (SCRUM-137): an offer is held for 24 hours. One constant, one edit if that changes.
 WAITLIST_OFFER_WINDOW = timedelta(hours=24)
+
+
+def _lock_event(db: Session, event_id: uuid.UUID) -> Event | None:
+    """Lock the event row for the rest of the transaction, so a concurrent registration, withdrawal or
+    expiry can't read a stale seat count (spec §2, Concurrency). Every change to an event's seats takes it."""
+    return db.scalars(select(Event).where(Event.id == event_id).with_for_update()).one_or_none()
 
 
 class RegistrationService:
@@ -142,6 +149,99 @@ class RegistrationService:
 
         return next_in_line
 
+    def _end_offer(
+        self,
+        db: Session,
+        event: Event,
+        registration: Registration,
+        new_status: RegistrationStatus,
+        action: str,
+        now: datetime,
+    ) -> None:
+        """The one way an offer ends (decline, expiry): the new status and a log row. The caller holds
+        the event lock and passes the seat on."""
+        registration.status = new_status
+        registration.updated_at = now
+        if new_status == RegistrationStatus.EXPIRED and registration.offer_expires_at is not None:
+            # A forced early expiry (`/expire-offer`) records when the offer really ended (TC-US7-22).
+            registration.offer_expires_at = min(registration.offer_expires_at, now)
+        db.add(
+            AttendanceLog(
+                registration_id=registration.id,
+                event_id=event.id,
+                attendee_id=registration.attendee_id,
+                action=action,
+                occurred_at=now,
+            )
+        )
+        db.flush()
+
+    def expire_lapsed_offers(
+        self, db: Session, event_ids: Iterable[uuid.UUID], now: datetime, notifier: Notifier
+    ) -> int:
+        """D2, decided (SCRUM-137): lapse on read, no scheduler. Every read or change of an event's
+        registrations calls this first, so an offer past `offer_expires_at` expires and its place
+        passes to the next person in line (notified, with a new window) or back to capacity.
+
+        The pattern, for anything else that lapses (US25's tentative holds should copy it):
+        1. A cheap check without a lock. The usual answer is "nothing lapsed": no lock, no write.
+        2. Each event found, in id order, in its own transaction: lock it, re-check under the lock
+           (another request may have swept it already), apply the change, commit. One event lock at
+           a time, in a fixed order, so two board reads can't deadlock (TC-US7-19, TC-US7-24).
+        3. It commits on its own, before the caller's work, so a refusal that follows (EVENT_FULL,
+           OFFER_EXPIRED) can't roll the hand-over back (TC-US7-17, TC-US7-20).
+
+        Returns how many offers it expired."""
+        ids = list(event_ids)
+        if not ids:
+            return 0
+        lapsed_event_ids = db.scalars(
+            select(Registration.event_id)
+            .where(
+                Registration.event_id.in_(ids),
+                Registration.status == RegistrationStatus.OFFERED,
+                Registration.offer_expires_at <= now,
+            )
+            .distinct()
+        ).all()
+
+        expired = 0
+        for event_id in sorted(lapsed_event_ids):
+            event = _lock_event(db, event_id)
+            # Re-read under the lock. populate_existing, so a row this session already holds shows
+            # another request's committed sweep rather than a stale copy.
+            lapsed = db.scalars(
+                select(Registration)
+                .where(
+                    Registration.event_id == event_id,
+                    Registration.status == RegistrationStatus.OFFERED,
+                    Registration.offer_expires_at <= now,
+                )
+                .order_by(Registration.offer_expires_at, Registration.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            ).all()
+            if event is not None and lapsed:
+                for registration in lapsed:
+                    self._end_offer(db, event, registration, RegistrationStatus.EXPIRED, "offer_expired", now)
+                expired += len(lapsed)
+                # Once the event is on, the place goes to no one: accept would refuse them with
+                # EVENT_STARTED, and a "you have 24 hours" notice would be wrong (TC-US7-23).
+                if now < event.start_at:
+                    while self.offer_freed_seat(db, event, now, notifier) is not None:
+                        pass
+            db.commit()
+        return expired
+
+    def _refuse_lapsed_offer(self, registration: Registration, now: datetime) -> None:
+        """Accept and decline: an offer that has expired, whether the sweep just did it or an earlier
+        read did, is OFFER_EXPIRED, so the holder hears one thing however they arrive (deviation 13)."""
+        if registration.status == RegistrationStatus.EXPIRED or (
+            registration.status == RegistrationStatus.OFFERED
+            and (registration.offer_expires_at is None or registration.offer_expires_at <= now)
+        ):
+            raise DomainError(409, "OFFER_EXPIRED")
+
     def _release_offer(
         self,
         db: Session,
@@ -157,24 +257,20 @@ class RegistrationService:
         if registration is None or (attendee is not None and registration.attendee_id != attendee.id):
             raise DomainError(404, "NOT_FOUND")
 
-        event = db.scalars(select(Event).where(Event.id == registration.event_id).with_for_update()).one()
+        if new_status == RegistrationStatus.DECLINED:
+            # Declining reads the event's registrations, so lapsed offers expire first (D2).
+            # `/expire-offer` is the forced test path and ends its offer whatever the time.
+            self.expire_lapsed_offers(db, [registration.event_id], now, notifier)
+
+        event = _lock_event(db, registration.event_id)
         db.refresh(registration, with_for_update=True)
 
+        if new_status == RegistrationStatus.DECLINED:
+            self._refuse_lapsed_offer(registration, now)
         if registration.status != RegistrationStatus.OFFERED:
             raise DomainError(409, "NO_ACTIVE_OFFER")
 
-        registration.status = new_status
-        registration.updated_at = now
-        db.add(
-            AttendanceLog(
-                registration_id=registration.id,
-                event_id=event.id,
-                attendee_id=registration.attendee_id,
-                action=action,
-                occurred_at=now,
-            )
-        )
-        db.flush()
+        self._end_offer(db, event, registration, new_status, action, now)
 
         # The seat is free again: straight to the next person, no waiting (TC-US7-10, 11).
         passed_on = self.offer_freed_seat(db, event, now, notifier) is not None
@@ -191,12 +287,9 @@ class RegistrationService:
     def expire_offer(
         self, db: Session, registration_id: uuid.UUID, now: datetime, notifier: Notifier
     ) -> OfferReleaseResponse:
-        """SCRUM-37, manual stub for the scheduled sweep the team hasn't specified yet.
-
-        # DECISION-PENDING: D2 — replace with a scheduled sweep once the team agrees on the
-        # offer window. It deliberately does not check that offer_expires_at has passed, and
-        # it isn't restricted to the offer holder, because it stands in for a system job.
-        """
+        """SCRUM-37, kept for tests: a forced expiry. Real expiry is `expire_lapsed_offers`, on read
+        (D2, SCRUM-137). It doesn't check that offer_expires_at has passed, and isn't restricted to
+        the offer holder, so a test can end an offer at any time (deviation 4)."""
         return self._release_offer(
             db, registration_id, RegistrationStatus.EXPIRED, "offer_expired", now, notifier
         )
@@ -221,7 +314,7 @@ class RegistrationService:
         )
 
     def accept_offer(
-        self, db: Session, registration_id: uuid.UUID, attendee: Attendee, now: datetime
+        self, db: Session, registration_id: uuid.UUID, attendee: Attendee, now: datetime, notifier: Notifier
     ) -> RegisterResponse:
         """The offer holder takes up the seat (SCRUM-51, US6b AC 2): offered → confirmed.
         Anyone not holding a live offer is refused and keeps their status (AC 3)."""
@@ -231,15 +324,15 @@ class RegistrationService:
         if registration is None or registration.attendee_id != attendee.id:
             raise DomainError(404, "NOT_FOUND")
 
-        event = db.scalars(select(Event).where(Event.id == registration.event_id).with_for_update()).one()
+        # A lapsed offer no longer holds its seat: expire it and pass the place on first (D2), so the
+        # refusal below doesn't leave the next person waiting (TC-US7-17).
+        self.expire_lapsed_offers(db, [registration.event_id], now, notifier)
+        event = _lock_event(db, registration.event_id)
         db.refresh(registration, with_for_update=True)
 
+        self._refuse_lapsed_offer(registration, now)
         if registration.status != RegistrationStatus.OFFERED:
             raise DomainError(409, "NO_ACTIVE_OFFER")
-        # A lapsed offer no longer holds its seat (seats_remaining ignores it), so someone else
-        # may already have it. Refuse rather than overbook; the expiry sweep (D2) cleans it up.
-        if registration.offer_expires_at is None or registration.offer_expires_at <= now:
-            raise DomainError(409, "OFFER_EXPIRED")
         if now >= event.start_at:
             raise DomainError(403, "EVENT_STARTED")
 
@@ -275,10 +368,9 @@ class RegistrationService:
         if registration is None or registration.attendee_id != attendee.id:
             raise DomainError(404, "NOT_FOUND")
 
-        # Lock the event row for the rest of the transaction so a concurrent registration or
-        # withdrawal can't read a stale seat count (spec §2, Concurrency). Then re-read the
-        # registration under lock in case it changed while we waited.
-        event = db.scalars(select(Event).where(Event.id == registration.event_id).with_for_update()).one()
+        self.expire_lapsed_offers(db, [registration.event_id], now, notifier)
+        # Lock the event, then re-read the registration under lock in case it changed while we waited.
+        event = _lock_event(db, registration.event_id)
         db.refresh(registration, with_for_update=True)
 
         if registration.status == RegistrationStatus.WITHDRAWN:
@@ -326,11 +418,14 @@ class RegistrationService:
         attendee: Attendee,
         answers: dict[str, str],
         now: datetime,
+        notifier: Notifier,
     ) -> RegisterResponse:
         """SCRUM-26: TC-US3-02 … TC-US3-10, TC-US3-15."""
+        # A lapsed offer's seat goes to the waitlist first, not to this newcomer (D2, TC-US7-20).
+        self.expire_lapsed_offers(db, [event_id], now, notifier)
         # Lock the event row for the rest of the transaction so two attendees racing for the
         # last seat can't both read the same occupancy (spec §2 Concurrency, TC-US3-10).
-        event = db.scalars(select(Event).where(Event.id == event_id).with_for_update()).one_or_none()
+        event = _lock_event(db, event_id)
         if event is None:
             raise DomainError(404, "NOT_FOUND")
 
@@ -424,12 +519,13 @@ class RegistrationService:
         )
 
     def join_waitlist(
-        self, db: Session, event_id: uuid.UUID, attendee: Attendee, now: datetime
+        self, db: Session, event_id: uuid.UUID, attendee: Attendee, now: datetime, notifier: Notifier
     ) -> WaitlistJoinResponse:
         """SCRUM-27: TC-US3-11 … TC-US3-14. The explicit follow-up to an `EVENT_FULL` offer.
         SCRUM-49: refused unless that offer would have been made (US6a AC 1, 2).
         SCRUM-136: the logged-in attendee joins, so every new place has an attendee (D3, D7 settled)."""
-        event = db.scalars(select(Event).where(Event.id == event_id).with_for_update()).one_or_none()
+        self.expire_lapsed_offers(db, [event_id], now, notifier)
+        event = _lock_event(db, event_id)
         if event is None:
             raise DomainError(404, "NOT_FOUND")
         # DECISION-PENDING: D16 — US6a doesn't say, but "reached its registration capacity"
@@ -523,7 +619,7 @@ class RegistrationService:
         }
 
     def list_my_registrations(
-        self, db: Session, attendee: Attendee, now: datetime
+        self, db: Session, attendee: Attendee, now: datetime, notifier: Notifier
     ) -> MyRegistrationsResponse:
         """SCRUM-30 (query by attendee, split confirmed/waitlisted), SCRUM-31 (sort ascending
         by start, alphabetical tiebreak). TC-US11-01 … 11.
@@ -532,7 +628,25 @@ class RegistrationService:
         `withdrawn`/`declined`/`expired` rows never show, so withdrawing drops a row from here for
         free (TC-US11-08). A live offer gets its own `offered` section (SCRUM-50): it's the
         on-screen notice that a place is waiting (D5), and the attendee accepts from there.
+
+        SCRUM-137: lapsed offers on the attendee's events expire first (D2), so a place passed to them
+        shows here at once, and an offer of theirs that lapsed shows under `expired` (TC-US7-22).
         """
+        self.expire_lapsed_offers(
+            db,
+            db.scalars(
+                select(Registration.event_id)
+                .join(Event, Event.id == Registration.event_id)
+                .where(
+                    Registration.attendee_id == attendee.id,
+                    Registration.status.in_(ACTIVE_STATUSES),
+                    Event.end_at > now,
+                )
+                .distinct()
+            ).all(),
+            now,
+            notifier,
+        )
         rows = db.execute(
             select(Registration, Event)
             .join(Event, Event.id == Registration.event_id)
@@ -567,7 +681,31 @@ class RegistrationService:
                         **fields, waitlist_position=self.waitlist_position(db, registration)
                     )
                 )
-        return MyRegistrationsResponse(confirmed=confirmed, waitlisted=waitlisted, offered=offered)
+
+        # Offers that lapsed, on events still to come, unless the attendee is back on the event with
+        # an active row (they rejoined the queue): the screen shouldn't say both.
+        active_event_ids = {event.id for _, event in rows}
+        lapsed = db.execute(
+            select(Registration, Event)
+            .join(Event, Event.id == Registration.event_id)
+            .where(
+                Registration.attendee_id == attendee.id,
+                Registration.status == RegistrationStatus.EXPIRED,
+                Registration.offer_expires_at.is_not(None),
+                Event.end_at > now,
+            )
+            .order_by(Event.start_at, Event.name)
+        ).all()
+        lapsed = [(registration, event) for registration, event in lapsed if event.id not in active_event_ids]
+        venues.update(primary_venues(db, {event.id for _, event in lapsed} - set(venues)))
+        expired = [
+            MyExpiredRegistrationOut(
+                **self._my_registration_fields(registration, event, venues.get(event.id)),
+                offer_expires_at=registration.offer_expires_at,
+            )
+            for registration, event in lapsed
+        ]
+        return MyRegistrationsResponse(confirmed=confirmed, waitlisted=waitlisted, offered=offered, expired=expired)
 
 
 registration_service = RegistrationService()

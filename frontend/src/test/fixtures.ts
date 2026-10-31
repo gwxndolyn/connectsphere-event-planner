@@ -55,6 +55,6 @@ export function makeRegistry(
     acceptOffer: vi.fn(),
     withdraw: vi.fn(),
     ...rest,
-    myRegistrations: { confirmed: [], waitlisted: [], offered: [], ...myRegistrations },
+    myRegistrations: { confirmed: [], waitlisted: [], offered: [], expired: [], ...myRegistrations },
   };
 }

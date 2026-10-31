@@ -7,6 +7,7 @@ from app.core.clock import get_now
 from app.core.database import get_db
 from app.event.schemas import AvailableEventsResponse
 from app.event.service import event_service
+from app.notification.service import Notifier, get_notifier
 from app.user.dependencies import get_current_attendee
 from app.user.models import Attendee
 
@@ -29,5 +30,6 @@ def list_available(
     attendee: Attendee = Depends(get_current_attendee),
     db: Session = Depends(get_db),
     now: datetime = Depends(get_now),
+    notifier: Notifier = Depends(get_notifier),
 ) -> AvailableEventsResponse:
-    return event_service.list_available(db, attendee, now)
+    return event_service.list_available(db, attendee, now, notifier)

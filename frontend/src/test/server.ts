@@ -44,7 +44,8 @@ export interface FakeRegistration {
   event_id: string;
   attendee_id: string | null;
   email: string;
-  status: "confirmed" | "waitlisted" | "offered";
+  // "expired": an offer that lapsed (SCRUM-137), seeded by a test; the fake backend doesn't sweep.
+  status: "confirmed" | "waitlisted" | "offered" | "expired";
   // Queue order: position is derived from it, never stored (§2).
   joined: number;
   offer_expires_at?: string;
@@ -562,7 +563,8 @@ function isCalendarDay(value: string): boolean {
 }
 
 function occupancy(event: FakeEvent): number {
-  return db.registrations.filter((r) => r.event_id === event.id && r.status !== "waitlisted").length;
+  return db.registrations.filter((r) => r.event_id === event.id && (r.status === "confirmed" || r.status === "offered"))
+    .length;
 }
 
 function seatsRemaining(event: FakeEvent): number {
@@ -577,7 +579,8 @@ function waitlistPosition(registration: FakeRegistration): number {
 }
 
 function activeFor(eventId: string, attendeeId: string) {
-  return db.registrations.find((r) => r.event_id === eventId && r.attendee_id === attendeeId);
+  // An expired offer (SCRUM-137) holds nothing, so it isn't active.
+  return db.registrations.find((r) => r.event_id === eventId && r.attendee_id === attendeeId && r.status !== "expired");
 }
 
 function confirmationBody(registration: FakeRegistration) {
@@ -810,6 +813,10 @@ const handlers = [
         .map((r) => ({ ...myRow(r), waitlist_position: waitlistPosition(r) })),
       offered: mine
         .filter((r) => r.status === "offered")
+        .map((r) => ({ ...myRow(r), offer_expires_at: r.offer_expires_at })),
+      // Not shown once the attendee is back on the event with an active row (§3).
+      expired: mine
+        .filter((r) => r.status === "expired" && !activeFor(r.event_id, attendee))
         .map((r) => ({ ...myRow(r), offer_expires_at: r.offer_expires_at })),
     });
   }),

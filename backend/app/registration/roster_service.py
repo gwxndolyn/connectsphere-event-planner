@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.exceptions import DomainError
 from app.event.models import Event, EventRegistrationField, EventStatus
 from app.event.schemas import RegistrationFieldOut
+from app.notification.service import Notifier
 from app.registration.models import Registration, RegistrationAnswer, RegistrationStatus
 from app.registration.schemas import (
     EventRegistrantOut,
@@ -74,6 +75,7 @@ class RegistrationRosterService:
         event_id: uuid.UUID,
         user: User,
         now: datetime,
+        notifier: Notifier,
         statuses: list[RegistrationStatus] | None = None,
         show_all: bool = False,
     ) -> EventRegistrationsResponse:
@@ -82,6 +84,9 @@ class RegistrationRosterService:
         event = db.get(Event, event_id)
         if event is None or event.status not in MANAGED_EVENT_STATUSES or not self._manages(event, user):
             raise DomainError(404, "NOT_FOUND")
+        # D2 (SCRUM-137): lapsed offers expire and pass on before the totals are counted. Only after
+        # the check above, so a caller who can't see the event changes nothing.
+        registration_service.expire_lapsed_offers(db, [event.id], now, notifier)
 
         rows = db.execute(
             select(Registration, User.full_name)
