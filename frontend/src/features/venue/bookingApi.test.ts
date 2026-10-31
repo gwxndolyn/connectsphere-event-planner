@@ -176,8 +176,9 @@ describe("booking errors", () => {
   });
 
   it("explains the codes that aren't about one field", () => {
-    expect(bookingErrorMessage(new ApiError(409, "BOOKING_NOT_PENDING", [], { status: "approved" }))).toBe(
-      "This booking is no longer pending (it's approved now), so it can't be withdrawn.",
+    // US24 (#100 review): withdraw's refusal, now that an approved booking can be withdrawn too (D69).
+    expect(bookingErrorMessage(new ApiError(409, "BOOKING_NOT_LIVE", [], { status: "rejected" }))).toBe(
+      "This booking can't be withdrawn: it's rejected now.",
     );
     expect(bookingErrorMessage(new ApiError(409, "EVENT_NOT_BOOKABLE", [], { status: "cancelled" }))).toMatch(
       /approved events or events in planning/,

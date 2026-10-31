@@ -698,7 +698,8 @@ async def test_tc_us4_07_a_decided_request_cannot_be_withdrawn(
     response = await client.post(f"/api/v1/venue-bookings/{booking.id}/withdraw", headers=auth(coordinator))
 
     assert response.status_code == 409
-    assert response.json() == {"code": "BOOKING_NOT_PENDING", "status": "rejected"}
+    # Withdraw's refusal since US24 (#100 review): a rejected booking isn't live (D69).
+    assert response.json() == {"code": "BOOKING_NOT_LIVE", "status": "rejected"}
 
 
 # --- TC-US4-08 a rejection leaves the event in Planning ---

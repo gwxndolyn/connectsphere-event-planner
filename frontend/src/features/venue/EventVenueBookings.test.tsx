@@ -172,21 +172,22 @@ describe("EventVenueBookings (US22, SCRUM-113)", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Request for Hall A withdrawn.");
   });
 
-  it("explains BOOKING_NOT_PENDING in the dialog and reloads the list to show the real status", async () => {
-    vi.spyOn(bookingApi, "withdraw").mockRejectedValue(new ApiError(409, "BOOKING_NOT_PENDING", [], { status: "approved" }));
+  it("explains BOOKING_NOT_LIVE in the dialog and reloads the list to show the real status", async () => {
+    vi.spyOn(bookingApi, "withdraw").mockRejectedValue(new ApiError(409, "BOOKING_NOT_LIVE", [], { status: "rejected" }));
     render(<EventVenueBookings event={EVENT} />);
     const user = userEvent.setup();
     await screen.findByRole("listitem", { name: /^Hall A/ });
 
-    forEvent.mockResolvedValue([booking({ status: "approved" })]);
+    // Venue staff rejected it meanwhile.
+    forEvent.mockResolvedValue([booking({ status: "rejected" })]);
     await user.click(within(row(/^Hall A/)).getByRole("button", { name: "Withdraw" }));
     await user.click(screen.getByRole("button", { name: "Withdraw request" }));
 
     const dialog = screen.getByRole("dialog");
-    expect(within(dialog).getByRole("alert")).toHaveTextContent("This booking is no longer pending (it's approved now)");
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("This booking can't be withdrawn: it's rejected now.");
     // Nothing left to confirm: only the way back.
     expect(within(dialog).queryByRole("button", { name: "Withdraw request" })).not.toBeInTheDocument();
-    expect(await within(row(/^Hall A/)).findByText("Approved")).toBeInTheDocument();
+    expect(await within(row(/^Hall A/)).findByText("Rejected")).toBeInTheDocument();
 
     await user.click(within(dialog).getByRole("button", { name: "Back to bookings" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();

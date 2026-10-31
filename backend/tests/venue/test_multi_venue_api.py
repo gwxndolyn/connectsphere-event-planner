@@ -346,6 +346,41 @@ async def test_tc_us24_11_only_the_events_coordinator_may_make_a_booking_primary
     assert (await client.post(f"{BOOKINGS}/{uuid.uuid4()}/make-primary", headers=auth(coordinator))).status_code == 404
 
 
+async def test_tc_us24_11_a_requested_primary_shows_attendees_the_events_own_venue_until_approved(
+    client: AsyncClient, db: Session, coordinator: User, staff: User, hall: Venue, room: Venue
+) -> None:
+    """#100 review: making a Requested booking primary is allowed (D68, CS3-25); attendees see only an
+    approved primary (D70), so they see the event's own venue until Venue staff approve it."""
+    # Planning, so its bookings can be approved; it's confirmed whenever attendees look, as the board
+    # lists only confirmed events.
+    event = make_event(db, name="Open Day", status=EventStatus.PLANNING, coordinator_id=coordinator.id)
+    main = book(db, event, hall, coordinator, event.start_at, event.end_at, status=VenueBookingStatus.APPROVED, is_primary=True)
+    breakout = book(db, event, room, coordinator, event.start_at, event.end_at)
+    attendee = make_attendee(db)
+
+    async def board_venue() -> tuple[str | None, str | None]:
+        event.status = EventStatus.CONFIRMED
+        db.flush()
+        events = (await client.get("/api/v1/events/available", headers={"X-Attendee-Id": str(attendee.id)})).json()["events"]
+        event.status = EventStatus.PLANNING
+        db.flush()
+        [listed] = [e for e in events if e["name"] == "Open Day"]
+        return listed["venue_name"], listed["venue_location"]
+
+    assert await board_venue() == ("Main Hall", "Building 1, Level 1")
+
+    moved = await client.post(f"{BOOKINGS}/{breakout.id}/make-primary", headers=auth(coordinator))
+    assert (moved.status_code, moved.json()["is_primary"], moved.json()["status"]) == (200, True, "requested")
+    db.expire_all()
+    assert db.get(VenueBooking, main.id).is_primary is False
+    # Not approved yet: the event's own venue_name / room_number.
+    assert await board_venue() == ("SMU SCIS Building", "Seminar Room 2-1")
+
+    approved = await client.post(f"{BOOKINGS}/{breakout.id}/approve", headers=auth(staff))
+    assert approved.status_code == 200
+    assert await board_venue() == ("Breakout Room", "Building 1, Level 2")
+
+
 async def test_tc_us24_12_withdrawing_the_primary_leaves_the_event_without_one(
     client: AsyncClient, db: Session, coordinator: User, event: Event, hall: Venue, room: Venue
 ) -> None:
@@ -535,7 +570,7 @@ async def test_tc_us24_16_a_rejected_booking_cannot_be_withdrawn(
     response = await client.post(f"{BOOKINGS}/{rejected.id}/withdraw", headers=auth(coordinator))
 
     assert response.status_code == 409
-    assert response.json() == {"code": "BOOKING_NOT_PENDING", "status": "rejected"}
+    assert response.json() == {"code": "BOOKING_NOT_LIVE", "status": "rejected"}
 
 
 async def test_tc_us24_16_withdrawing_a_requested_booking_tells_nobody(

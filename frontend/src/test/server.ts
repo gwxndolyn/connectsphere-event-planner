@@ -969,9 +969,9 @@ const handlers = [
     if (role !== "coordinator") return error(403, "FORBIDDEN");
     const booking = db.bookings.find((b) => b.id === params.id);
     if (!booking || booking.requested_by_user_id !== request.headers.get("X-User-Id")) return error(404, "NOT_FOUND");
-    // US24 (D69): an approved booking can be withdrawn too.
+    // US24 (D69): an approved booking can be withdrawn too, so the refusal says it isn't live.
     if (booking.status !== "requested" && booking.status !== "approved") {
-      return error(409, "BOOKING_NOT_PENDING", { status: booking.status });
+      return error(409, "BOOKING_NOT_LIVE", { status: booking.status });
     }
     Object.assign(booking, { status: "withdrawn", withdrawn_at: "2026-10-01T03:00:00Z", updated_at: "2026-10-01T03:00:00Z" });
     return HttpResponse.json(booking);

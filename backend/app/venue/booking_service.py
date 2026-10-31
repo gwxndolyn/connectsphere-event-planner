@@ -472,8 +472,9 @@ class VenueBookingService:
         if booking is None or event is None or not may_book(event, coordinator):
             raise DomainError(404, "NOT_FOUND")
         # DECISION-PENDING: D69 — withdraw, then request again, is how one venue is changed or cancelled.
+        # Approved bookings can be withdrawn too, so the refusal says the booking isn't live (#100 review).
         if booking.status not in LIVE_BOOKING_STATUSES:
-            raise DomainError(409, "BOOKING_NOT_PENDING", status=booking.status.value)
+            raise DomainError(409, "BOOKING_NOT_LIVE", status=booking.status.value)
         was_approved = booking.status == VenueBookingStatus.APPROVED
         booking.status = VenueBookingStatus.WITHDRAWN
         booking.withdrawn_at = now

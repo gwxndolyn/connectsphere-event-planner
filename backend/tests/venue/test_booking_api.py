@@ -667,7 +667,8 @@ async def test_tc_us22_13_only_a_pending_request_can_be_withdrawn(
     response = await client.post(withdraw_url(booking.id), headers=auth(coordinator))
 
     assert response.status_code == 409
-    assert response.json() == {"code": "BOOKING_NOT_PENDING", "status": status.value}
+    # Since US24 (#100 review): approved can be withdrawn too (D69), so the refusal says it isn't live.
+    assert response.json() == {"code": "BOOKING_NOT_LIVE", "status": status.value}
     db.expire_all()
     assert db.get(VenueBooking, booking.id).status == status
 
