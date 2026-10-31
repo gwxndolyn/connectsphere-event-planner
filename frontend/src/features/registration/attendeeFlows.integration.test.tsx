@@ -334,4 +334,22 @@ describe("offer after a withdrawal (US6b)", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("This offer has expired");
   });
+
+  it("shows an offer that lapsed as expired, with nothing to press (SCRUM-137, TC-US7-22)", async () => {
+    const user = userEvent.setup();
+    const event = seedEvent({ name: "Design Sprint Bootcamp", capacity: 1 });
+    seedRegistration(event, { status: "expired", offer_expires_at: "2026-10-03T01:00:00Z" });
+    render(<App />);
+
+    await openMyEvents(user);
+
+    // Not the empty state: the expired offer is the only row, and it shows.
+    expect(screen.queryByText("You haven't registered for any upcoming events yet.")).not.toBeInTheDocument();
+    const expired = within(section("Offer expired")).getByRole("listitem");
+    expect(expired).toHaveTextContent("Design Sprint Bootcamp");
+    expect(expired).toHaveTextContent("Your offer expired at Sat, Oct 3, 9:00 AM; the place has moved on.");
+    expect(expired).toHaveClass("my-events__row--expired");
+    expect(within(expired).queryByRole("button")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Place available" })).not.toBeInTheDocument();
+  });
 });
