@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ApiError } from "../../api/client";
 import { formatEventDate, formatInstantDateTime } from "../registration/datetime";
+import { ApprovedLines } from "./ApprovedLines";
 import { availabilityOutcome, equipmentApi, equipmentErrorMessage, eventLabel } from "./equipmentApi";
 import type { EquipmentAvailability, EquipmentLine, EquipmentReviewWrite } from "./types";
 import "../eventRequest/eventRequests.css";
@@ -35,7 +36,7 @@ function AvailabilityResult({ result }: { result: EquipmentAvailability }) {
  * US26 AC 3 (SCRUM-110): Tech support's queue of pending lines, oldest first as the API returns them.
  * Each is approved for its full quantity or rejected (AC 6), with an optional note (D43); the requesting
  * coordinator is notified by the API (AC 5). US5 (SCRUM-126): each line can be checked for availability,
- * and shows its last recorded check (D64).
+ * and shows its last recorded check (D64). US27 (SCRUM-132): approved lines are reserved below.
  */
 export function EquipmentQueue() {
   const [lines, setLines] = useState<EquipmentLine[]>([]);
@@ -50,6 +51,8 @@ export function EquipmentQueue() {
   const [results, setResults] = useState<Record<string, EquipmentAvailability>>({});
   const [checkErrors, setCheckErrors] = useState<Record<string, string>>({});
   const [checking, setChecking] = useState<string | null>(null);
+  // US27: bumped on each approval, so the approved list below reloads with the new line to reserve.
+  const [approvedVersion, setApprovedVersion] = useState(0);
 
   async function load() {
     try {
@@ -127,6 +130,7 @@ export function EquipmentQueue() {
       await equipmentApi.review(line.id, note ? { decision, note } : { decision });
       setLines((current) => current.filter((l) => l.id !== line.id));
       setNotice(`${decision === "approved" ? "Approved" : "Rejected"}: ${lineName(line)}.`);
+      if (decision === "approved") setApprovedVersion((version) => version + 1);
     } catch (reason) {
       if (reason instanceof ApiError && reason.code === "SELF_DECISION_NOT_ALLOWED") {
         setRefusals((current) => ({
@@ -234,6 +238,8 @@ export function EquipmentQueue() {
           ))}
         </ul>
       )}
+
+      <ApprovedLines version={approvedVersion} />
     </main>
   );
 }
