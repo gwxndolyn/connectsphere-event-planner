@@ -10,6 +10,8 @@ import {
   seedEquipmentEvent,
   seedEquipmentLine,
   seedEquipmentType,
+  seedTechStaff,
+  seedTechStaffAssignment,
   refuseReservation,
   server,
   setAvailability,
@@ -532,6 +534,124 @@ describe("reserving equipment (US27, SCRUM-132)", () => {
     expect(row).toHaveTextContent("Released: the event was cancelled");
     expect(within(row).queryByRole("button", { name: "Release" })).not.toBeInTheDocument();
     expect(within(row).queryByRole("button", { name: "Reserve" })).not.toBeInTheDocument();
+  });
+});
+
+describe("Technical support staff on the coordinator's Equipment screen (US14, SCRUM-135)", () => {
+  const APPROVED = { status: "approved" as const, reviewed_by_user_id: TECH_SUPPORT_ID, reviewed_at: "2026-10-02T02:00:00Z" };
+
+  function techSupport() {
+    return within(screen.getByRole("region", { name: "Technical support" }));
+  }
+
+  /** The demo event with an approved line (D80), opened on the coordinator's Equipment screen. */
+  async function openEligible(user: User) {
+    const event = seedEquipmentEvent();
+    seedEquipmentLine(event, seedEquipmentType("Projector"), APPROVED);
+    await openEquipment(user, "coordinator");
+    await pickEvent(user, "Equipment Request Demo");
+    await within(await screen.findByRole("region", { name: "Technical support" })).findByRole("button", { name: "Assign" });
+    return event;
+  }
+
+  it("says an event without an approved equipment request needs one first, with nobody to assign (TC-US14-15)", async () => {
+    seedEquipmentLine(seedEquipmentEvent(), seedEquipmentType("Projector"));
+    seedTechStaff("Terry Ong");
+    const user = userEvent.setup();
+    await openEquipment(user, "coordinator");
+    await pickEvent(user, "Equipment Request Demo");
+
+    await screen.findByRole("region", { name: "Technical support" });
+    expect(await techSupport().findByText("Needs an approved equipment request first.")).toBeInTheDocument();
+    expect(techSupport().queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(techSupport().queryByRole("button", { name: "Assign" })).not.toBeInTheDocument();
+  });
+
+  it("ticks two available staff and assigns both (TC-US14-15)", async () => {
+    const terry = seedTechStaff("Terry Ong");
+    const priya = seedTechStaff("Priya Nair");
+    const user = userEvent.setup();
+    const event = await openEligible(user);
+    const assign = techSupport().getByRole("button", { name: "Assign" });
+    expect(assign).toBeDisabled();
+
+    await user.click(techSupport().getByRole("checkbox", { name: "Terry Ong" }));
+    await user.click(techSupport().getByRole("checkbox", { name: "Priya Nair" }));
+    await user.click(assign);
+
+    const assigned = within(techSupport().getByRole("list", { name: "Assigned Tech support staff" }));
+    expect(await assigned.findByRole("listitem", { name: "Terry Ong" })).toHaveTextContent("Assigned by Casey Tan");
+    expect(assigned.getByRole("listitem", { name: "Priya Nair" })).toHaveTextContent("Assigned by Casey Tan");
+    expect(techSupport().queryByRole("checkbox")).not.toBeInTheDocument();
+    const [call] = callsTo("POST", `/api/v1/events/${event.id}/tech-staff`);
+    // In the list's order, by name.
+    expect(call.body).toEqual({ staff_user_ids: [priya.id, terry.id] });
+  });
+
+  it("shows on the section that someone was just booked elsewhere, and assigns nobody (TC-US14-15)", async () => {
+    const terry = seedTechStaff("Terry Ong");
+    server.use(
+      http.post("http://api.test/api/v1/events/:id/tech-staff", () =>
+        HttpResponse.json({ code: "STAFF_UNAVAILABLE", staff_user_ids: [terry.id] }, { status: 409 }),
+      ),
+    );
+    const user = userEvent.setup();
+    await openEligible(user);
+
+    await user.click(techSupport().getByRole("checkbox", { name: "Terry Ong" }));
+    await user.click(techSupport().getByRole("button", { name: "Assign" }));
+
+    expect(await techSupport().findByRole("alert")).toHaveTextContent(
+      "Terry Ong is now on another event at these times, so no one was assigned.",
+    );
+    expect(techSupport().getByText("No one assigned yet.")).toBeInTheDocument();
+  });
+
+  it("unassigns: the person is available again and the log shows the assign and the unassign (TC-US14-16)", async () => {
+    const terry = seedTechStaff("Terry Ong");
+    const event = seedEquipmentEvent();
+    seedEquipmentLine(event, seedEquipmentType("Projector"), APPROVED);
+    seedTechStaffAssignment(event, terry);
+    const user = userEvent.setup();
+    await openEquipment(user, "coordinator");
+    await pickEvent(user, "Equipment Request Demo");
+    await screen.findByRole("region", { name: "Technical support" });
+    const assigned = within(await techSupport().findByRole("list", { name: "Assigned Tech support staff" }));
+
+    await user.click(assigned.getByRole("button", { name: "Unassign Terry Ong" }));
+
+    expect(await techSupport().findByRole("checkbox", { name: "Terry Ong" })).toBeInTheDocument();
+    expect(techSupport().getByText("No one assigned yet.")).toBeInTheDocument();
+    const log = techSupport().getAllByRole("listitem", { name: /^Terry Ong (un)?assigned/ });
+    expect(log.map((entry) => entry.textContent)).toEqual([
+      expect.stringContaining("Terry Ong unassigned by Casey Tan"),
+      expect.stringContaining("Terry Ong assigned by Casey Tan"),
+    ]);
+    expect(callsTo("DELETE", `/api/v1/events/${event.id}/tech-staff/${terry.id}`)).toHaveLength(1);
+  });
+
+  it("shows the API's refusal once the event has started, and the person stays assigned (TC-US14-16)", async () => {
+    const terry = seedTechStaff("Terry Ong");
+    const event = seedEquipmentEvent();
+    seedEquipmentLine(event, seedEquipmentType("Projector"), APPROVED);
+    seedTechStaffAssignment(event, terry);
+    server.use(
+      http.delete("http://api.test/api/v1/events/:id/tech-staff/:staffId", () =>
+        HttpResponse.json({ code: "EVENT_STARTED" }, { status: 409 }),
+      ),
+    );
+    const user = userEvent.setup();
+    await openEquipment(user, "coordinator");
+    await pickEvent(user, "Equipment Request Demo");
+    await screen.findByRole("region", { name: "Technical support" });
+    const assigned = within(await techSupport().findByRole("list", { name: "Assigned Tech support staff" }));
+
+    await user.click(assigned.getByRole("button", { name: "Unassign Terry Ong" }));
+
+    expect(await techSupport().findByRole("alert")).toHaveTextContent(
+      "This event has already started, so its Technical support staff can't be changed.",
+    );
+    expect(assigned.getByRole("listitem", { name: "Terry Ong" })).toBeInTheDocument();
   });
 });
 
