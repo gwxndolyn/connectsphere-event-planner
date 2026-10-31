@@ -15,14 +15,14 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.event.models import DeliveryMode, Event, EventStatus
-from app.seed import EQUIPMENT_EVENT, EVENTS, MULTI_VENUE_EVENT, VENUE_BOOKINGS, VENUES, seed, seed_id, seeded_booking_count
+from app.seed import EQUIPMENT_EVENT, EVENTS, MULTI_VENUE_EVENT, EventSpec, VENUE_BOOKINGS, VENUES, seed, seed_id, seeded_booking_count
 from app.user.models import User, UserRole
 from app.venue.models import LIVE_BOOKING_STATUSES, Venue, VenueBooking, VenueBookingStatus
 from tests.conftest import BACKEND_DIR
 from tests.factories import NOW, make_event, make_user, make_venue, make_venue_booking
 
 REVISION = "20261103_1200_us24_multi_venue"
-PREVIOUS_REVISION = "20261101_1200_us5_equipment"
+PREVIOUS_REVISION = "20261102_1200_us5_check_outcome"  # US24 follows US5 PR 2 since #94 merged
 ONE_PRIMARY = "venue_bookings_one_primary_per_event"
 PURPOSE_CHECK = "venue_bookings_purpose_valid"
 PREPARATION_CHECK = "venue_bookings_preparation_status_known"
@@ -189,6 +189,43 @@ def test_tc_us24_01_downgrade_removes_purpose_primary_preparation_and_the_index(
     assert {"purpose", "is_primary", "preparation_status"} <= columns
 
 
+def test_tc_us24_01_downgrade_keeps_bookings_whose_us24_values_are_the_defaults(migration_connection: Connection) -> None:
+    """Only the primary flag is lost, and the upgrade works it out again (#96 review)."""
+    config = alembic_config(migration_connection)
+    ids = insert_old_rows(migration_connection, [("approved main", "A", 0), ("requested other", "A", 1)])
+
+    command.downgrade(config, PREVIOUS_REVISION)
+    command.upgrade(config, "head")
+
+    rows = migration_connection.execute(
+        text("select purpose, preparation_status, is_primary from venue_bookings where id = any(:ids) order by created_at"),
+        {"ids": list(ids.values())},
+    ).all()
+    assert [tuple(row) for row in rows] == [("Main venue", "not_started", True), ("Main venue", "not_started", False)]
+
+
+@pytest.mark.parametrize(
+    ("column", "value"),
+    [("purpose", "Breakout A"), ("preparation_status", "in_progress"), ("preparation_status", "ready")],
+)
+def test_tc_us24_01_downgrade_refuses_to_discard_a_purpose_or_preparation_progress(
+    migration_connection: Connection, column: str, value: str
+) -> None:
+    """#96 review: like US26's and US5's, the downgrade won't drop what someone entered."""
+    config = alembic_config(migration_connection)
+    ids = insert_old_rows(migration_connection, [("approved main", "A", 0)])
+    migration_connection.execute(
+        text(f"update venue_bookings set {column} = :value where id = :id"), {"value": value, "id": ids["approved main"]}
+    )
+
+    with pytest.raises(RuntimeError) as raised:
+        command.downgrade(config, PREVIOUS_REVISION)
+
+    assert "Refusing lossy downgrade" in str(raised.value)
+    columns = {column["name"] for column in inspect(migration_connection).get_columns("venue_bookings")}
+    assert {"purpose", "is_primary", "preparation_status"} <= columns
+
+
 # --- TC-US24-02 one live primary per event ---
 
 
@@ -288,6 +325,21 @@ def live_bookings(db: Session, event_id: uuid.UUID) -> list[VenueBooking]:
     return db.scalars(
         select(VenueBooking).where(VenueBooking.event_id == event_id, VenueBooking.status.in_(LIVE_BOOKING_STATUSES))
     ).all()
+
+
+def test_tc_us24_04_each_in_person_seeded_event_names_its_venue_and_none_is_assumed() -> None:
+    """#96 review: no default venue, so a new seeded event gets a booking only when it names one."""
+    assert EventSpec.__dataclass_fields__["venue_slug"].default is None
+    assert {spec.slug: spec.venue_slug for spec in [*EVENTS, EQUIPMENT_EVENT]} == {
+        "tech-talk-agile": "scis-seminar-2-1",
+        "design-sprint-bootcamp": "connexion-studio-3-2",
+        "supabase-live-coding": None,  # online
+        "startup-pitch-night": "mochtar-riady-auditorium",
+        "career-fair-prep": "lks-library-seminar-3-4",
+        "wellness-week-yoga": "campus-green-lawn-c",
+        "orientation-debrief": None,  # no seeded venue at the School of Accountancy
+        "equipment-request-demo": "scis-seminar-2-1",
+    }
 
 
 def test_tc_us24_04_each_seeded_in_person_event_with_a_seeded_venue_has_an_approved_primary_booking(

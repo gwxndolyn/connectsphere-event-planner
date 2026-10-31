@@ -57,10 +57,11 @@ class EventSpec:
     delivery_mode: DeliveryMode = DeliveryMode.IN_PERSON
     venue_name: str | None = "SMU SCIS Building"
     room_number: str | None = "Seminar Room 2-1"
-    # US24 (SCRUM-127): the seeded venue (VenueSpec.slug) of its approved primary booking.
+    # US24 (SCRUM-127): the seeded venue (VenueSpec.slug) of its approved primary booking, named on each
+    # in-person event; none is assumed, so an event without one gets no booking (#96 review).
     # DECISION-PENDING: D70 — from PR 2 attendees see that booking's venue, not venue_name/room_number,
     # which stay as the fallback. None for an online event, or a place with no seeded venue.
-    venue_slug: str | None = "scis-seminar-2-1"
+    venue_slug: str | None = None
     join_link: str | None = None
     # US6a: off by default, as in the database.
     waitlist_enabled: bool = False
@@ -151,6 +152,7 @@ EVENTS = [
         name="Tech Talk: Agile at Scale",
         note="confirmed, registration open, seats available",
         capacity=40,
+        venue_slug="scis-seminar-2-1",
         confirmed=["calvin.ng.2024@smu.edu.sg", "mei.tan.2024@smu.edu.sg"],
     ),
     EventSpec(
@@ -495,6 +497,7 @@ EQUIPMENT_EVENT = EventSpec(
     note="confirmed, assigned to the seeded coordinator, registration off (US26)",
     registration_enabled=False,
     starts_in=timedelta(days=14),
+    venue_slug="scis-seminar-2-1",
 )
 
 VENUE_BLOCKS = [

@@ -1,7 +1,7 @@
 """add each venue booking's purpose, preparation status and its event's primary venue
 
 Revision ID: 20261103_1200_us24_multi_venue
-Revises: 20261101_1200_us5_equipment
+Revises: 20261102_1200_us5_check_outcome
 Create Date: 2026-11-03
 
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 revision: str = "20261103_1200_us24_multi_venue"
-down_revision: Union[str, None] = "20261101_1200_us5_equipment"
+down_revision: Union[str, None] = "20261102_1200_us5_check_outcome"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -70,6 +70,18 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # A purpose someone gave, or preparation Venue staff recorded, would be lost; the defaults aren't,
+    # and the upgrade works out the primary flag again (#96 review).
+    bind = op.get_bind()
+    if bind.scalar(
+        sa.text(
+            "SELECT EXISTS (SELECT 1 FROM venue_bookings "
+            "WHERE purpose <> 'Main venue' OR preparation_status <> 'not_started')"
+        )
+    ):
+        raise RuntimeError(
+            "Refusing lossy downgrade: venue booking purposes or preparation statuses would be discarded."
+        )
     op.drop_constraint("venue_bookings_preparation_status_known", "venue_bookings", type_="check")
     op.drop_column("venue_bookings", "preparation_status")
     op.drop_index("venue_bookings_one_primary_per_event", table_name="venue_bookings")
