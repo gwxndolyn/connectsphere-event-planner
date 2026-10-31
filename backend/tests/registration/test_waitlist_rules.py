@@ -296,3 +296,43 @@ async def test_tc_us6a_15_an_old_email_only_place_is_linked_to_its_attendee(clie
     assert accepted.status_code == 200
     db.refresh(old)
     assert old.status == RegistrationStatus.CONFIRMED
+
+
+async def test_tc_us6a_15_the_old_place_matches_the_email_in_any_letter_case(
+    client: AsyncClient, db: Session
+) -> None:
+    """PR #106 review: the old place kept the email as typed, so it's matched without regard to case,
+    as logins match users (user/dependencies.py). It keeps its place in the queue."""
+    event = full_event(db, waitlist_enabled=True)
+    joiner = make_attendee(db)
+    joiner.email = "calvin.ng.2024@smu.edu.sg"
+    db.flush()
+    ahead, behind = make_attendee(db), make_attendee(db)
+    make_registration(
+        db, event, ahead, status=RegistrationStatus.WAITLISTED, waitlist_joined_at=NOW - timedelta(days=2)
+    )
+    old = Registration(
+        event_id=event.id,
+        attendee_id=None,
+        attendee_email="Calvin.Ng.2024@smu.edu.sg",
+        status=RegistrationStatus.WAITLISTED,
+        waitlist_joined_at=NOW - timedelta(days=1),
+    )
+    db.add(old)
+    db.flush()
+    make_registration(
+        db, event, behind, status=RegistrationStatus.WAITLISTED, waitlist_joined_at=NOW - timedelta(hours=1)
+    )
+
+    response = await join(client, event.id, joiner)
+
+    assert response.status_code == 409
+    assert response.json() == {"code": "ALREADY_REGISTERED"}
+    db.refresh(old)
+    assert old.attendee_id == joiner.id
+    theirs = db.scalars(
+        select(Registration).where(Registration.event_id == event.id, Registration.attendee_id == joiner.id)
+    ).all()
+    assert theirs == [old]
+    mine = await client.get("/api/v1/me/registrations", headers=auth(joiner))
+    assert [row["waitlist_position"] for row in mine.json()["waitlisted"]] == [2]

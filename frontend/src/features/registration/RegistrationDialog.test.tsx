@@ -129,6 +129,18 @@ describe("RegistrationDialog — joining a waitlist", () => {
     );
   });
 
+  it("refreshes the board for ALREADY_REGISTERED, so a place just linked to them shows (PR #106 review)", async () => {
+    const { onJoinWaitlist, onRefresh } = renderDialog(FULL);
+    onJoinWaitlist.mockRejectedValue(new ApiError(409, "ALREADY_REGISTERED"));
+
+    await userEvent.click(screen.getByRole("button", { name: "Join the waitlist" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "You're already registered or on the waitlist for this event.",
+    );
+    expect(onRefresh).toHaveBeenCalledOnce();
+  });
+
   it("refreshes when a seat came free meanwhile (SEATS_AVAILABLE)", async () => {
     const { onJoinWaitlist, onRefresh } = renderDialog(FULL);
     onJoinWaitlist.mockRejectedValue(new ApiError(409, "SEATS_AVAILABLE"));
