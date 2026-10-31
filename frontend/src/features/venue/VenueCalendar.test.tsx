@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../api/client";
 import { venueApi } from "./api";
+import { bookingApi } from "./bookingApi";
 import type { CalendarItem, Venue, VenueCalendar as Calendar } from "./types";
 import { VenueCalendar } from "./VenueCalendar";
 
@@ -38,6 +39,8 @@ function booking(overrides: Partial<NonNullable<CalendarItem["booking"]>> = {}):
       reference: "VB-2026-000001",
       status: "approved",
       event: { name: "Design Review", request_reference: null, status: "approved" },
+      // US24 (D73): how far Venue staff are with getting it ready.
+      preparation_status: "not_started",
       ...overrides,
     },
     note: null,
@@ -74,9 +77,9 @@ beforeEach(() => {
 
 type User = ReturnType<typeof userEvent.setup>;
 
-async function openHall(user: User, items?: CalendarItem[]) {
+async function openHall(user: User, items?: CalendarItem[], staff = false) {
   if (items) calendar.mockResolvedValue(calendarOf(items));
-  render(<VenueCalendar staff={false} today={TODAY} />);
+  render(<VenueCalendar staff={staff} today={TODAY} />);
   await user.selectOptions(await screen.findByLabelText("Venue"), "Hall A");
 }
 
@@ -230,5 +233,69 @@ describe("VenueCalendar states (TC-US21-22)", () => {
     await openHall(user);
 
     expect(await screen.findByRole("alert")).toHaveTextContent(message);
+  });
+});
+
+describe("VenueCalendar preparation status (US24, TC-US24-29, D73, D78)", () => {
+  it("lets Venue staff set an approved booking's preparation status in its details", async () => {
+    const user = userEvent.setup();
+    const setPreparation = vi.spyOn(bookingApi, "setPreparation").mockResolvedValue({
+      id: "booking-1",
+      preparation_status: "in_progress",
+    } as Awaited<ReturnType<typeof bookingApi.setPreparation>>);
+    await openHall(user, [booking()], true);
+
+    await user.click(await screen.findByRole("button", { name: /^Booking: Design Review/ }));
+    const dialog = within(screen.getByRole("dialog", { name: "Booking" }));
+    const control = dialog.getByRole("combobox", { name: "Preparation" });
+    expect(control).toHaveValue("not_started");
+    await user.selectOptions(control, "in_progress");
+    await user.click(dialog.getByRole("button", { name: "Save preparation" }));
+
+    expect(setPreparation).toHaveBeenCalledWith("booking-1", "in_progress");
+    expect(await dialog.findByRole("status")).toHaveTextContent("Preparation saved: In progress.");
+    // The calendar keeps it: reopening shows the new status.
+    await user.click(dialog.getByRole("button", { name: "Close" }));
+    await user.click(screen.getByRole("button", { name: /^Booking: Design Review/ }));
+    expect(screen.getByRole("combobox", { name: "Preparation" })).toHaveValue("in_progress");
+  });
+
+  it("shows the API's refusal and reloads the calendar", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(bookingApi, "setPreparation").mockRejectedValue(
+      new ApiError(409, "BOOKING_NOT_APPROVED", [], { code: "BOOKING_NOT_APPROVED", status: "withdrawn" }),
+    );
+    await openHall(user, [booking()], true);
+    await user.click(await screen.findByRole("button", { name: /^Booking: Design Review/ }));
+    const calls = calendar.mock.calls.length;
+
+    await user.click(screen.getByRole("button", { name: "Save preparation" }));
+
+    expect(await within(screen.getByRole("dialog")).findByRole("alert")).toHaveTextContent(
+      "Only an approved booking is prepared; this one is withdrawn now.",
+    );
+    expect(calendar.mock.calls.length).toBeGreaterThan(calls);
+  });
+
+  it("shows coordinators and Leads the status read-only", async () => {
+    const user = userEvent.setup();
+    await openHall(user, [booking({ preparation_status: "ready" })]);
+
+    await user.click(await screen.findByRole("button", { name: /^Booking: Design Review/ }));
+
+    const dialog = within(screen.getByRole("dialog", { name: "Booking" }));
+    expect(dialog.getByText("Preparation").nextElementSibling).toHaveTextContent("Ready");
+    expect(dialog.queryByRole("combobox")).not.toBeInTheDocument();
+  });
+
+  it("has nothing to prepare on a booking that isn't approved", async () => {
+    const user = userEvent.setup();
+    await openHall(user, [booking({ status: "requested" })], true);
+
+    await user.click(await screen.findByRole("button", { name: /^Booking \(requested\)/ }));
+
+    const dialog = within(screen.getByRole("dialog"));
+    expect(dialog.queryByText("Preparation")).not.toBeInTheDocument();
+    expect(dialog.queryByRole("combobox")).not.toBeInTheDocument();
   });
 });

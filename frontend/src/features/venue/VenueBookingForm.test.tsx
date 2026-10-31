@@ -61,7 +61,7 @@ describe("VenueBookingForm (US22, SCRUM-113)", () => {
     expect(screen.getByLabelText("Date")).toHaveValue("2026-11-20");
     expect(screen.getByLabelText("Start time")).toHaveValue("14:00");
     expect(screen.getByLabelText("End time")).toHaveValue("16:00");
-    expect(screen.getByLabelText("Expected attendance")).toHaveValue(40);
+    expect(screen.getByLabelText("Allocated attendees")).toHaveValue(40);
   });
 
   it("sends every field to the API and hands back what it booked", async () => {
@@ -118,7 +118,7 @@ describe("VenueBookingForm (US22, SCRUM-113)", () => {
     await user.selectOptions(screen.getByLabelText("Layout"), "classroom");
     await user.click(screen.getByRole("button", { name: "Send request" }));
 
-    const attendance = screen.getByLabelText("Expected attendance");
+    const attendance = screen.getByLabelText("Allocated attendees");
     expect(attendance).toHaveAttribute("aria-invalid", "true");
     expect(attendance).toHaveAccessibleDescription("Expected attendance is more than this venue's capacity of 12.");
     expect(screen.getByRole("alert")).toHaveTextContent("capacity of 12");
@@ -261,5 +261,75 @@ describe("VenueBookingForm buffers (US13, SCRUM-116)", () => {
     expect(screen.getByLabelText("Start time")).toHaveAccessibleDescription(
       "With setup and turnaround, overlaps another booking 2:00 PM – 2:15 PM.",
     );
+  });
+});
+
+describe("VenueBookingForm for one of several venues (US24, TC-US24-20)", () => {
+  it("asks how many attendees this venue takes and says what it holds (AC 3, D67)", async () => {
+    const { user } = await renderForm();
+
+    await user.selectOptions(screen.getByLabelText("Venue"), "venue-2");
+
+    expect(screen.getByLabelText("Allocated attendees")).toHaveValue(40);
+    expect(screen.getByText("Room B holds 12.")).toBeInTheDocument();
+  });
+
+  it("shows the event's preferred schedule while it has no dates of its own (D65)", async () => {
+    render(
+      <VenueBookingForm
+        event={{ ...EVENT, preferred_dates: ["2026-11-20", "2026-11-21"] }}
+        onBooked={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText("Event schedule: Fri, Nov 20 or Sat, Nov 21, 2:00 PM – 4:00 PM")).toBeInTheDocument();
+  });
+
+  it("shows the event's own start and end once it has them, not its preferences (D65)", async () => {
+    render(
+      <VenueBookingForm
+        event={{ ...EVENT, start_at: "2026-11-20T02:00:00Z", end_at: "2026-11-20T09:00:00Z" }}
+        onBooked={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText("Event schedule: Fri, Nov 20, 10:00 AM – 5:00 PM")).toBeInTheDocument();
+    expect(screen.queryByText(/2:00 PM – 4:00 PM/)).not.toBeInTheDocument();
+  });
+
+  it("shows nothing for an event with no schedule at all", async () => {
+    render(
+      <VenueBookingForm
+        event={{ ...EVENT, preferred_dates: null, preferred_start_time: null, preferred_end_time: null }}
+        onBooked={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    await screen.findByRole("option", { name: "Hall A (capacity 40)" });
+
+    expect(screen.queryByText(/^Event schedule/)).not.toBeInTheDocument();
+  });
+
+  it("shows INVALID_BOOKING's schedule and purpose errors on their fields", async () => {
+    create.mockRejectedValue(
+      new ApiError(422, "INVALID_BOOKING", ["starts_at", "purpose"], {
+        code: "INVALID_BOOKING",
+        fields: ["starts_at", "purpose"],
+        errors: {
+          starts_at: "Starts before the event's schedule (14:00 to 16:00).",
+          purpose: "Keep the purpose to 100 characters.",
+        },
+      }),
+    );
+    const { user } = await renderForm();
+
+    await user.click(screen.getByRole("button", { name: "Send request" }));
+
+    expect(await screen.findByLabelText("Start time")).toHaveAccessibleDescription(
+      "Starts before the event's schedule (14:00 to 16:00).",
+    );
+    expect(screen.getByLabelText("Purpose")).toHaveAccessibleDescription("Keep the purpose to 100 characters.");
   });
 });

@@ -74,7 +74,7 @@ test("TC-US13-17: an occupied window past closing is refused on the end time (AC
   // Li Ka Shing Library Seminar Room 3-4 closes at 18:00; its 20-minute turnaround runs 17:50 to 18:10.
   // Hours are checked before overlaps, so nothing is booked whatever else is on that day.
   await fillWindow(page, "Li Ka Shing Library Seminar Room 3-4 (capacity 60)", seededDay(), "16:30", "17:50");
-  await page.getByLabel("Expected attendance").fill("20");
+  await page.getByLabel("Allocated attendees").fill("20");
   await page.getByLabel("Layout", { exact: true }).selectOption("classroom");
   await page.getByRole("button", { name: "Send request" }).click();
 
@@ -93,7 +93,7 @@ test("TC-US13-17, 18, 19: setup inside a seeded booking's turnaround is refused 
 
   // 12:15–13:00 sets up from 12:00, inside the seeded booking's turnaround (to 12:15).
   await fillWindow(page, "SCIS Seminar Room 2-1 (capacity 40)", day, "12:15", "13:00");
-  await page.getByLabel("Expected attendance").fill("30");
+  await page.getByLabel("Allocated attendees").fill("30");
   await page.getByLabel("Layout", { exact: true }).selectOption("classroom");
   await page.getByRole("button", { name: "Send request" }).click();
 
