@@ -200,6 +200,14 @@ export function EventEquipment() {
                               <span>Quantity {line.quantity}</span>
                               {line.notes && <span>“{line.notes}”</span>}
                               {line.review_note && <span>Tech support: {line.review_note}</span>}
+                              {/* US27 AC 4 (SCRUM-132): Tech support has reserved it for the event. */}
+                              {line.reservation && (
+                                <span>
+                                  {line.reservation.released_because_event_cancelled
+                                    ? "Reservation released: the event was cancelled"
+                                    : "Reserved"}
+                                </span>
+                              )}
                             </div>
                             <span className={`venue-booking-status venue-booking-status--${BADGE[line.status]}`}>
                               {lineStatusLabel(line.status)}
