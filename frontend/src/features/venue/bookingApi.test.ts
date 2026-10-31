@@ -10,10 +10,15 @@ import {
   formatOccupied,
   formatVenueTime,
   missingForVenue,
+  nextActionLabel,
   occupiedPreview,
+  preparationErrorMessage,
+  preparationLabel,
+  primaryErrorMessage,
   toBookingBody,
+  venuesMissing,
 } from "./bookingApi";
-import type { BookingFormValues } from "./bookingTypes";
+import type { BookingFormValues, EventVenues } from "./bookingTypes";
 import type { Venue } from "./types";
 
 let fetchMock: ReturnType<typeof vi.fn>;
@@ -36,6 +41,7 @@ const FORM: BookingFormValues = {
   facilities: ["projector"],
   accessibility: ["wheelchair"],
   specialRequirements: "  Lectern at the front  ",
+  purpose: "  Breakout A  ",
 };
 
 const VENUE: Venue = {
@@ -69,6 +75,8 @@ describe("toBookingBody (US22 AC 2)", () => {
       required_facilities: ["projector"],
       required_accessibility_features: ["wheelchair"],
       special_requirements: "Lectern at the front",
+      // US24 (D66): trimmed, as the API stores it.
+      purpose: "Breakout A",
     });
   });
 
@@ -80,6 +88,7 @@ describe("toBookingBody (US22 AC 2)", () => {
       attendees: " ",
       roomLayout: "",
       specialRequirements: "   ",
+      purpose: "   ",
     });
 
     expect(body).toEqual({
@@ -106,7 +115,7 @@ describe("bookingApi", () => {
     expect(sent().url.pathname).toBe("/api/v1/venue-bookings/booking-1/withdraw");
 
     fetchMock.mockClear();
-    await bookingApi.forEvent("event-1");
+    await bookingApi.eventVenues("event-1");
     expect(sent().url.pathname).toBe("/api/v1/events/event-1/venue-bookings");
 
     fetchMock.mockClear();
@@ -172,8 +181,9 @@ describe("booking errors", () => {
   });
 
   it("explains the codes that aren't about one field", () => {
-    expect(bookingErrorMessage(new ApiError(409, "BOOKING_NOT_PENDING", [], { status: "approved" }))).toBe(
-      "This booking is no longer pending (it's approved now), so it can't be withdrawn.",
+    // US24 (#100 review): withdraw's refusal, now that an approved booking can be withdrawn too (D69).
+    expect(bookingErrorMessage(new ApiError(409, "BOOKING_NOT_LIVE", [], { status: "rejected" }))).toBe(
+      "This booking can't be withdrawn: it's rejected now.",
     );
     expect(bookingErrorMessage(new ApiError(409, "EVENT_NOT_BOOKABLE", [], { status: "cancelled" }))).toMatch(
       /approved events or events in planning/,
@@ -270,5 +280,104 @@ describe("US13 booking errors (SCRUM-116)", () => {
     expect(decisionErrorMessage(error)).toBe(
       "Can't approve: with setup and turnaround the venue would be occupied 8:30 AM – 11:15 AM, outside its opening hours of 9:00 AM – 11:00 AM now. Reject the request instead.",
     );
+  });
+});
+
+describe("several venues for one event (US24, SCRUM-129)", () => {
+  it("makes a booking primary and sets an approved one's preparation status", async () => {
+    await bookingApi.makePrimary("booking-2");
+    expect(sent().url.pathname).toBe("/api/v1/venue-bookings/booking-2/make-primary");
+    expect(sent().init.method).toBe("POST");
+
+    fetchMock.mockClear();
+    await bookingApi.setPreparation("booking-1", "ready");
+    expect(sent().url.pathname).toBe("/api/v1/venue-bookings/booking-1/preparation");
+    expect(JSON.parse(String(sent().init.body))).toEqual({ preparation_status: "ready" });
+  });
+
+  it("names preparation statuses and next actions in words", () => {
+    expect(["not_started", "in_progress", "ready"].map((s) => preparationLabel(s as "ready"))).toEqual([
+      "Not started",
+      "In progress",
+      "Ready",
+    ]);
+    expect(nextActionLabel("venue_staff_to_decide")).toBe("Waiting for Venue staff");
+    expect(nextActionLabel("coordinator_to_rebook")).toBe("Coordinator to rebook");
+    expect(nextActionLabel("none")).toBe("Nothing to do");
+  });
+
+  it("explains make-primary's and preparation's refusals", () => {
+    expect(primaryErrorMessage(new ApiError(409, "BOOKING_NOT_LIVE", [], { status: "withdrawn" }))).toBe(
+      "This venue can't be the primary one: it's withdrawn now.",
+    );
+    expect(preparationErrorMessage(new ApiError(409, "BOOKING_NOT_APPROVED", [], { status: "requested" }))).toBe(
+      "Only an approved booking is prepared; this one is requested now.",
+    );
+    expect(preparationErrorMessage(new ApiError(403, "FORBIDDEN"))).toBe("Only Venue staff record a venue's preparation.");
+  });
+
+  function venues(overrides: Partial<EventVenues> = {}): EventVenues {
+    return {
+      bookings: [],
+      venues_arranged: false,
+      primary_booking_id: null,
+      allocated_attendees: 0,
+      expected_attendees: 100,
+      next_action: null,
+      ...overrides,
+    };
+  }
+
+  it("says what's missing before the venues are arranged (D67, D72)", () => {
+    expect(venuesMissing(venues(), "coordinator")).toEqual(["No venue booked: request one", "100 more attendees to allocate"]);
+    expect(venuesMissing(venues(), "organiser")).toEqual(["No venue booked yet", "100 more attendees to allocate"]);
+    expect(
+      venuesMissing(venues({ next_action: "choose_primary", allocated_attendees: 120 }), "coordinator"),
+    ).toEqual(["Choose a primary venue: attendees see none until you do"]);
+    expect(venuesMissing(venues({ next_action: "choose_primary", allocated_attendees: 120 }), "organiser")).toEqual([
+      "The coordinator to choose a primary venue",
+    ]);
+    expect(venuesMissing(venues({ venues_arranged: true, allocated_attendees: 120 }), "coordinator")).toEqual([]);
+  });
+
+  it("says no venue is booked, not that none was requested, when the only one was rejected (PR #103 review)", () => {
+    const rejected: EventVenues["bookings"][number] = {
+      id: "booking-1",
+      reference: "VB-2026-000001",
+      event: { id: "event-1", name: "Venue Booking Demo", request_reference: null, status: "approved" },
+      venue: { id: "venue-1", name: "Hall A", location: "Building 1", capacity: 40 },
+      requested_by_user_id: "coordinator-id",
+      starts_at: "2026-11-20T02:00:00Z",
+      ends_at: "2026-11-20T04:00:00Z",
+      occupied_starts_at: "2026-11-20T01:30:00Z",
+      occupied_ends_at: "2026-11-20T04:15:00Z",
+      expected_attendees: 30,
+      room_layout: "theatre",
+      required_facilities: [],
+      required_accessibility_features: [],
+      special_requirements: null,
+      created_at: "2026-10-01T02:00:00Z",
+      updated_at: "2026-10-01T02:00:00Z",
+      withdrawn_at: null,
+      decided_at: "2026-10-02T02:00:00Z",
+      decided_by_user_id: "venue-staff-id",
+      alternative_suggestion: null,
+      purpose: "Main venue",
+      preparation_status: "not_started",
+      status: "rejected",
+      is_primary: false,
+      rejection_reason: "Closed that day",
+      unavailability: { kind: "rejected", reason: "Closed that day", alternative_suggestion: null },
+      next_action: "coordinator_to_rebook",
+    };
+
+    expect(venuesMissing(venues({ bookings: [rejected] }), "coordinator")).toEqual([
+      "No venue booked: request one",
+      "100 more attendees to allocate",
+    ]);
+    expect(venuesMissing(venues({ bookings: [rejected] }), "organiser")).toEqual([
+      "No venue booked yet",
+      "100 more attendees to allocate",
+    ]);
   });
 });

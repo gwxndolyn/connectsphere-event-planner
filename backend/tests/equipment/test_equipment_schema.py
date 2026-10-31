@@ -51,8 +51,10 @@ def make_line(db: Session, **overrides) -> EquipmentRequestLine:
 def test_tc_us26_01_schema_is_installed(db: Session, engine) -> None:
     inspector = inspect(engine)
 
-    assert {column["name"] for column in inspector.get_columns("equipment_types")} == {"id", "name", "created_at"}
-    assert {column["name"] for column in inspector.get_columns("equipment_request_lines")} == {
+    # US5 (SCRUM-124) adds stock, out of service and storage location to the catalogue.
+    assert {"id", "name", "created_at"} <= {column["name"] for column in inspector.get_columns("equipment_types")}
+    # US5 (SCRUM-125) adds the latest availability check to each line.
+    assert {column["name"] for column in inspector.get_columns("equipment_request_lines")} >= {
         "id",
         "event_id",
         "equipment_type_id",

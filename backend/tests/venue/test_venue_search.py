@@ -75,6 +75,7 @@ def book(
         occupied_ends_at=occupied_ends_at,
         expected_attendees=20,
         room_layout="classroom",
+        purpose="Main venue",
         status=status,
         withdrawn_at=NOW if status == VenueBookingStatus.WITHDRAWN else None,
         # US4's venue_bookings_decided_consistent: a decided booking carries its decision time.
@@ -417,6 +418,7 @@ def _fill_calendar(db: Session, venue_count: int, days: int) -> list[Venue]:
             occupied_ends_at=occupied_ends_at,
             expected_attendees=20,
             room_layout="classroom",
+            purpose="Main venue",
             status=VenueBookingStatus.APPROVED,
             decided_at=NOW,
         )
@@ -638,7 +640,9 @@ def test_tc_us2_12_seed_books_and_blocks_three_venues_on_one_slot(db: Session) -
     seed(db, now=NOW)
     seed(db, now=NOW)  # idempotent
 
-    bookings = db.scalars(select(VenueBooking)).all()
+    # US24 (SCRUM-127) also seeds each event's primary booking on other days; these are US2's slot.
+    slot_ids = [seed_id("venue-booking", spec.slug) for spec in VENUE_BOOKINGS]
+    bookings = db.scalars(select(VenueBooking).where(VenueBooking.id.in_(slot_ids))).all()
     blocks = db.scalars(select(VenueBlock)).all()
     assert len(bookings) == len(VENUE_BOOKINGS) == 2
     assert len(blocks) == len(VENUE_BLOCKS) == 1

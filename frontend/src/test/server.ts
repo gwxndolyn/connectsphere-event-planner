@@ -79,8 +79,57 @@ export interface FakeEquipmentLine {
   requested_by_user_id: string;
   reviewed_by_user_id: string | null;
   reviewed_at: string | null;
+  // US5 (SCRUM-125, D64): the latest availability check, or null.
+  availability_check: FakeAvailabilityCheck | null;
+  // US27 (SCRUM-131): the line's reservation, or null.
+  reservation: FakeReservation | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface FakeReservation {
+  quantity: number;
+  reserved_by_user_id: string;
+  reserved_at: string;
+  // D75: a cancelled event's reservation counts as released until US9 deletes it.
+  released_because_event_cancelled: boolean;
+}
+
+/** Why POST /equipment-lines/{id}/reservation refuses a line short of stock (SCRUM-131). */
+export interface FakeReservationShortfall {
+  available: number;
+  requested: number;
+  shortfall: number;
+}
+
+export interface FakeAvailabilityCheck {
+  sufficient: boolean;
+  shortfall: number;
+  checked_by_user_id: string;
+  checked_at: string;
+}
+
+/** What POST /equipment-lines/{id}/availability-check answers (SCRUM-125), less who and when. */
+export interface FakeAvailability {
+  line_id: string;
+  equipment_type: { id: string; name: string; storage_location: string | null };
+  window: { starts_at: string; ends_at: string };
+  requested: number;
+  total: number;
+  out_of_service: number;
+  reserved_elsewhere: number;
+  available: number;
+  sufficient: boolean;
+  shortfall: number;
+}
+
+// US2's venue closures, which the US21 calendar shows as "Unavailable" (SCRUM-123).
+export interface FakeVenueBlock {
+  id: string;
+  venue_id: string;
+  starts_at: string;
+  ends_at: string;
+  note: string | null;
 }
 
 export interface RecordedCall {
@@ -105,12 +154,18 @@ interface Db {
   clarifications: Clarification[];
   // US22 venue bookings (SCRUM-113).
   bookings: VenueBooking[];
+  // US2 venue closures, for the US21 calendar (SCRUM-123).
+  blocks: FakeVenueBlock[];
   // US13 (SCRUM-116): what GET /venue-bookings/{id}/evaluation finds, by booking id (see setEvaluation).
   evaluations: Record<string, Pick<BookingEvaluation, "conflicts" | "outside_hours">>;
   // US26 equipment (SCRUM-110).
   equipmentTypes: FakeEquipmentType[];
   equipmentEvents: FakeEquipmentEvent[];
   equipmentLines: FakeEquipmentLine[];
+  // US5 (SCRUM-126): what each line's availability check finds, by line id (see setAvailability).
+  availability: Record<string, FakeAvailability>;
+  // US27 (SCRUM-132): lines whose reservation the API refuses for want of stock (see refuseReservation).
+  reservationShortfalls: Record<string, FakeReservationShortfall>;
   // US28: the events each managing role sees, and what each event's registrations call returns.
   managedEvents: Record<"organiser" | "coordinator", EventRegistrations[]>;
   // US12 (SCRUM-15): the coordinator's events and each one's History, newest first.
@@ -136,10 +191,13 @@ function emptyDb(): Db {
     coordinatedEvents: [],
     history: {},
     bookings: [],
+    blocks: [],
     evaluations: {},
     equipmentTypes: [],
     equipmentEvents: [],
     equipmentLines: [],
+    availability: {},
+    reservationShortfalls: {},
     calls: [],
     nextId: 1,
     nextReference: 1,
@@ -307,10 +365,27 @@ export function seedBooking(request: EventRequest, venue: Venue, overrides: Part
     decided_by_user_id: null,
     rejection_reason: null,
     alternative_suggestion: null,
+    purpose: "Main venue",
+    is_primary: true,
+    preparation_status: "not_started",
     ...overrides,
   };
   db.bookings.push(booking);
   return booking;
+}
+
+/** A US2 closure of `venue`, Singapore 13:00–15:00 on 20 Nov 2026 unless overridden. */
+export function seedBlock(venue: Venue, overrides: Partial<FakeVenueBlock> = {}): FakeVenueBlock {
+  const block: FakeVenueBlock = {
+    id: newId("block"),
+    venue_id: venue.id,
+    starts_at: "2026-11-20T05:00:00Z",
+    ends_at: "2026-11-20T07:00:00Z",
+    note: "Aircon repair",
+    ...overrides,
+  };
+  db.blocks.push(block);
+  return block;
 }
 
 /** US13 AC 4: what the evaluation of `booking` finds; by default nothing stands in its way. */
@@ -355,12 +430,45 @@ export function seedEquipmentLine(
     requested_by_user_id: COORDINATOR_ID,
     reviewed_by_user_id: null,
     reviewed_at: null,
+    availability_check: null,
+    reservation: null,
     created_at: `2026-10-01T02:00:${String(db.nextId).padStart(2, "0")}Z`,
     updated_at: "2026-10-01T02:00:00Z",
     ...overrides,
   };
   db.equipmentLines.push(line);
   return line;
+}
+
+/**
+ * What checking `line` finds (US5, SCRUM-125). The API works out availability, not the fake, so a test
+ * says what it should be: by default everything requested is available, out of 10 with no location.
+ */
+export function setAvailability(line: FakeEquipmentLine, found: Partial<FakeAvailability> = {}): FakeAvailability {
+  const available = found.available ?? 10;
+  const result: FakeAvailability = {
+    line_id: line.id,
+    equipment_type: { id: line.equipment_type.id, name: line.equipment_type.name, storage_location: null },
+    window: { starts_at: line.event.start_at ?? "2026-11-07T02:00:00Z", ends_at: "2026-11-07T05:00:00Z" },
+    requested: line.quantity,
+    total: 10,
+    out_of_service: 0,
+    reserved_elsewhere: 0,
+    available,
+    sufficient: available >= line.quantity,
+    shortfall: Math.max(line.quantity - available, 0),
+    ...found,
+  };
+  db.availability[line.id] = result;
+  return result;
+}
+
+/**
+ * Reserving `line` is refused for want of stock (US27, SCRUM-131): the API counts availability, not the
+ * fake, so a test says when it falls short. By default a reservation fits.
+ */
+export function refuseReservation(line: FakeEquipmentLine, available: number): void {
+  db.reservationShortfalls[line.id] = { available, requested: line.quantity, shortfall: line.quantity - available };
 }
 
 /** The venues the next search returns, in that order: the API decides which venues fit, not the fake. */
@@ -431,6 +539,15 @@ export function callsTo(method: string, path: string | RegExp): RecordedCall[] {
 
 function error(status: number, code: string, extra: Record<string, JsonBodyType> = {}) {
   return HttpResponse.json({ code, ...extra }, { status });
+}
+
+const DAY = 24 * 60 * MINUTE;
+
+/** Exactly YYYY-MM-DD, and a day that exists (the calendar's INVALID_DATE_RANGE, deviation 51). */
+function isCalendarDay(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
 function occupancy(event: FakeEvent): number {
@@ -585,7 +702,15 @@ function cleanNotes(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-const BOOKING_REQUIRED = ["event_id", "venue_id", "starts_at", "ends_at", "expected_attendees", "room_layout"];
+// US24 (SCRUM-128): a purpose too (D66).
+// US24 (D71): the Organiser reads an event's venues once its request is approved.
+const ORGANISER_VISIBLE = ["approved", "planning", "confirmed", "cancelled", "completed"];
+
+function isLive(booking: VenueBooking): boolean {
+  return booking.status === "requested" || booking.status === "approved";
+}
+
+const BOOKING_REQUIRED = ["event_id", "venue_id", "starts_at", "ends_at", "expected_attendees", "room_layout", "purpose"];
 const SECTION_ORDER = ["details", "schedule", "attendance", "layout", "accessibility", "equipment", "registration"];
 
 // --- Handlers -------------------------------------------------------------------------------
@@ -625,6 +750,8 @@ const handlers = [
           end_at: event.end_at,
           delivery_mode: event.delivery_mode,
           venue_name: event.venue_name,
+          // US24 (D70): the API gives the primary venue's location, else room_number; these have no bookings.
+          venue_location: event.delivery_mode === "online" ? null : event.room_number,
           join_link: event.join_link,
           capacity: event.capacity,
           seats_remaining: seats,
@@ -835,6 +962,89 @@ const handlers = [
     if (userRole(request) !== "coordinator") return error(403, "FORBIDDEN");
     const entries = db.history[params.eventId];
     return entries ? HttpResponse.json({ entries } as unknown as JsonBodyType) : error(404, "NOT_FOUND");
+  // US21 (SCRUM-88) venue calendar, by the rules backend/tests/venue/test_calendar.py proves for
+  // app/venue/calendar_service.py: who (D56), the range (D61, deviation 51), an inactive venue as
+  // GET /venues/{id} has it, live bookings by their occupied window with a cancelled event's included
+  // (D57, D60), blocks, and the reference only for Venue staff, Leads and the event's coordinator (D58).
+  route("get", "/api/v1/venues/:venueId/calendar", ({ request, params }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "coordinator" && role !== "coordinator_lead" && role !== "venue_staff") return error(403, "FORBIDDEN");
+    const url = new URL(request.url);
+    const days: Record<string, string> = {};
+    const bad: string[] = [];
+    for (const field of ["from", "to"]) {
+      const value = url.searchParams.get(field) ?? "";
+      if (isCalendarDay(value)) days[field] = value;
+      else bad.push(field);
+    }
+    if (bad.length === 0) {
+      const span = (Date.parse(days.to) - Date.parse(days.from)) / DAY;
+      if (!(span >= 0 && span < 42)) bad.push("to");
+    }
+    if (bad.length > 0) {
+      return error(422, "INVALID_DATE_RANGE", {
+        fields: bad,
+        message: "Choose a from and to date (YYYY-MM-DD), to not before from, at most 42 days.",
+      });
+    }
+    const userId = request.headers.get("X-User-Id");
+    const live = (booking: VenueBooking) => booking.status === "requested" || booking.status === "approved";
+    const coordinates = (booking: VenueBooking) =>
+      db.requests.find((r) => r.id === booking.event.id)?.coordinator?.id === userId;
+    const venue = db.venues.find((v) => v.id === params.venueId);
+    const sees =
+      venue &&
+      (venue.is_active ||
+        role === "venue_staff" ||
+        role === "coordinator_lead" ||
+        db.bookings.some((b) => b.venue.id === venue.id && live(b) && coordinates(b)));
+    if (!venue || !sees) return error(404, "NOT_FOUND");
+
+    const start = Date.parse(`${days.from}T00:00:00+08:00`);
+    const end = Date.parse(`${days.to}T00:00:00+08:00`) + DAY;
+    const overlaps = (startsAt: string, endsAt: string) => Date.parse(startsAt) < end && Date.parse(endsAt) > start;
+    const seesEveryReference = role === "venue_staff" || role === "coordinator_lead";
+    const bookings = db.bookings
+      .filter((b) => b.venue.id === venue.id && live(b) && overlaps(b.occupied_starts_at, b.occupied_ends_at))
+      .map((b) => ({
+        kind: "booking",
+        label: "Booking",
+        starts_at: b.starts_at,
+        ends_at: b.ends_at,
+        occupied: { starts_at: b.occupied_starts_at, ends_at: b.occupied_ends_at },
+        booking: {
+          id: b.id,
+          reference: seesEveryReference || coordinates(b) ? b.reference : null,
+          status: b.status,
+          event: { name: b.event.name, request_reference: b.event.request_reference, status: b.event.status },
+          // US24 (D73, D78): Venue staff set it from the calendar's dialog.
+          preparation_status: b.preparation_status,
+        },
+        note: null,
+      }));
+    const blocks = db.blocks
+      .filter((block) => block.venue_id === venue.id && overlaps(block.starts_at, block.ends_at))
+      .map((block) => ({
+        kind: "block",
+        label: "Unavailable",
+        starts_at: block.starts_at,
+        ends_at: block.ends_at,
+        occupied: { starts_at: block.starts_at, ends_at: block.ends_at },
+        booking: null,
+        note: block.note,
+      }));
+    // By occupied start; a stable sort keeps bookings before blocks at the same start.
+    const items = [...bookings, ...blocks].sort(
+      (a, b) => Date.parse(a.occupied.starts_at) - Date.parse(b.occupied.starts_at),
+    );
+    const { id, name, is_active, opens_at, closes_at, setup_minutes, turnaround_minutes } = venue;
+    return HttpResponse.json({
+      venue: { id, name, is_active, opens_at, closes_at, setup_minutes, turnaround_minutes },
+      from: days.from,
+      to: days.to,
+      items,
+    });
   }),
 
   // Event registrations (US28, SCRUM-96), identified by X-User-Id. Like search, no rules here: who
@@ -885,6 +1095,11 @@ const handlers = [
       required_facilities: (sent.required_facilities as string[] | undefined) ?? [],
       required_accessibility_features: (sent.required_accessibility_features as string[] | undefined) ?? [],
       special_requirements: (sent.special_requirements as string | undefined) ?? null,
+      purpose: String(sent.purpose).trim(),
+      // D68: the event's first live booking is its primary venue.
+      is_primary: !db.bookings.some(
+        (b) => b.event.id === event.id && b.is_primary && (b.status === "requested" || b.status === "approved"),
+      ),
     });
     return HttpResponse.json({ ...booking, warnings: [] }, { status: 201 });
   }),
@@ -895,7 +1110,10 @@ const handlers = [
     if (role !== "coordinator") return error(403, "FORBIDDEN");
     const booking = db.bookings.find((b) => b.id === params.id);
     if (!booking || booking.requested_by_user_id !== request.headers.get("X-User-Id")) return error(404, "NOT_FOUND");
-    if (booking.status !== "requested") return error(409, "BOOKING_NOT_PENDING", { status: booking.status });
+    // US24 (D69): an approved booking can be withdrawn too, so the refusal says it isn't live.
+    if (booking.status !== "requested" && booking.status !== "approved") {
+      return error(409, "BOOKING_NOT_LIVE", { status: booking.status });
+    }
     Object.assign(booking, { status: "withdrawn", withdrawn_at: "2026-10-01T03:00:00Z", updated_at: "2026-10-01T03:00:00Z" });
     return HttpResponse.json(booking);
   }),
@@ -957,17 +1175,85 @@ const handlers = [
     return HttpResponse.json(evaluation);
   }),
 
+  // US22, and since US24 (SCRUM-128) the event's Organiser too (D71), with whether its venues are
+  // arranged (D67, D72), its primary (D68) and who acts next, by app/venue/booking_service.py's rules.
   route("get", "/api/v1/events/:id/venue-bookings", ({ request, params }) => {
     const role = userRole(request);
     if (!role) return error(401, "UNAUTHENTICATED");
-    if (role !== "coordinator" && role !== "venue_staff") return error(403, "FORBIDDEN");
+    if (role !== "coordinator" && role !== "venue_staff" && role !== "organiser") return error(403, "FORBIDDEN");
+    const userId = request.headers.get("X-User-Id")!;
     const event = db.requests.find((r) => r.id === params.id && r.status !== "draft");
-    // Venue Staff read any event's bookings; a coordinator only those of an event assigned to them (D20).
-    if (!event || (role === "coordinator" && !assignedTo(event, request.headers.get("X-User-Id")!))) {
-      return error(404, "NOT_FOUND");
+    // Venue Staff read any event's bookings; a coordinator only those of an event assigned to them (D20);
+    // the Organiser only their own, from approved on (D71).
+    const allowed =
+      event &&
+      (role === "venue_staff" ||
+        (role === "coordinator" && assignedTo(event, userId)) ||
+        (role === "organiser" && event.created_by_user_id === userId && ORGANISER_VISIBLE.includes(event.status)));
+    if (!event || !allowed) return error(404, "NOT_FOUND");
+    const bookings = db.bookings
+      .filter((b) => b.event.id === event.id)
+      .sort((a, b) => a.starts_at.localeCompare(b.starts_at))
+      .map((b) => {
+        const active = db.venues.find((v) => v.id === b.venue.id)?.is_active ?? true;
+        const unavailability =
+          b.status === "rejected"
+            ? { kind: "rejected", reason: b.rejection_reason, alternative_suggestion: b.alternative_suggestion }
+            : isLive(b) && !active
+              ? { kind: "venue_inactive", reason: null, alternative_suggestion: null }
+              : null;
+        const next_action = unavailability ? "coordinator_to_rebook" : b.status === "requested" ? "venue_staff_to_decide" : "none";
+        return { ...b, unavailability, next_action };
+      });
+    const live = db.bookings.filter((b) => b.event.id === event.id && isLive(b));
+    const primary = live.find((b) => b.is_primary) ?? null;
+    const allocated = live.reduce((sum, b) => sum + b.expected_attendees, 0);
+    const expected = event.expected_attendees;
+    return HttpResponse.json({
+      bookings,
+      venues_arranged:
+        live.length > 0 &&
+        live.every((b) => b.status === "approved") &&
+        live.filter((b) => b.is_primary).length === 1 &&
+        (expected === null || allocated >= expected),
+      primary_booking_id: primary?.id ?? null,
+      allocated_attendees: allocated,
+      expected_attendees: expected,
+      next_action: live.length > 0 && !primary ? "choose_primary" : null,
+    });
+  }),
+
+  // US24 AC 4 (D68): the event's coordinator makes one of its live bookings the primary venue.
+  route("post", "/api/v1/venue-bookings/:id/make-primary", ({ request, params }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "coordinator") return error(403, "FORBIDDEN");
+    const booking = db.bookings.find((b) => b.id === params.id);
+    const event = booking && db.requests.find((r) => r.id === booking.event.id);
+    if (!booking || !event || !assignedTo(event, request.headers.get("X-User-Id")!)) return error(404, "NOT_FOUND");
+    if (!isLive(booking)) return error(409, "BOOKING_NOT_LIVE", { status: booking.status });
+    db.bookings.filter((b) => b.event.id === event.id && isLive(b)).forEach((b) => (b.is_primary = false));
+    booking.is_primary = true;
+    return HttpResponse.json(booking);
+  }),
+
+  // US24 AC 7 (D73): Venue staff record an approved booking's preparation status.
+  route("post", "/api/v1/venue-bookings/:id/preparation", ({ request, params, body }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "venue_staff") return error(403, "FORBIDDEN");
+    const value = (body as { preparation_status?: unknown } | null)?.preparation_status;
+    if (value !== "not_started" && value !== "in_progress" && value !== "ready") {
+      return error(422, "INVALID_BOOKING", {
+        fields: ["preparation_status"],
+        errors: { preparation_status: "Choose one of: not_started, in_progress, ready." },
+      });
     }
-    const bookings = db.bookings.filter((b) => b.event.id === event.id).sort((a, b) => a.starts_at.localeCompare(b.starts_at));
-    return HttpResponse.json({ bookings });
+    const booking = db.bookings.find((b) => b.id === params.id);
+    if (!booking) return error(404, "NOT_FOUND");
+    if (booking.status !== "approved") return error(409, "BOOKING_NOT_APPROVED", { status: booking.status });
+    booking.preparation_status = value;
+    return HttpResponse.json(booking);
   }),
 
   // Event requests (US1, US8), identified by X-User-Id.
@@ -1281,6 +1567,11 @@ const handlers = [
     const refused =
       invalidLine(values) ?? ("equipment_type_id" in values ? duplicateLine(line.event.id, values.equipment_type_id, line.id) : null);
     if (refused) return refused;
+    // D64 (SCRUM-125): a recorded check no longer applies once the type or quantity changes.
+    const changesCheck =
+      ("equipment_type_id" in values && values.equipment_type_id !== line.equipment_type.id) ||
+      ("quantity" in values && values.quantity !== line.quantity);
+    if (changesCheck) line.availability_check = null;
     if ("equipment_type_id" in values) line.equipment_type = db.equipmentTypes.find((t) => t.id === values.equipment_type_id)!;
     if ("quantity" in values) line.quantity = values.quantity as number;
     if ("notes" in values) line.notes = cleanNotes(values.notes);
@@ -1304,10 +1595,62 @@ const handlers = [
     const role = userRole(request);
     if (!role) return error(401, "UNAUTHENTICATED");
     if (role !== "tech_support") return error(403, "FORBIDDEN");
-    const pending = db.equipmentLines
-      .filter((l) => l.status === "pending")
+    // Pending lines to review (US26), or approved ones to reserve (US27, SCRUM-131).
+    const status = new URL(request.url).searchParams.get("status") ?? "pending";
+    const listed = db.equipmentLines
+      .filter((l) => l.status === status)
       .sort((a, b) => a.created_at.localeCompare(b.created_at));
-    return HttpResponse.json({ lines: pending });
+    return HttpResponse.json({ lines: listed });
+  }),
+
+  // US27 (SCRUM-131): the approved line's full quantity, or nothing; no fields.
+  route("post", "/api/v1/equipment-lines/:id/reservation", ({ request, params }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "tech_support") return error(403, "FORBIDDEN");
+    const line = db.equipmentLines.find((l) => l.id === params.id);
+    if (!line) return error(404, "NOT_FOUND");
+    if (line.status !== "approved") return error(409, "LINE_NOT_APPROVED", { status: line.status });
+    if (line.reservation) return error(409, "ALREADY_RESERVED");
+    const short = db.reservationShortfalls[line.id];
+    if (short) return error(409, "INSUFFICIENT_EQUIPMENT", { ...short });
+    line.reservation = {
+      quantity: line.quantity,
+      reserved_by_user_id: request.headers.get("X-User-Id")!,
+      reserved_at: "2026-10-02T04:00:00Z",
+      released_because_event_cancelled: false,
+    };
+    return HttpResponse.json(line, { status: 201 });
+  }),
+
+  // US27 AC 5: releasing deletes the reservation (D74).
+  route("delete", "/api/v1/equipment-lines/:id/reservation", ({ request, params }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "tech_support") return error(403, "FORBIDDEN");
+    const line = db.equipmentLines.find((l) => l.id === params.id);
+    if (!line) return error(404, "NOT_FOUND");
+    if (!line.reservation) return error(409, "NOT_RESERVED");
+    line.reservation = null;
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  // US5 (SCRUM-125): records the latest check on the line (D64), which updates the line like any change.
+  route("post", "/api/v1/equipment-lines/:id/availability-check", ({ request, params }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "tech_support") return error(403, "FORBIDDEN");
+    const line = db.equipmentLines.find((l) => l.id === params.id);
+    if (!line) return error(404, "NOT_FOUND");
+    const found = db.availability[line.id] ?? setAvailability(line);
+    const recorded = {
+      sufficient: found.sufficient,
+      shortfall: found.shortfall,
+      checked_by_user_id: request.headers.get("X-User-Id")!,
+      checked_at: "2026-10-02T03:00:00Z",
+    };
+    Object.assign(line, { availability_check: recorded, updated_at: recorded.checked_at });
+    return HttpResponse.json({ ...found, ...recorded });
   }),
 
   route("post", "/api/v1/equipment-lines/:id/review", ({ request, params, body }) => {

@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { ApiError } from "../../api/client";
-import { formatEventDate } from "../registration/datetime";
-import { equipmentApi, equipmentErrorMessage, eventLabel } from "./equipmentApi";
-import type { EquipmentLine, EquipmentReviewWrite } from "./types";
+import { formatEventDate, formatInstantDateTime } from "../registration/datetime";
+import { ApprovedLines } from "./ApprovedLines";
+import { availabilityOutcome, equipmentApi, equipmentErrorMessage, eventLabel } from "./equipmentApi";
+import type { EquipmentAvailability, EquipmentLine, EquipmentReviewWrite } from "./types";
 import "../eventRequest/eventRequests.css";
 import "../venue/venues.css";
 
@@ -15,10 +16,27 @@ function queueErrorMessage(error: unknown): string {
   return equipmentErrorMessage(error);
 }
 
+/** US5 (SCRUM-126): the result of a check made from this screen, with the counts behind it (AC 1–4, 7). */
+function AvailabilityResult({ result }: { result: EquipmentAvailability }) {
+  const location = result.equipment_type.storage_location;
+  return (
+    <section className="venue-booking-row__main" aria-label="Availability">
+      <strong>
+        {result.available} available for {result.requested} requested: {availabilityOutcome(result)}
+      </strong>
+      <span>
+        Stock {result.total} · Out of service {result.out_of_service} · Reserved for other events {result.reserved_elsewhere}
+      </span>
+      <span>{location ? `Stored at ${location}` : "Storage location not recorded"}</span>
+    </section>
+  );
+}
+
 /**
  * US26 AC 3 (SCRUM-110): Tech support's queue of pending lines, oldest first as the API returns them.
  * Each is approved for its full quantity or rejected (AC 6), with an optional note (D43); the requesting
- * coordinator is notified by the API (AC 5).
+ * coordinator is notified by the API (AC 5). US5 (SCRUM-126): each line can be checked for availability,
+ * and shows its last recorded check (D64). US27 (SCRUM-132): approved lines are reserved below.
  */
 export function EquipmentQueue() {
   const [lines, setLines] = useState<EquipmentLine[]>([]);
@@ -29,6 +47,12 @@ export function EquipmentQueue() {
   const [sending, setSending] = useState<string | null>(null);
   // US16b D51: a line this user requested, or for an event they coordinate, says so on its row.
   const [refusals, setRefusals] = useState<Record<string, string>>({});
+  // US5: results checked from this screen, and a failed check, by line.
+  const [results, setResults] = useState<Record<string, EquipmentAvailability>>({});
+  const [checkErrors, setCheckErrors] = useState<Record<string, string>>({});
+  const [checking, setChecking] = useState<string | null>(null);
+  // US27: bumped on each approval, so the approved list below reloads with the new line to reserve.
+  const [approvedVersion, setApprovedVersion] = useState(0);
 
   async function load() {
     try {
@@ -58,6 +82,26 @@ export function EquipmentQueue() {
     };
   }, []);
 
+  async function checkAvailability(line: EquipmentLine) {
+    setCheckErrors((current) => {
+      const rest = { ...current };
+      delete rest[line.id];
+      return rest;
+    });
+    setChecking(line.id);
+    try {
+      const result = await equipmentApi.checkAvailability(line.id);
+      setResults((current) => ({ ...current, [line.id]: result }));
+      // Recording the check updates the line on the server, so take the queue as it is now: Approve and
+      // Reject compare updated_at to catch a coordinator's edit, and a check isn't one.
+      setLines(await equipmentApi.queue());
+    } catch (reason) {
+      setCheckErrors((current) => ({ ...current, [line.id]: equipmentErrorMessage(reason) }));
+    } finally {
+      setChecking(null);
+    }
+  }
+
   async function review(line: EquipmentLine, decision: EquipmentReviewWrite["decision"]) {
     setError(null);
     setNotice(null);
@@ -86,6 +130,7 @@ export function EquipmentQueue() {
       await equipmentApi.review(line.id, note ? { decision, note } : { decision });
       setLines((current) => current.filter((l) => l.id !== line.id));
       setNotice(`${decision === "approved" ? "Approved" : "Rejected"}: ${lineName(line)}.`);
+      if (decision === "approved") setApprovedVersion((version) => version + 1);
     } catch (reason) {
       if (reason instanceof ApiError && reason.code === "SELF_DECISION_NOT_ALLOWED") {
         setRefusals((current) => ({
@@ -135,12 +180,27 @@ export function EquipmentQueue() {
                 {line.event.start_at && <span>{formatEventDate({ startsAt: line.event.start_at, endsAt: line.event.start_at })}</span>}
                 <span>Quantity {line.quantity}</span>
                 {line.notes && <span>“{line.notes}”</span>}
+                {line.availability_check && (
+                  <span>
+                    Last checked {formatInstantDateTime(line.availability_check.checked_at)}:{" "}
+                    {availabilityOutcome(line.availability_check)}
+                  </span>
+                )}
                 {refusals[line.id] && (
                   <span className="venue-booking-row__error" role="alert">
                     {refusals[line.id]}
                   </span>
                 )}
+                {checkErrors[line.id] && (
+                  <span className="venue-booking-row__error" role="alert">
+                    {checkErrors[line.id]}
+                  </span>
+                )}
               </div>
+              {/* Only while it's still the line's recorded check: an edit since then cleared it (D64). */}
+              {results[line.id] && results[line.id].checked_at === line.availability_check?.checked_at && (
+                <AvailabilityResult result={results[line.id]} />
+              )}
               <div className="request-field">
                 <label htmlFor={`equipment-note-${line.id}`}>Note</label>
                 <textarea
@@ -150,6 +210,14 @@ export function EquipmentQueue() {
                   onChange={(changed) => setNotes((current) => ({ ...current, [line.id]: changed.target.value }))}
                 />
               </div>
+              <button
+                type="button"
+                className="request-button request-button--secondary"
+                disabled={checking === line.id}
+                onClick={() => void checkAvailability(line)}
+              >
+                Check availability
+              </button>
               <button
                 type="button"
                 className="request-button request-button--primary"
@@ -170,6 +238,8 @@ export function EquipmentQueue() {
           ))}
         </ul>
       )}
+
+      <ApprovedLines version={approvedVersion} />
     </main>
   );
 }

@@ -45,6 +45,8 @@ async function openForm(page: Page) {
 
 async function fillWindow(page: Page, venue: string, day: string, start: string, end: string) {
   await page.getByLabel("Venue", { exact: true }).selectOption({ label: venue });
+  // US24 (D66): every venue request says what the venue is for.
+  await page.getByLabel("Purpose").fill("Main hall");
   await page.getByLabel("Date").fill(day);
   await page.getByLabel("Start time").fill(start);
   await page.getByLabel("End time").fill(end);
@@ -72,7 +74,7 @@ test("TC-US13-17: an occupied window past closing is refused on the end time (AC
   // Li Ka Shing Library Seminar Room 3-4 closes at 18:00; its 20-minute turnaround runs 17:50 to 18:10.
   // Hours are checked before overlaps, so nothing is booked whatever else is on that day.
   await fillWindow(page, "Li Ka Shing Library Seminar Room 3-4 (capacity 60)", seededDay(), "16:30", "17:50");
-  await page.getByLabel("Expected attendance").fill("20");
+  await page.getByLabel("Allocated attendees").fill("20");
   await page.getByLabel("Layout", { exact: true }).selectOption("classroom");
   await page.getByRole("button", { name: "Send request" }).click();
 
@@ -91,7 +93,7 @@ test("TC-US13-17, 18, 19: setup inside a seeded booking's turnaround is refused 
 
   // 12:15–13:00 sets up from 12:00, inside the seeded booking's turnaround (to 12:15).
   await fillWindow(page, "SCIS Seminar Room 2-1 (capacity 40)", day, "12:15", "13:00");
-  await page.getByLabel("Expected attendance").fill("30");
+  await page.getByLabel("Allocated attendees").fill("30");
   await page.getByLabel("Layout", { exact: true }).selectOption("classroom");
   await page.getByRole("button", { name: "Send request" }).click();
 
@@ -109,16 +111,17 @@ test("TC-US13-17, 18, 19: setup inside a seeded booking's turnaround is refused 
   await page.getByRole("button", { name: "Send request" }).click();
 
   const window = shownWindow(day, "12:30", "13:30");
-  await expect(page.getByRole("status").filter({ hasText: "Venue requested" })).toContainText(
-    new RegExp(`SCIS Seminar Room 2-1, ${window} \\(VB-\\d{4}-\\d{6}\\)`),
-  );
+  const notice = page.getByRole("status").filter({ hasText: "Venue requested" });
+  await expect(notice).toContainText(new RegExp(`SCIS Seminar Room 2-1, ${window} \\(VB-\\d{4}-\\d{6}\\)`));
+  // The new booking's reference, from the notice: a rerun on the same database also lists earlier
+  // runs' withdrawn bookings for this window, so its row is found by reference, not position.
+  const reference = (await notice.textContent())?.match(/VB-\d{4}-\d{6}/)?.[0];
+  expect(reference).toBeTruthy();
   const row = page
     .getByRole("region", { name: "Venue bookings" })
     .getByRole("listitem", { name: `SCIS Seminar Room 2-1, ${window}` })
-    .last();
-  await expect(row).toContainText(/VB-\d{4}-\d{6} · Occupied 12:15 PM – 1:45 PM with setup and turnaround/);
-  const reference = (await row.textContent())?.match(/VB-\d{4}-\d{6}/)?.[0];
-  expect(reference).toBeTruthy();
+    .filter({ hasText: reference! });
+  await expect(row).toContainText(`${reference} · Occupied 12:15 PM – 1:45 PM with setup and turnaround`);
 
   // Venue staff see it with its reference and occupied window, and nothing in its way (AC 4).
   await page.getByLabel("Acting as").selectOption("venue_staff");

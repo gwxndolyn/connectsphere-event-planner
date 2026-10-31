@@ -82,12 +82,16 @@ class FakeNotifier:
         self.clarifications: list[dict[str, object]] = []
         self.venue_bookings: list[dict[str, object]] = []
         self.booking_decisions: list[dict[str, object]] = []
+        # US24 (SCRUM-128, D69): an approved booking withdrawn, told to Venue Staff.
+        self.booking_withdrawals: list[dict[str, object]] = []
         self.queued: list[dict[str, object]] = []
         self.assignments: list[dict[str, object]] = []
         self.reassignments: list[dict[str, object]] = []
         self.transfer_requests: list[dict[str, object]] = []
         self.equipment_reviews: list[dict[str, object]] = []
         self.request_decisions: list[dict[str, object]] = []
+        # US14 (SCRUM-134): each Tech support staff member assigned to an event.
+        self.tech_staff_assignments: list[dict[str, object]] = []
         self.fail = False
 
     def waitlist_offer(
@@ -149,6 +153,11 @@ class FakeNotifier:
         if self.fail:
             raise RuntimeError("mail server unavailable")
         self.booking_decisions.append(call)
+
+    def venue_booking_withdrawn(self, **call: object) -> None:
+        if self.fail:
+            raise RuntimeError("mail server unavailable")
+        self.booking_withdrawals.append(call)
 
     def request_queued(
         self,
@@ -265,6 +274,11 @@ class FakeNotifier:
         if self.fail:
             raise RuntimeError("mail server unavailable")
         self.request_decisions.append(call)
+
+    def tech_staff_assigned(self, **call: object) -> None:
+        if self.fail:
+            raise RuntimeError("mail server unavailable")
+        self.tech_staff_assignments.append(call)
 
 
 @pytest.fixture

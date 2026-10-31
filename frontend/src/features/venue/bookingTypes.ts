@@ -41,6 +41,40 @@ export interface VenueBooking {
   decided_by_user_id: string | null;
   rejection_reason: string | null;
   alternative_suggestion: string | null;
+  // US24 (SCRUM-128): what the venue is for (D66), whether attendees see it (D68), and how far Venue
+  // staff are with getting it ready (D73). PR 3 shows them.
+  purpose: string;
+  is_primary: boolean;
+  preparation_status: PreparationStatus;
+}
+
+// US24 AC 7 (D73): how far Venue staff are with getting an approved venue ready.
+export type PreparationStatus = "not_started" | "in_progress" | "ready";
+
+// US24 AC 4 (D71): who acts next on a booking.
+export type NextAction = "venue_staff_to_decide" | "coordinator_to_rebook" | "none";
+
+/** Why a venue needs replacing: Venue staff rejected it, or the venue has been deactivated. */
+export interface BookingUnavailability {
+  kind: "rejected" | "venue_inactive";
+  reason: string | null;
+  alternative_suggestion: string | null;
+}
+
+/** A booking as GET /events/{id}/venue-bookings gives it (US24, SCRUM-128). */
+export interface EventVenueBooking extends VenueBooking {
+  unavailability: BookingUnavailability | null;
+  next_action: NextAction;
+}
+
+/** GET /api/v1/events/{event_id}/venue-bookings: an event's venues and whether they're arranged (D67, D72). */
+export interface EventVenues {
+  bookings: EventVenueBooking[];
+  venues_arranged: boolean;
+  primary_booking_id: string | null;
+  allocated_attendees: number;
+  expected_attendees: number | null;
+  next_action: "choose_primary" | null;
 }
 
 /** US4 AC 5: both optional; left out when blank. */
@@ -109,6 +143,8 @@ export interface VenueBookingWrite {
   required_facilities: string[];
   required_accessibility_features: string[];
   special_requirements?: string;
+  // US24 (SCRUM-128): required; blank is left out so MISSING_REQUIRED_FIELD names it (D66).
+  purpose?: string;
 }
 
 // The form as typed. Date and times are Singapore wall-clock (D9).
@@ -122,4 +158,6 @@ export interface BookingFormValues {
   facilities: string[];
   accessibility: string[];
   specialRequirements: string;
+  // US24: what this venue is for, e.g. "Main hall" or "Breakout A".
+  purpose: string;
 }

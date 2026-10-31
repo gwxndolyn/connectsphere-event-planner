@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.event.models import Event, EventStatus
 from app.seed import BOOKABLE_EVENT, EQUIPMENT_EVENT, EVENT_COORDINATOR_LEAD_EMAILS, PLANNING_EVENT, seed, seed_id
+from app.seed import BOOKABLE_EVENT, EQUIPMENT_EVENT, EVENT_COORDINATOR_LEAD_EMAILS, MULTI_VENUE_EVENT, seed, seed_id
 from app.user.models import User, UserRole
 from tests.factories import make_event
 
@@ -66,6 +67,9 @@ def test_tc_us10a_04_seed_adds_two_active_leads_and_leaves_events_unassigned(db:
     # Demo, US28's Intro to Supabase and US12's Event Planning Demo: only the assigned coordinator may
     # book a venue, add equipment (D20), view registrations (D52) or edit an event (US12), so the seed assigns
     # the dev coordinator to all four for their screens and E2E.
+    # Demo, US28's Intro to Supabase and US24's Multi-Venue Conference Demo: only the assigned
+    # coordinator may book a venue, add equipment (D20) or view registrations (D52), so the seed
+    # assigns the dev coordinator to all four for their screens and E2E.
     assigned = db.scalars(select(Event.id).where(Event.coordinator_id.is_not(None))).all()
     assert sorted(assigned) == sorted(
         [
@@ -73,5 +77,6 @@ def test_tc_us10a_04_seed_adds_two_active_leads_and_leaves_events_unassigned(db:
             seed_id("event", EQUIPMENT_EVENT.slug),
             seed_id("event", "supabase-live-coding"),
             seed_id("event", PLANNING_EVENT.slug),
+            seed_id("event", MULTI_VENUE_EVENT.slug),
         ]
     )

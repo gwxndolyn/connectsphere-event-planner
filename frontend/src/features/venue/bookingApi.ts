@@ -3,6 +3,9 @@ import { formatEventDate, formatEventTimeRange, formatInstantTime } from "../reg
 import type {
   BookingEvaluation,
   BookingFormValues,
+  EventVenues,
+  NextAction,
+  PreparationStatus,
   BookingRejectWrite,
   TimeWindow,
   VenueBooking,
@@ -22,9 +25,16 @@ export const bookingApi = {
 
   withdraw: (id: string) => apiClient.post<VenueBooking>(`/api/v1/venue-bookings/${id}/withdraw`, {}),
 
-  async forEvent(eventId: string): Promise<VenueBooking[]> {
-    return (await apiClient.get<VenueBookingsResponse>(`/api/v1/events/${eventId}/venue-bookings`)).bookings;
-  },
+  // US24 (SCRUM-128): an event's venues, with whether they're arranged (D67, D72) and who acts next (D71).
+  // The event's coordinator, Venue staff and, once approved, its Organiser may read it.
+  eventVenues: (eventId: string) => apiClient.get<EventVenues>(`/api/v1/events/${eventId}/venue-bookings`),
+
+  // US24 AC 4 (D68): the venue attendees see, once it's approved (D70).
+  makePrimary: (id: string) => apiClient.post<VenueBooking>(`/api/v1/venue-bookings/${id}/make-primary`, {}),
+
+  // US24 AC 7 (D73): Venue staff only, on an approved booking.
+  setPreparation: (id: string, preparationStatus: PreparationStatus) =>
+    apiClient.post<VenueBooking>(`/api/v1/venue-bookings/${id}/preparation`, { preparation_status: preparationStatus }),
 
   // Nothing to send: a request is approved as it stands (US4 AC 7).
   approve: (id: string) => apiClient.post<VenueBooking>(`/api/v1/venue-bookings/${id}/approve`, {}),
@@ -63,6 +73,7 @@ export function toBookingBody(eventId: string, form: BookingFormValues): VenueBo
   if (/^\d+$/.test(form.attendees.trim())) body.expected_attendees = Number(form.attendees.trim());
   if (form.roomLayout) body.room_layout = form.roomLayout;
   if (form.specialRequirements.trim()) body.special_requirements = form.specialRequirements.trim();
+  if (form.purpose.trim()) body.purpose = form.purpose.trim();
   return body;
 }
 
@@ -73,6 +84,11 @@ export function missingForVenue(form: BookingFormValues, venue: Venue): string[]
     ...form.accessibility.filter((tag) => !venue.accessibility_features.includes(tag)).map(tagLabel),
     ...(form.roomLayout && !venue.room_layouts.includes(form.roomLayout) ? [`${tagLabel(form.roomLayout)} layout`] : []),
   ];
+}
+
+/** An event as the venue screens name it: its name, else its request reference (US22, US21 D58). */
+export function eventName(event: { name: string | null; request_reference: string | null }): string {
+  return event.name || event.request_reference || "Untitled event";
 }
 
 /** A booking's window in Singapore time, e.g. "Fri, Nov 20, 10:00 AM – 12:00 PM". */
@@ -125,6 +141,66 @@ const STATUS_LABELS: Record<VenueBookingStatus, string> = {
 
 export function bookingStatusLabel(status: VenueBookingStatus): string {
   return STATUS_LABELS[status] ?? status;
+}
+
+const PREPARATION_LABELS: Record<PreparationStatus, string> = {
+  not_started: "Not started",
+  in_progress: "In progress",
+  ready: "Ready",
+};
+
+export const PREPARATION_STATUSES = Object.keys(PREPARATION_LABELS) as PreparationStatus[];
+
+/** US24 AC 7 (D73): a venue's preparation status in words. */
+export function preparationLabel(status: PreparationStatus): string {
+  return PREPARATION_LABELS[status] ?? status;
+}
+
+const NEXT_ACTION_LABELS: Record<NextAction, string> = {
+  venue_staff_to_decide: "Waiting for Venue staff",
+  coordinator_to_rebook: "Coordinator to rebook",
+  none: "Nothing to do",
+};
+
+/** US24 AC 4 (D71): who acts next on a booking, in words. */
+export function nextActionLabel(action: NextAction): string {
+  return NEXT_ACTION_LABELS[action] ?? action;
+}
+
+/**
+ * US24 AC 7 (D67, D72): what stands between an event and its venues being arranged, for the coordinator
+ * (who acts on it) or the Organiser (who reads it). Empty once they're arranged.
+ */
+export function venuesMissing(venues: EventVenues, audience: "coordinator" | "organiser"): string[] {
+  if (venues.venues_arranged) return [];
+  const live = venues.bookings.filter((b) => b.status === "requested" || b.status === "approved");
+  const missing: string[] = [];
+  // None live, though some may have been rejected or withdrawn (PR #103 review).
+  if (live.length === 0 && venues.allocated_attendees === 0) {
+    missing.push(audience === "coordinator" ? "No venue booked: request one" : "No venue booked yet");
+  }
+  const waiting = live.filter((b) => b.status === "requested").length;
+  if (waiting > 0) missing.push(`${waiting} waiting for Venue staff`);
+  const closed = live.filter((b) => b.unavailability?.kind === "venue_inactive").length;
+  if (closed > 0) missing.push(`${closed} at a venue no longer available`);
+  if (venues.next_action === "choose_primary") {
+    missing.push(
+      audience === "coordinator"
+        ? "Choose a primary venue: attendees see none until you do"
+        : "The coordinator to choose a primary venue",
+    );
+  }
+  const short = (venues.expected_attendees ?? 0) - venues.allocated_attendees;
+  if (venues.expected_attendees !== null && short > 0) missing.push(`${short} more attendees to allocate`);
+  return missing;
+}
+
+/** "Allocated 35 of 40 expected, short by 5" (D67). */
+export function allocationText(venues: EventVenues): string {
+  const { allocated_attendees: allocated, expected_attendees: expected } = venues;
+  if (expected === null) return `Allocated ${allocated}`;
+  const short = expected - allocated;
+  return `Allocated ${allocated} of ${expected} expected${short > 0 ? `, short by ${short}` : ""}`;
 }
 
 function isWindow(value: unknown): value is TimeWindow {
@@ -190,8 +266,9 @@ export function bookingErrorMessage(error: unknown): string {
     }
     case "EVENT_NOT_BOOKABLE":
       return `Venues can only be requested for approved events or events in planning${status ? `; this one is ${status}` : ""}.`;
-    case "BOOKING_NOT_PENDING":
-      return `This booking is no longer pending${status ? ` (it's ${status} now)` : ""}, so it can't be withdrawn.`;
+    case "BOOKING_NOT_LIVE":
+      // US24 (D69): withdraw refuses only a rejected or already withdrawn booking.
+      return `This booking can't be withdrawn${status ? `: it's ${status} now` : ""}.`;
     case "NOT_FOUND":
       return "This event, venue or booking is no longer available. Reload and try again.";
     case "FORBIDDEN":
@@ -200,6 +277,32 @@ export function bookingErrorMessage(error: unknown): string {
       return "Set the dev user id for the role you're acting as in frontend/.env, then restart the frontend.";
     default:
       return FALLBACK_MESSAGE;
+  }
+}
+
+/** US24 (D68): why a venue can't be made the primary one. */
+export function primaryErrorMessage(error: unknown): string {
+  if (error instanceof ApiError && error.code === "BOOKING_NOT_LIVE") {
+    const status = typeof error.body.status === "string" ? error.body.status : null;
+    return `This venue can't be the primary one${status ? `: it's ${status} now` : ""}.`;
+  }
+  return bookingErrorMessage(error);
+}
+
+/** US24 (D73): why Venue staff can't record a venue's preparation status. */
+export function preparationErrorMessage(error: unknown): string {
+  if (!(error instanceof ApiError)) return FALLBACK_MESSAGE;
+  switch (error.code) {
+    case "BOOKING_NOT_APPROVED": {
+      const status = typeof error.body.status === "string" ? error.body.status : null;
+      return `Only an approved booking is prepared${status ? `; this one is ${status} now` : ""}.`;
+    }
+    case "INVALID_BOOKING":
+      return "Choose Not started, In progress or Ready.";
+    case "FORBIDDEN":
+      return "Only Venue staff record a venue's preparation.";
+    default:
+      return bookingErrorMessage(error);
   }
 }
 

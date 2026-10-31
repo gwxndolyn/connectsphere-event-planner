@@ -6,7 +6,7 @@ import "../eventRequest/eventRequests.css";
 
 interface WithdrawBookingDialogProps {
   booking: VenueBooking;
-  // Withdraws; throws the API's refusal (e.g. BOOKING_NOT_PENDING) for the dialog to explain.
+  // Withdraws; throws the API's refusal (e.g. BOOKING_NOT_LIVE) for the dialog to explain.
   onConfirm: () => Promise<void>;
   onClose: () => void;
 }
@@ -17,6 +17,8 @@ interface WithdrawBookingDialogProps {
  */
 export function WithdrawBookingDialog({ booking, onConfirm, onClose }: WithdrawBookingDialogProps) {
   const titleId = useId();
+  // US24 (D69): an approved venue can be withdrawn too, to change or cancel one of the event's venues.
+  const approved = booking.status === "approved";
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -39,15 +41,22 @@ export function WithdrawBookingDialog({ booking, onConfirm, onClose }: WithdrawB
           ×
         </button>
         <h3 id={titleId} className="reg-form__title">
-          Withdraw this venue request?
+          {approved ? "Withdraw this approved venue?" : "Withdraw this venue request?"}
         </h3>
         <p className="reg-form__meta">
           {booking.venue.name} · {formatBookingWindow(booking)}
         </p>
-        <p className="reg-form__notice">
-          The window is released straight away: any coordinator can request {booking.venue.name} for that time, and Venue
-          staff stop seeing this request. To get it back you'd have to request it again, if it's still free.
-        </p>
+        {approved ? (
+          <p className="reg-form__notice">
+            {booking.venue.name} is released straight away and Venue staff will be told. The event's other venues stay as they
+            are. To use it again you'd have to request it again, if it's still free.
+          </p>
+        ) : (
+          <p className="reg-form__notice">
+            The window is released straight away: any coordinator can request {booking.venue.name} for that time, and Venue
+            staff stop seeing this request. To get it back you'd have to request it again, if it's still free.
+          </p>
+        )}
 
         {error && (
           <p className="reg-form__error" role="alert">
@@ -63,7 +72,7 @@ export function WithdrawBookingDialog({ booking, onConfirm, onClose }: WithdrawB
           ) : (
             <>
               <button type="button" className="request-button request-button--quiet" onClick={onClose}>
-                Keep request
+                {approved ? "Keep venue" : "Keep request"}
               </button>
               <button
                 type="button"
@@ -71,7 +80,7 @@ export function WithdrawBookingDialog({ booking, onConfirm, onClose }: WithdrawB
                 onClick={() => void handleConfirm()}
                 disabled={submitting}
               >
-                {submitting ? "Withdrawing…" : "Withdraw request"}
+                {submitting ? "Withdrawing…" : approved ? "Withdraw venue" : "Withdraw request"}
               </button>
             </>
           )}

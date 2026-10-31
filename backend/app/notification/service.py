@@ -58,6 +58,17 @@ class Notifier(Protocol):
         alternative_suggestion: str | None,
     ) -> None: ...
 
+    def venue_booking_withdrawn(
+        self,
+        *,
+        email: str,
+        booking_id: uuid.UUID,
+        event_name: str,
+        venue_name: str,
+        starts_at: datetime,
+        ends_at: datetime,
+    ) -> None: ...
+
     def request_queued(
         self,
         *,
@@ -122,6 +133,20 @@ class Notifier(Protocol):
         event_name: str,
         decision: RequestDecision,
         reason: str | None,
+    ) -> None: ...
+
+    def tech_staff_assigned(
+        self,
+        *,
+        email: str,
+        event_id: uuid.UUID,
+        event_name: str,
+        starts_at: datetime,
+        ends_at: datetime,
+        venue_name: str | None,
+        location: str | None,
+        equipment: list[str],
+        equipment_needs: str | None,
     ) -> None: ...
 
 
@@ -205,6 +230,27 @@ class LoggingNotifier:
             booking_id,
             reason or "none given",
             alternative_suggestion or "none given",
+        )
+
+    def venue_booking_withdrawn(
+        self,
+        *,
+        email: str,
+        booking_id: uuid.UUID,
+        event_name: str,
+        venue_name: str,
+        starts_at: datetime,
+        ends_at: datetime,
+    ) -> None:
+        # US24 (SCRUM-128, D69): Venue Staff hear that a venue they approved is free again.
+        logger.info(
+            "approved venue booking withdrawn: %s, %r at %r from %s to %s (booking %s)",
+            email,
+            event_name,
+            venue_name,
+            starts_at,
+            ends_at,
+            booking_id,
         )
 
     def request_queued(
@@ -331,6 +377,33 @@ class LoggingNotifier:
             request_reference,
             event_name,
             reason or "none",
+        )
+
+    def tech_staff_assigned(
+        self,
+        *,
+        email: str,
+        event_id: uuid.UUID,
+        event_name: str,
+        starts_at: datetime,
+        ends_at: datetime,
+        venue_name: str | None,
+        location: str | None,
+        equipment: list[str],
+        equipment_needs: str | None,
+    ) -> None:
+        # US14 AC 4: the staff member hears the event, where it is and what it needs (D82).
+        logger.info(
+            "tech support assigned: %s to %r (%s) %s to %s at %s, %s; equipment: %s; needs: %s",
+            email,
+            event_name,
+            event_id,
+            starts_at.isoformat(),
+            ends_at.isoformat(),
+            venue_name or "no venue",
+            location or "no location",
+            ", ".join(equipment) or "none",
+            equipment_needs or "none",
         )
 
 

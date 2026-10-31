@@ -259,13 +259,19 @@ ROUTES = [
     ("PATCH", "/api/v1/venues/{venue_id}", {VENUE_STAFF}),
     ("POST", "/api/v1/venues/{venue_id}/deactivate", {VENUE_STAFF}),
     ("POST", "/api/v1/venues/{venue_id}/reactivate", {VENUE_STAFF}),
+    # US21 (SCRUM-122): the venue calendar, D56.
+    ("GET", "/api/v1/venues/{venue_id}/calendar", {COORDINATOR, LEAD, VENUE_STAFF}),
     ("POST", "/api/v1/venue-bookings", {COORDINATOR}),
     ("POST", "/api/v1/venue-bookings/{booking_id}/withdraw", {COORDINATOR}),
     ("GET", "/api/v1/venue-bookings/pending", {VENUE_STAFF}),
     ("GET", "/api/v1/venue-bookings/{booking_id}/evaluation", {VENUE_STAFF}),
     ("POST", "/api/v1/venue-bookings/{booking_id}/approve", {VENUE_STAFF}),
     ("POST", "/api/v1/venue-bookings/{booking_id}/reject", {VENUE_STAFF}),
-    ("GET", "/api/v1/events/{event_id}/venue-bookings", {COORDINATOR, VENUE_STAFF}),
+    # US24 (SCRUM-128): the event's coordinator moves the primary venue (D68); Venue staff record
+    # preparation (D73); the event's Organiser reads its venues (D71).
+    ("POST", "/api/v1/venue-bookings/{booking_id}/make-primary", {COORDINATOR}),
+    ("POST", "/api/v1/venue-bookings/{booking_id}/preparation", {VENUE_STAFF}),
+    ("GET", "/api/v1/events/{event_id}/venue-bookings", {ORGANISER, COORDINATOR, VENUE_STAFF}),
     ("GET", "/api/v1/me/equipment-events", {COORDINATOR}),
     ("GET", "/api/v1/events/{event_id}/equipment-lines", {COORDINATOR}),
     ("POST", "/api/v1/events/{event_id}/equipment-lines", {COORDINATOR}),
@@ -273,6 +279,13 @@ ROUTES = [
     ("DELETE", "/api/v1/equipment-lines/{line_id}", {COORDINATOR}),
     ("GET", "/api/v1/equipment-lines", {TECH_SUPPORT}),
     ("POST", "/api/v1/equipment-lines/{line_id}/review", {TECH_SUPPORT}),
+    ("POST", "/api/v1/equipment-lines/{line_id}/availability-check", {TECH_SUPPORT}),  # US5 (SCRUM-125)
+    ("POST", "/api/v1/equipment-lines/{line_id}/reservation", {TECH_SUPPORT}),  # US27 (SCRUM-131)
+    ("DELETE", "/api/v1/equipment-lines/{line_id}/reservation", {TECH_SUPPORT}),  # US27 (SCRUM-131)
+    # US14 (SCRUM-134): the event's coordinator lists, assigns and unassigns Tech support staff.
+    ("GET", "/api/v1/events/{event_id}/tech-staff", {COORDINATOR}),
+    ("POST", "/api/v1/events/{event_id}/tech-staff", {COORDINATOR}),
+    ("DELETE", "/api/v1/events/{event_id}/tech-staff/{staff_user_id}", {COORDINATOR}),
     ("GET", "/api/v1/events/{event_id}/registrations", {ORGANISER, COORDINATOR}),
     ("GET", "/api/v1/me/managed-events", {ORGANISER, COORDINATOR}),
     # SCRUM-15 (US12): the event's assigned coordinator opens, edits and reads the history of an event.
@@ -677,4 +690,6 @@ def test_tc_us16b_29_the_seed_still_runs_and_there_is_one_head(db: Session) -> N
     config = Config(str(BACKEND_DIR / "alembic.ini"))
     config.set_main_option("script_location", str(BACKEND_DIR / "migrations"))
     script = ScriptDirectory.from_config(config)
-    assert script.get_heads() == [REVISION]
+    # One head with D51's checks in it; later migrations (US5, SCRUM-124) chain after it.
+    assert len(script.get_heads()) == 1
+    assert REVISION in {revision.revision for revision in script.walk_revisions()}

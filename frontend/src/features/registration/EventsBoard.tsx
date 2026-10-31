@@ -40,9 +40,8 @@ export function EventsBoard({ registry, search }: EventsBoardProps) {
       if (tab === "full" && !event.isFull) return false;
 
       if (!query) return true;
-      return (
-        event.title.toLowerCase().includes(query) || (event.venue ?? "").toLowerCase().includes(query)
-      );
+      // The title, the venue's name and, since US24, where it is (TC-US24-19).
+      return [event.title, event.venue, event.venueLocation].some((text) => (text ?? "").toLowerCase().includes(query));
     });
   }, [events, search, tab]);
 

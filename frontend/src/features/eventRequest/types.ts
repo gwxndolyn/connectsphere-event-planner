@@ -44,6 +44,9 @@ export interface EventRequest extends EventRequestWrite {
   decided_at: string | null;
   decided_by: AssignedCoordinator | null;
   rejection_reason: string | null;
+  // US24 (SCRUM-129, D65): the event's own dates once it's planned; a venue's window falls within them.
+  start_at?: string | null;
+  end_at?: string | null;
 }
 
 export interface QueuePerson {

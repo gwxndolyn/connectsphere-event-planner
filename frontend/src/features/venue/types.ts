@@ -1,3 +1,5 @@
+import type { PreparationStatus, TimeWindow, VenueBookingStatus } from "./bookingTypes";
+
 // Shapes from backend/app/venue/schemas.py (US20, SCRUM-87). Times are "HH:MM:SS" from the API.
 export interface Venue {
   id: string;
@@ -69,4 +71,52 @@ export interface VenueSearchCriteria {
 export interface VenueSearchResponse {
   venues: Venue[];
   criteria: VenueSearchCriteria;
+}
+
+// US21 (SCRUM-88): GET /api/v1/venues/{id}/calendar (VenueCalendarOut in backend/app/venue/schemas.py).
+export interface CalendarVenue {
+  id: string;
+  name: string;
+  is_active: boolean;
+  opens_at: string;
+  closes_at: string;
+  setup_minutes: number;
+  turnaround_minutes: number;
+}
+
+export interface CalendarEvent {
+  // Null until the event is named; the request reference stands in (D58).
+  name: string | null;
+  request_reference: string | null;
+  status: string;
+}
+
+export interface CalendarBooking {
+  id: string;
+  // Only for Venue staff, Leads and the event's coordinator; null for anyone else (D58).
+  reference: string | null;
+  status: VenueBookingStatus;
+  event: CalendarEvent;
+  // US24 (D73, D78): how far Venue staff are with getting it ready; they set it in the dialog.
+  preparation_status: PreparationStatus;
+}
+
+export interface CalendarItem {
+  // "hold" is reserved until US25 (SCRUM-93) adds holds; none are returned yet (D59).
+  kind: "booking" | "block" | "hold";
+  label: string;
+  starts_at: string;
+  ends_at: string;
+  // With setup and turnaround for a booking (US13); a block's own times.
+  occupied: TimeWindow;
+  booking: CalendarBooking | null;
+  note: string | null;
+}
+
+export interface VenueCalendar {
+  venue: CalendarVenue;
+  // The Singapore days asked for, both included (D61).
+  from: string;
+  to: string;
+  items: CalendarItem[];
 }

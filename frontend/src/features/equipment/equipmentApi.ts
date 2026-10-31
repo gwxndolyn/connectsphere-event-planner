@@ -1,5 +1,6 @@
 import { ApiError, apiClient } from "../../api/client";
 import type {
+  EquipmentAvailability,
   EquipmentEvent,
   EquipmentLine,
   EquipmentLineWrite,
@@ -37,9 +38,30 @@ export const equipmentApi = {
     return (await apiClient.get<{ lines: EquipmentLine[] }>("/api/v1/equipment-lines?status=pending")).lines;
   },
 
+  // US27 (SCRUM-131): Tech support's approved lines, to reserve.
+  async approved(): Promise<EquipmentLine[]> {
+    return (await apiClient.get<{ lines: EquipmentLine[] }>("/api/v1/equipment-lines?status=approved")).lines;
+  },
+
+  // Always the line's full quantity (AC 6), so there's nothing to send.
+  reserve: (lineId: string) => apiClient.post<EquipmentLine>(`/api/v1/equipment-lines/${lineId}/reservation`, {}),
+
+  async release(lineId: string): Promise<void> {
+    await apiClient.delete(`/api/v1/equipment-lines/${lineId}/reservation`);
+  },
+
   review: (lineId: string, body: EquipmentReviewWrite) =>
     apiClient.post<EquipmentLine>(`/api/v1/equipment-lines/${lineId}/review`, body),
+
+  // US5 (SCRUM-125): Tech support only; the outcome is recorded on the line (D64).
+  checkAvailability: (lineId: string) =>
+    apiClient.post<EquipmentAvailability>(`/api/v1/equipment-lines/${lineId}/availability-check`, {}),
 };
+
+/** "Sufficient" or "Short by N" (US5 AC 4). */
+export function availabilityOutcome(check: { sufficient: boolean; shortfall: number }): string {
+  return check.sufficient ? "Sufficient" : `Short by ${check.shortfall}`;
+}
 
 /**
  * The add or edit body. A whole number is sent as one, 0 and negatives included, and anything else as
@@ -85,6 +107,17 @@ export function equipmentErrorMessage(error: unknown): string {
       return `Equipment can only be requested for events in planning or confirmed${status ? `; this one is ${status}` : ""}.`;
     case "NOT_FOUND":
       return "This event or equipment line is no longer available. Reload and try again.";
+    // US27 (SCRUM-131, deviation 54).
+    case "INSUFFICIENT_EQUIPMENT": {
+      const { available, requested, shortfall } = error.body;
+      return `Short by ${String(shortfall)}: can't reserve. ${String(available)} available for ${String(requested)} requested.`;
+    }
+    case "LINE_NOT_APPROVED":
+      return "Only an approved line can be reserved.";
+    case "ALREADY_RESERVED":
+      return "This line is already reserved. Reload to see it.";
+    case "NOT_RESERVED":
+      return "This line isn't reserved any more. Reload to see it.";
     case "FORBIDDEN":
       return "Equipment requests are for Coordinators and Tech support. Switch Acting as to one of them.";
     case "UNAUTHENTICATED":

@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { ApiError, apiClient } from "../../api/client";
+import { EventVenuesOverview } from "../venue/EventVenuesOverview";
 import { ClarificationThreadView } from "./ClarificationThreadView";
 import { DecisionOutcome } from "./RequestDecision";
 import { sectionLabel, statusLabel } from "./clarificationSections";
@@ -15,6 +16,9 @@ import "./eventRequests.css";
 import "./clarifications.css";
 
 type Screen = "list" | "form" | "confirmation" | "respond" | "responded";
+
+// US24 (D71): the Organiser reads an event's venues once its request is approved.
+const VENUES_VISIBLE = ["approved", "planning", "confirmed", "cancelled", "completed"];
 type RequestField = keyof EventRequestWrite;
 
 const FIELD_LABELS: Record<RequestField, string> = {
@@ -582,6 +586,7 @@ export function EventRequestsPage() {
             <code>{activeRequest.request_reference}</code>
           </div>
           <DecisionOutcome request={activeRequest} />
+          {VENUES_VISIBLE.includes(activeRequest.status) && <EventVenuesOverview event={activeRequest} />}
           <button className="request-button request-button--primary" type="button" onClick={backToList}>
             Back to my requests
           </button>

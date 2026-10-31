@@ -52,10 +52,12 @@ interface Request {
 async function fillRequest(page: Page, { venue, day, start, end, attendees, layout }: Request) {
   await page.getByRole("region", { name: "Venue bookings" }).getByRole("button", { name: "Request venue" }).click();
   await page.getByLabel("Venue", { exact: true }).selectOption({ label: venue });
+  // US24 (D66): every venue request says what the venue is for.
+  await page.getByLabel("Purpose").fill("Main hall");
   await page.getByLabel("Date").fill(day);
   await page.getByLabel("Start time").fill(start);
   await page.getByLabel("End time").fill(end);
-  if (attendees) await page.getByLabel("Expected attendance").fill(attendees);
+  if (attendees) await page.getByLabel("Allocated attendees").fill(attendees);
   await page.getByLabel("Layout", { exact: true }).selectOption(layout);
 }
 
@@ -106,7 +108,7 @@ test("TC-US22-20: attendance over capacity is refused on the field; a missing la
   // SMU Connexion Studio 3-2 seats 30 and offers boardroom, U-shape and classroom layouts.
   await fillRequest(page, { venue: "SMU Connexion Studio 3-2 (capacity 30)", day, start: "13:00", end: "15:00", attendees: "31", layout: "boardroom" });
   await page.getByRole("button", { name: "Send request" }).click();
-  const attendance = page.getByLabel("Expected attendance");
+  const attendance = page.getByLabel("Allocated attendees");
   await expect(attendance).toHaveAttribute("aria-invalid", "true");
   await expect(attendance).toHaveAccessibleDescription(/capacity of 30/);
 

@@ -51,10 +51,16 @@ test("the header search matches titles and venues, and says when nothing matches
   await expect(card(page, TECH_TALK)).toBeVisible();
   const search = page.getByRole("searchbox", { name: "Search campus events" });
 
-  // Bootcamp's venue is SMU Connexion; its title doesn't say so.
+  // Bootcamp's primary venue is SMU Connexion Studio 3-2 (US24, D70); its title doesn't say so.
   await search.fill("connexion");
   await expect(card(page, BOOTCAMP)).toBeVisible();
   await expect(card(page, TECH_TALK)).toHaveCount(0);
+
+  // TC-US24-19: the primary venue's location matches too. Tech Talk's is the School of Computing
+  // and Information Systems; nothing on the board says "computing" otherwise.
+  await search.fill("computing");
+  await expect(card(page, TECH_TALK)).toBeVisible();
+  await expect(card(page, BOOTCAMP)).toHaveCount(0);
 
   await search.fill("supabase");
   await expect(card(page, ONLINE)).toBeVisible();

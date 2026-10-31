@@ -33,6 +33,10 @@ VENUE_STAFF_ROLES = (UserRole.VENUE_STAFF,)
 # DECISION-PENDING: D25 — US2 is the Event Coordinator's story. Coordinators search, and so do
 # Venue Staff. Organisers and attendees get 403.
 VENUE_SEARCH_ROLES = (UserRole.COORDINATOR, UserRole.VENUE_STAFF)
+# DECISION-PENDING: D56 — US21 AC 5 keeps the calendar from Organisers and Attendees; the story's
+# Coordinators and Venue Staff, and the Lead who oversees coordinators, may open it. Tech Support
+# and the Safety Officer get 403 until a story needs them.
+CALENDAR_ROLES = (UserRole.COORDINATOR, UserRole.COORDINATOR_LEAD, UserRole.VENUE_STAFF)
 SEARCH_REQUIRED_FIELDS = ("date", "start_time", "end_time", "attendees")
 # Every venue and requested time is Singapore wall-clock (D9, TC-X-01).
 VENUE_TIMEZONE = ZoneInfo("Asia/Singapore")
@@ -307,13 +311,21 @@ class VenueService:
         return [VenueOut.model_validate(venue) for venue in venues]
 
     def get(self, db: Session, venue_id: uuid.UUID, reader: User) -> VenueOut:
+        return VenueOut.model_validate(self.visible(db, venue_id, reader))
+
+    def visible(self, db: Session, venue_id: uuid.UUID, reader: User) -> Venue:
+        """The venue if the reader may see it, else 404: an inactive one only to Venue Staff, a
+        Coordinator Lead (who oversees every coordinator's events) and a coordinator whose event is
+        booked there. Also the calendar's rule (US21, D61). The venue list keeps inactive ones to staff."""
         venue = db.get(Venue, venue_id)
         visible = venue is not None and (
-            venue.is_active or reader.holds(*VENUE_STAFF_ROLES) or _has_live_booking_by(db, venue.id, reader)
+            venue.is_active
+            or reader.holds(*VENUE_STAFF_ROLES, UserRole.COORDINATOR_LEAD)
+            or _has_live_booking_by(db, venue.id, reader)
         )
         if not visible:
             raise DomainError(404, "NOT_FOUND")
-        return VenueOut.model_validate(venue)
+        return venue
 
     def create(self, db: Session, body: VenueWrite) -> VenueOut:
         values = body.model_dump()

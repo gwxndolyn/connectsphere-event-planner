@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
@@ -50,6 +50,7 @@ describe("venue booking (US22)", () => {
     expect(await bookings().findByText("No venue requested for this event yet.")).toBeInTheDocument();
     await user.click(bookings().getByRole("button", { name: "Request venue" }));
     await user.selectOptions(await screen.findByLabelText("Venue"), venue.id);
+    await user.type(screen.getByLabelText("Purpose"), "Main hall");
     await user.selectOptions(screen.getByLabelText("Layout"), "theatre");
     await user.clear(screen.getByLabelText("Start time"));
     await user.type(screen.getByLabelText("Start time"), "10:00");
@@ -68,7 +69,26 @@ describe("venue booking (US22)", () => {
       ends_at: "2026-11-20T12:00:00+08:00",
       expected_attendees: 40,
       room_layout: "theatre",
+      purpose: "Main hall",
     });
+  });
+
+  it("asks for the venue's purpose, which the API requires (US24, D66)", async () => {
+    seedRequest({ status: "approved", name: "Venue Booking Demo", expected_attendees: 40, ...MINE });
+    const venue = seedVenue({ name: "Hall A", room_layouts: ["theatre"] });
+    const user = userEvent.setup();
+    await openRequest(user, "Venue Booking Demo");
+
+    await user.click(await bookings().findByRole("button", { name: "Request venue" }));
+    await user.selectOptions(await screen.findByLabelText("Venue"), venue.id);
+    await user.selectOptions(screen.getByLabelText("Layout"), "theatre");
+    await user.type(screen.getByLabelText("Purpose"), "   ");
+    await user.click(screen.getByRole("button", { name: "Send request" }));
+
+    const purpose = await screen.findByLabelText("Purpose");
+    await waitFor(() => expect(purpose).toHaveAttribute("aria-invalid", "true"));
+    expect(purpose).toHaveAccessibleDescription("Required.");
+    expect(callsTo("POST", "/api/v1/venue-bookings")[0].body).not.toHaveProperty("purpose");
   });
 
   it("shows the API's capacity error on attendance (TC-US22-20)", async () => {
@@ -92,10 +112,11 @@ describe("venue booking (US22)", () => {
 
     await user.click(await bookings().findByRole("button", { name: "Request venue" }));
     await user.selectOptions(await screen.findByLabelText("Venue"), venue.id);
+    await user.type(screen.getByLabelText("Purpose"), "Main hall");
     await user.selectOptions(screen.getByLabelText("Layout"), "theatre");
     await user.click(screen.getByRole("button", { name: "Send request" }));
 
-    expect(await screen.findByLabelText("Expected attendance")).toHaveAccessibleDescription(
+    expect(await screen.findByLabelText("Allocated attendees")).toHaveAccessibleDescription(
       "Expected attendance is more than this venue's capacity of 12.",
     );
   });
@@ -261,6 +282,7 @@ describe("venue buffers (US13, SCRUM-116)", () => {
 
     await user.click(await bookings().findByRole("button", { name: "Request venue" }));
     await user.selectOptions(await screen.findByLabelText("Venue"), venue.id);
+    await user.type(screen.getByLabelText("Purpose"), "Main hall");
     await user.selectOptions(screen.getByLabelText("Layout"), "theatre");
     await user.clear(screen.getByLabelText("Start time"));
     await user.type(screen.getByLabelText("Start time"), "10:00");

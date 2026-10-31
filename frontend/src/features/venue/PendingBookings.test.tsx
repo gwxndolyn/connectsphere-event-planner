@@ -31,6 +31,9 @@ function booking(overrides: Partial<VenueBooking> = {}): VenueBooking {
     decided_by_user_id: null,
     rejection_reason: null,
     alternative_suggestion: null,
+    purpose: "Main venue",
+    is_primary: true,
+    preparation_status: "not_started",
     ...overrides,
   };
 }
