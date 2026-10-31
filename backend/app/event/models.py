@@ -4,11 +4,13 @@ from datetime import date, datetime, time
 
 from sqlalchemy import (
     ARRAY,
+    BigInteger,
     Boolean,
     CheckConstraint,
     Date,
     DateTime,
     ForeignKey,
+    Identity,
     Integer,
     Text,
     Time,
@@ -40,6 +42,15 @@ class EventStatus(enum.StrEnum):
 class AssignmentKind(enum.StrEnum):
     ASSIGNMENT = "assignment"
     REASSIGNMENT = "reassignment"  # SCRUM-83 (US10e); always carries a reason
+
+
+class ChangeRequestStatus(enum.StrEnum):
+    """US12 (SCRUM-15): a critical-field edit waits for approval. Only `pending_approval` is written so far;
+    who approves (and so the other two) is D58."""
+
+    PENDING_APPROVAL = "pending_approval"
+    APPROVED = "approved"
+    REJECTED = "rejected"
 
 
 class DeliveryMode(enum.StrEnum):
@@ -206,3 +217,49 @@ class CoordinatorAssignment(Base):
 
     assigned_by: Mapped["User"] = relationship(foreign_keys=[assigned_by_user_id])
     coordinator: Mapped["User"] = relationship(foreign_keys=[coordinator_id])
+
+
+class EventChangeRequest(Base):
+    """A coordinator's edit to an event's critical fields, held for approval (US12 AC 3, SCRUM-15). The event
+    keeps its values meanwhile. `changes` lists each changed field with its old and new value, in the
+    API's JSON form: `[{"field": ..., "old_value": ..., "new_value": ...}]`."""
+
+    __tablename__ = "event_change_requests"
+    __table_args__ = (
+        CheckConstraint(
+            "jsonb_typeof(changes) = 'array' AND jsonb_array_length(changes) >= 1",
+            name="event_change_requests_changes_not_empty",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, server_default=text("gen_random_uuid()"))
+    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id"), index=True)
+    requested_by_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    status: Mapped[ChangeRequestStatus] = mapped_column(
+        pg_enum(ChangeRequestStatus, "change_request_status"), server_default=ChangeRequestStatus.PENDING_APPROVAL.value
+    )
+    changes: Mapped[list[dict]] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    requested_by: Mapped["User"] = relationship(foreign_keys=[requested_by_user_id])
+
+
+class EventAuditEntry(Base):
+    """One field of one successful edit (US12 AC 5): who, which field, its previous and new value, when.
+    A critical edit's entries point at its change request, because the event itself didn't change yet.
+    Append-only. `seq` orders entries written at the same instant, newest first in History."""
+
+    __tablename__ = "event_audit_entries"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, server_default=text("gen_random_uuid()"))
+    seq: Mapped[int] = mapped_column(BigInteger, Identity(always=True))
+    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id"), index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    field_name: Mapped[str] = mapped_column(Text)
+    previous_value: Mapped[object | None] = mapped_column(JSONB(none_as_null=True))
+    new_value: Mapped[object | None] = mapped_column(JSONB(none_as_null=True))
+    change_request_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("event_change_requests.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    user: Mapped["User"] = relationship(foreign_keys=[user_id])
+    change_request: Mapped["EventChangeRequest | None"] = relationship(foreign_keys=[change_request_id])

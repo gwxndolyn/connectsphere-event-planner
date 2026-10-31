@@ -2,6 +2,7 @@ import { http, HttpResponse, type JsonBodyType } from "msw";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll } from "vitest";
 import type { EventRegistrations } from "../features/eventRegistrations/types";
+import type { AuditEntry, EventDetails } from "../features/eventEdit/types";
 import type { AssignmentRecord, Clarification, EventRequest, EventRequestWrite } from "../features/eventRequest/types";
 import type { BookingEvaluation, VenueBooking } from "../features/venue/bookingTypes";
 import type { Venue } from "../features/venue/types";
@@ -167,6 +168,9 @@ interface Db {
   reservationShortfalls: Record<string, FakeReservationShortfall>;
   // US28: the events each managing role sees, and what each event's registrations call returns.
   managedEvents: Record<"organiser" | "coordinator", EventRegistrations[]>;
+  // US12 (SCRUM-15): the coordinator's events and each one's History, newest first.
+  coordinatedEvents: EventDetails[];
+  history: Record<string, AuditEntry[]>;
   calls: RecordedCall[];
   nextId: number;
   nextReference: number;
@@ -184,6 +188,8 @@ function emptyDb(): Db {
     otherCoordinators: [],
     clarifications: [],
     managedEvents: { organiser: [], coordinator: [] },
+    coordinatedEvents: [],
+    history: {},
     bookings: [],
     blocks: [],
     evaluations: {},
@@ -491,6 +497,35 @@ export function seedManagedEvent(
   };
   roles.forEach((role) => db.managedEvents[role].push(managed));
   return managed;
+}
+
+/** A planning event the coordinator can edit (US12); pass `status` for one that can't be. */
+export function seedCoordinatedEvent(overrides: Partial<EventDetails> = {}): EventDetails {
+  const event: EventDetails = {
+    id: newId("event"),
+    name: "Event Planning Demo",
+    status: "planning",
+    editable: (overrides.status ?? "planning") === "planning",
+    start_at: "2026-10-21T10:00:00+08:00",
+    end_at: "2026-10-21T12:00:00+08:00",
+    request_reference: null,
+    event_category: "Workshop",
+    purpose: "Seeded for editing an event in planning (US12)",
+    room_layout_preference: "Classroom",
+    accessibility_needs: null,
+    equipment_needs: null,
+    join_link: null,
+    capacity: 80,
+    expected_attendees: 60,
+    delivery_mode: "in_person",
+    venue_name: "SMU SCIS Building",
+    room_number: "Seminar Room 2-1",
+    pending_change_requests: [],
+    ...overrides,
+  };
+  db.coordinatedEvents.push(event);
+  db.history[event.id] = [];
+  return event;
 }
 
 /** Calls the screens made, optionally narrowed by method and path. */
@@ -857,6 +892,76 @@ const handlers = [
         accessibility: url.searchParams.getAll("accessibility"),
       },
     });
+  }),
+
+  // US12 (SCRUM-15), identified by X-User-Id. Which fields are critical, the validation and the audit
+  // log are the API's (backend/tests/event/test_event_edits.py); this saves non-critical fields, holds an
+  // edit with a critical one, and logs each changed field, so a flow sees its own writes. A test queues a
+  // refusal with server.use(...).
+  route("get", "/api/v1/me/coordinated-events", ({ request }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "coordinator") return error(403, "FORBIDDEN");
+    return HttpResponse.json({
+      events: db.coordinatedEvents.map(({ id, name, status, editable, start_at, end_at }) => ({ id, name, status, editable, start_at, end_at })),
+    });
+  }),
+
+  route("get", "/api/v1/events/:eventId", ({ request, params }) => {
+    if (userRole(request) !== "coordinator") return error(403, "FORBIDDEN");
+    const event = db.coordinatedEvents.find((e) => e.id === params.eventId);
+    return event ? HttpResponse.json(event) : error(404, "NOT_FOUND");
+  }),
+
+  route("patch", "/api/v1/events/:eventId", ({ request, params, body }) => {
+    if (userRole(request) !== "coordinator") return error(403, "FORBIDDEN");
+    const event = db.coordinatedEvents.find((e) => e.id === params.eventId);
+    if (!event) return error(404, "NOT_FOUND");
+    if (!event.editable) return error(409, "EVENT_NOT_EDITABLE", { status: event.status });
+    const values = body as Record<string, unknown>;
+    const record = event as unknown as Record<string, unknown>;
+    const changes = Object.entries(values)
+      .filter(([field, value]) => record[field] !== value)
+      .map(([field, value]) => ({ field, old_value: record[field] ?? null, new_value: value }));
+    const critical = changes.filter((c) => ["start_at", "end_at", "capacity", "expected_attendees", "delivery_mode"].includes(c.field));
+    const now = new Date(Date.UTC(2026, 9, 1, 1, db.nextId)).toISOString();
+    const requestId = critical.length ? newId("change-request") : null;
+    if (requestId) {
+      event.pending_change_requests = [
+        { id: requestId, status: "pending_approval", changes, requested_by: { id: COORDINATOR_ID, name: "Casey Tan" }, created_at: now },
+        ...event.pending_change_requests,
+      ];
+    } else {
+      changes.forEach((c) => (record[c.field] = c.new_value));
+    }
+    const logged = changes.map((c) => ({
+      id: newId("audit"),
+      field: c.field,
+      previous_value: c.old_value,
+      new_value: c.new_value,
+      user: { id: COORDINATOR_ID, name: "Casey Tan" },
+      created_at: now,
+      change_request_id: requestId,
+      change_request_status: requestId ? ("pending_approval" as const) : null,
+    }));
+    db.history[event.id] = [...logged.reverse(), ...db.history[event.id]];
+    return HttpResponse.json(
+      {
+        outcome: requestId ? "pending_approval" : "saved",
+        message: requestId
+          ? "Your change is awaiting approval. The event keeps its current details until then."
+          : changes.length ? "Your changes are saved." : "Nothing changed, so nothing was saved.",
+        event,
+        change_request: requestId ? event.pending_change_requests[0] : null,
+      } as unknown as JsonBodyType,
+      { status: requestId ? 202 : 200 },
+    );
+  }),
+
+  route("get", "/api/v1/events/:eventId/history", ({ request, params }) => {
+    if (userRole(request) !== "coordinator") return error(403, "FORBIDDEN");
+    const entries = db.history[params.eventId];
+    return entries ? HttpResponse.json({ entries } as unknown as JsonBodyType) : error(404, "NOT_FOUND");
   }),
 
   // US21 (SCRUM-88) venue calendar, by the rules backend/tests/venue/test_calendar.py proves for

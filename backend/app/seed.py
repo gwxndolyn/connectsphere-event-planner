@@ -30,7 +30,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import SessionLocal
 from app.equipment.models import EquipmentRequestLine, EquipmentReservation, EquipmentType, TechStaffAssignment
-from app.event.models import DeliveryMode, Event, EventStatus
+from app.event.models import DeliveryMode, Event, EventAuditEntry, EventChangeRequest, EventStatus
 from app.registration.models import ACTIVE_STATUSES, Registration, RegistrationStatus
 from app.user.models import Attendee, User, UserRole
 from app.user.supabase_admin import SupabaseAdmin, SupabaseAdminError
@@ -508,6 +508,18 @@ EQUIPMENT_EVENT = EventSpec(
     venue_slug="scis-seminar-2-1",
 )
 
+# US12 (SCRUM-15): the dev coordinator edits it (Events, TC-US12-20 to 23). Planning is the only status that
+# takes edits, and no other seeded event is in it. Registration is off, so it stays off the events board.
+PLANNING_EVENT = EventSpec(
+    slug="planning-edit-demo",
+    name="Event Planning Demo",
+    note="planning, assigned to the seeded coordinator, registration off (US12)",
+    status=EventStatus.PLANNING,
+    registration_enabled=False,
+    starts_in=timedelta(days=21),
+    capacity=80,
+)
+
 VENUE_BLOCKS = [
     VenueBlockSpec(
         slug="connexion-maintenance",
@@ -736,6 +748,24 @@ def upsert_equipment_event(
     # And its Tech support staff (US14, SCRUM-133), so E2E reruns (TC-US14-17) start with nobody assigned.
     db.execute(delete(TechStaffAssignment).where(TechStaffAssignment.event_id == event.id))
     db.execute(delete(EquipmentRequestLine).where(EquipmentRequestLine.event_id == event.id))
+    return event
+
+
+def upsert_planning_event(
+    db: Session, spec: EventSpec, organiser: User, coordinator: User, now: datetime
+) -> Event:
+    """The planning event the Events screen edits, assigned to `coordinator`. A reseed puts its details back
+    and removes its edit history and change requests, so E2E reruns (TC-US12-22, 23) start from the same event."""
+    event = upsert_event(db, spec, now, organiser)
+    event.coordinator_id = coordinator.id
+    event.event_category = "Workshop"
+    event.purpose = "Seeded for editing an event in planning (US12)"
+    event.expected_attendees = 60
+    event.room_layout_preference = "Classroom"
+    event.accessibility_needs = None
+    event.equipment_needs = None
+    db.execute(delete(EventAuditEntry).where(EventAuditEntry.event_id == event.id))
+    db.execute(delete(EventChangeRequest).where(EventChangeRequest.event_id == event.id))
     return event
 
 
@@ -1014,6 +1044,7 @@ def seed(db: Session, now: datetime | None = None) -> None:
     db.flush()
     upsert_primary_booking(db, EQUIPMENT_EVENT, equipment_event, coordinator, now)
     upsert_multi_venue_event(db, MULTI_VENUE_EVENT, organiser, coordinator, now)
+    upsert_planning_event(db, PLANNING_EVENT, organiser, coordinator, now)
     for name, stock in EQUIPMENT_STOCK.items():
         upsert_equipment_type(db, name, stock)
     db.flush()
