@@ -324,8 +324,20 @@ async def test_tc_us5_13_editing_the_quantity_or_type_clears_the_check(
         {"availability_checked_at": NOW, "availability_sufficient": True, "availability_shortfall": 0},
         {"availability_sufficient": True, "availability_shortfall": 2, "with_checker": True},
         {"availability_sufficient": False, "availability_shortfall": 0, "with_checker": True},
+        # A NULL makes a CHECK pass unless it's ruled out explicitly (PR #94 review).
+        {"with_checker": True},
+        {"availability_sufficient": True, "with_checker": True},
+        {"availability_shortfall": 2, "with_checker": True},
     ],
-    ids=["time only", "no checker", "sufficient but short", "short by nothing"],
+    ids=[
+        "time only",
+        "no checker",
+        "sufficient but short",
+        "short by nothing",
+        "checker but no outcome",
+        "sufficient without a shortfall",
+        "shortfall without sufficient",
+    ],
 )
 def test_tc_us5_14_a_recorded_check_is_whole_and_consistent(db: Session, event: Event, fields: dict) -> None:
     line = make_line(db, event, make_type(db), quantity=1)
