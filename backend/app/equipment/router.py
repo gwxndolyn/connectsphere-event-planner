@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.clock import get_now
 from app.core.database import get_db
+from app.equipment.models import EquipmentLineStatus
 from app.equipment.schemas import (
     EquipmentAvailabilityOut,
     EquipmentEventsOut,
@@ -15,6 +16,7 @@ from app.equipment.schemas import (
     EquipmentLineWrite,
     EquipmentReviewWrite,
     EquipmentTypesOut,
+    ReservationWrite,
 )
 from app.equipment.service import equipment_service
 from app.notification.service import Notifier, get_notifier
@@ -59,10 +61,10 @@ def add_line(
 
 @router.get("", response_model=EquipmentLinesOut)
 def pending_lines(
-    _: TechSupport, db: Session = Depends(get_db), status: Literal["pending"] = "pending"
+    _: TechSupport, db: Session = Depends(get_db), status: Literal["pending", "approved"] = "pending"
 ) -> EquipmentLinesOut:
-    # Only the pending queue for now (AC 3); `status` is in the URL so other filters can follow.
-    return EquipmentLinesOut(lines=equipment_service.pending(db))
+    # Pending lines to review (US26 AC 3), or approved lines to reserve (US27, SCRUM-131).
+    return EquipmentLinesOut(lines=equipment_service.queue(db, EquipmentLineStatus(status)))
 
 
 @router.post("/{line_id}/availability-check", response_model=EquipmentAvailabilityOut)
@@ -72,6 +74,20 @@ def check_line_availability(
     """US5 (SCRUM-125): is the line's type and quantity available for its event's times? The outcome is
     recorded on the line (D64); nothing is reserved."""
     return equipment_service.check_availability(db, checker, line_id, now)
+
+
+@router.post("/{line_id}/reservation", status_code=201, response_model=EquipmentLineOut)
+def reserve_line(
+    line_id: uuid.UUID, reserver: TechSupport, db: Session = Depends(get_db), body: ReservationWrite | None = None
+) -> EquipmentLineOut:
+    """US27 (SCRUM-131): reserve the approved line's full quantity (AC 1, 6); no fields to send."""
+    return equipment_service.reserve(db, reserver, line_id)
+
+
+@router.delete("/{line_id}/reservation", status_code=204, response_class=Response)
+def release_line(line_id: uuid.UUID, _: TechSupport, db: Session = Depends(get_db)) -> None:
+    """US27 AC 5: release the line's reservation (D74: it's deleted)."""
+    equipment_service.release(db, line_id)
 
 
 @router.patch("/{line_id}", response_model=EquipmentLineOut)

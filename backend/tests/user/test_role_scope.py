@@ -279,6 +279,8 @@ ROUTES = [
     ("GET", "/api/v1/equipment-lines", {TECH_SUPPORT}),
     ("POST", "/api/v1/equipment-lines/{line_id}/review", {TECH_SUPPORT}),
     ("POST", "/api/v1/equipment-lines/{line_id}/availability-check", {TECH_SUPPORT}),  # US5 (SCRUM-125)
+    ("POST", "/api/v1/equipment-lines/{line_id}/reservation", {TECH_SUPPORT}),  # US27 (SCRUM-131)
+    ("DELETE", "/api/v1/equipment-lines/{line_id}/reservation", {TECH_SUPPORT}),  # US27 (SCRUM-131)
     ("GET", "/api/v1/events/{event_id}/registrations", {ORGANISER, COORDINATOR}),
     ("GET", "/api/v1/me/managed-events", {ORGANISER, COORDINATOR}),
 ]

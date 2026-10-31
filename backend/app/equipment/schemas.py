@@ -76,6 +76,23 @@ class AvailabilityCheckOut(BaseModel):
     checked_at: datetime
 
 
+class ReservationOut(BaseModel):
+    """A line's reservation (US27, SCRUM-131, AC 4): its full quantity, who reserved it and when."""
+
+    quantity: int
+    reserved_by_user_id: uuid.UUID
+    reserved_at: datetime
+    # D75: nothing cancels an event yet (US9), so a cancelled event's reservation counts as released.
+    released_because_event_cancelled: bool
+
+
+class ReservationWrite(BaseModel):
+    """Reserving takes no fields: always the line's full approved quantity (US27 AC 6), so a quantity
+    sent is a 422."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class EquipmentLineOut(BaseModel):
     id: uuid.UUID
     event: LineEventOut
@@ -89,6 +106,8 @@ class EquipmentLineOut(BaseModel):
     reviewed_at: datetime | None
     # US5 (SCRUM-125): null until Tech Support checks it, and again after its quantity or type is edited.
     availability_check: AvailabilityCheckOut | None
+    # US27 (SCRUM-131): the line's reservation, or null.
+    reservation: ReservationOut | None
     created_at: datetime
     updated_at: datetime
 
