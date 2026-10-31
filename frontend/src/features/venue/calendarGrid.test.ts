@@ -38,6 +38,7 @@ function booking(startsAt: string, endsAt: string, occupiedStartsAt: string, occ
       reference: null,
       status: "approved",
       event: { name: "Design Review", request_reference: null, status: "approved" },
+      preparation_status: "not_started",
     },
     note: null,
   };

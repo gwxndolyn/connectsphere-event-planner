@@ -668,6 +668,13 @@ function cleanNotes(value: unknown): string | null {
 }
 
 // US24 (SCRUM-128): a purpose too (D66).
+// US24 (D71): the Organiser reads an event's venues once its request is approved.
+const ORGANISER_VISIBLE = ["approved", "planning", "confirmed", "cancelled", "completed"];
+
+function isLive(booking: VenueBooking): boolean {
+  return booking.status === "requested" || booking.status === "approved";
+}
+
 const BOOKING_REQUIRED = ["event_id", "venue_id", "starts_at", "ends_at", "expected_attendees", "room_layout", "purpose"];
 const SECTION_ORDER = ["details", "schedule", "attendance", "layout", "accessibility", "equipment", "registration"];
 
@@ -908,6 +915,8 @@ const handlers = [
           reference: seesEveryReference || coordinates(b) ? b.reference : null,
           status: b.status,
           event: { name: b.event.name, request_reference: b.event.request_reference, status: b.event.status },
+          // US24 (D73, D78): Venue staff set it from the calendar's dialog.
+          preparation_status: b.preparation_status,
         },
         note: null,
       }));
@@ -1063,17 +1072,85 @@ const handlers = [
     return HttpResponse.json(evaluation);
   }),
 
+  // US22, and since US24 (SCRUM-128) the event's Organiser too (D71), with whether its venues are
+  // arranged (D67, D72), its primary (D68) and who acts next, by app/venue/booking_service.py's rules.
   route("get", "/api/v1/events/:id/venue-bookings", ({ request, params }) => {
     const role = userRole(request);
     if (!role) return error(401, "UNAUTHENTICATED");
-    if (role !== "coordinator" && role !== "venue_staff") return error(403, "FORBIDDEN");
+    if (role !== "coordinator" && role !== "venue_staff" && role !== "organiser") return error(403, "FORBIDDEN");
+    const userId = request.headers.get("X-User-Id")!;
     const event = db.requests.find((r) => r.id === params.id && r.status !== "draft");
-    // Venue Staff read any event's bookings; a coordinator only those of an event assigned to them (D20).
-    if (!event || (role === "coordinator" && !assignedTo(event, request.headers.get("X-User-Id")!))) {
-      return error(404, "NOT_FOUND");
+    // Venue Staff read any event's bookings; a coordinator only those of an event assigned to them (D20);
+    // the Organiser only their own, from approved on (D71).
+    const allowed =
+      event &&
+      (role === "venue_staff" ||
+        (role === "coordinator" && assignedTo(event, userId)) ||
+        (role === "organiser" && event.created_by_user_id === userId && ORGANISER_VISIBLE.includes(event.status)));
+    if (!event || !allowed) return error(404, "NOT_FOUND");
+    const bookings = db.bookings
+      .filter((b) => b.event.id === event.id)
+      .sort((a, b) => a.starts_at.localeCompare(b.starts_at))
+      .map((b) => {
+        const active = db.venues.find((v) => v.id === b.venue.id)?.is_active ?? true;
+        const unavailability =
+          b.status === "rejected"
+            ? { kind: "rejected", reason: b.rejection_reason, alternative_suggestion: b.alternative_suggestion }
+            : isLive(b) && !active
+              ? { kind: "venue_inactive", reason: null, alternative_suggestion: null }
+              : null;
+        const next_action = unavailability ? "coordinator_to_rebook" : b.status === "requested" ? "venue_staff_to_decide" : "none";
+        return { ...b, unavailability, next_action };
+      });
+    const live = db.bookings.filter((b) => b.event.id === event.id && isLive(b));
+    const primary = live.find((b) => b.is_primary) ?? null;
+    const allocated = live.reduce((sum, b) => sum + b.expected_attendees, 0);
+    const expected = event.expected_attendees;
+    return HttpResponse.json({
+      bookings,
+      venues_arranged:
+        live.length > 0 &&
+        live.every((b) => b.status === "approved") &&
+        live.filter((b) => b.is_primary).length === 1 &&
+        (expected === null || allocated >= expected),
+      primary_booking_id: primary?.id ?? null,
+      allocated_attendees: allocated,
+      expected_attendees: expected,
+      next_action: live.length > 0 && !primary ? "choose_primary" : null,
+    });
+  }),
+
+  // US24 AC 4 (D68): the event's coordinator makes one of its live bookings the primary venue.
+  route("post", "/api/v1/venue-bookings/:id/make-primary", ({ request, params }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "coordinator") return error(403, "FORBIDDEN");
+    const booking = db.bookings.find((b) => b.id === params.id);
+    const event = booking && db.requests.find((r) => r.id === booking.event.id);
+    if (!booking || !event || !assignedTo(event, request.headers.get("X-User-Id")!)) return error(404, "NOT_FOUND");
+    if (!isLive(booking)) return error(409, "BOOKING_NOT_LIVE", { status: booking.status });
+    db.bookings.filter((b) => b.event.id === event.id && isLive(b)).forEach((b) => (b.is_primary = false));
+    booking.is_primary = true;
+    return HttpResponse.json(booking);
+  }),
+
+  // US24 AC 7 (D73): Venue staff record an approved booking's preparation status.
+  route("post", "/api/v1/venue-bookings/:id/preparation", ({ request, params, body }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "venue_staff") return error(403, "FORBIDDEN");
+    const value = (body as { preparation_status?: unknown } | null)?.preparation_status;
+    if (value !== "not_started" && value !== "in_progress" && value !== "ready") {
+      return error(422, "INVALID_BOOKING", {
+        fields: ["preparation_status"],
+        errors: { preparation_status: "Choose one of: not_started, in_progress, ready." },
+      });
     }
-    const bookings = db.bookings.filter((b) => b.event.id === event.id).sort((a, b) => a.starts_at.localeCompare(b.starts_at));
-    return HttpResponse.json({ bookings });
+    const booking = db.bookings.find((b) => b.id === params.id);
+    if (!booking) return error(404, "NOT_FOUND");
+    if (booking.status !== "approved") return error(409, "BOOKING_NOT_APPROVED", { status: booking.status });
+    booking.preparation_status = value;
+    return HttpResponse.json(booking);
   }),
 
   // Event requests (US1, US8), identified by X-User-Id.

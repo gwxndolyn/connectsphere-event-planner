@@ -1,4 +1,4 @@
-import type { TimeWindow, VenueBookingStatus } from "./bookingTypes";
+import type { PreparationStatus, TimeWindow, VenueBookingStatus } from "./bookingTypes";
 
 // Shapes from backend/app/venue/schemas.py (US20, SCRUM-87). Times are "HH:MM:SS" from the API.
 export interface Venue {
@@ -97,6 +97,8 @@ export interface CalendarBooking {
   reference: string | null;
   status: VenueBookingStatus;
   event: CalendarEvent;
+  // US24 (D73, D78): how far Venue staff are with getting it ready; they set it in the dialog.
+  preparation_status: PreparationStatus;
 }
 
 export interface CalendarItem {

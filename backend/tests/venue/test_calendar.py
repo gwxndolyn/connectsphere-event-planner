@@ -316,3 +316,17 @@ async def test_tc_us21_14_forty_two_days_and_a_single_day_are_accepted(
 ) -> None:
     assert (await calendar(client, staff, venue.id, MONDAY, MONDAY + timedelta(days=41))).status_code == 200
     assert (await calendar(client, staff, venue.id, MONDAY, MONDAY)).status_code == 200
+
+
+async def test_tc_us24_29_each_calendar_booking_carries_its_preparation_status(
+    client: AsyncClient, db: Session, staff: User, coordinator: User, event: Event, venue: Venue
+) -> None:
+    """US24 (SCRUM-129, D78): Venue staff set it from the calendar, and every calendar reader sees it."""
+    booking = book(db, event, venue, coordinator, status=VenueBookingStatus.APPROVED)
+    booking.preparation_status = "in_progress"
+    db.flush()
+    other = make_user(db, UserRole.COORDINATOR)
+
+    for reader in (staff, coordinator, other):
+        [item] = (await calendar(client, reader, venue.id)).json()["items"]
+        assert item["booking"]["preparation_status"] == "in_progress"

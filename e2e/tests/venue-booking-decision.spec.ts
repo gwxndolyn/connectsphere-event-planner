@@ -47,7 +47,7 @@ async function requestVenue(page: Page, venue: string, day: string, start: strin
   await page.getByLabel("Date").fill(day);
   await page.getByLabel("Start time").fill(start);
   await page.getByLabel("End time").fill(end);
-  await page.getByLabel("Expected attendance").fill("30");
+  await page.getByLabel("Allocated attendees").fill("30");
   await page.getByLabel("Layout", { exact: true }).selectOption(layout);
   await page.getByRole("button", { name: "Send request" }).click();
   await expect(page.getByRole("status").filter({ hasText: "Venue requested" })).toBeVisible();
