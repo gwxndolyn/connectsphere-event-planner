@@ -10,6 +10,7 @@ import {
   seedEquipmentEvent,
   seedEquipmentLine,
   seedEquipmentType,
+  refuseReservation,
   server,
   setAvailability,
   startMockBackend,
@@ -407,6 +408,130 @@ describe("checking availability (US5, SCRUM-126)", () => {
     expect(await screen.findByRole("status")).toHaveTextContent("Approved: Projector for Equipment Request Demo.");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(callsTo("POST", `/api/v1/equipment-lines/${line.id}/review`)).toHaveLength(1);
+  });
+});
+
+describe("reserving equipment (US27, SCRUM-132)", () => {
+  const APPROVED = { status: "approved" as const, reviewed_by_user_id: TECH_SUPPORT_ID, reviewed_at: "2026-10-02T02:00:00Z" };
+
+  function approvedList() {
+    return within(screen.getByRole("list", { name: "Approved equipment requests" }));
+  }
+
+  it("lists approved lines with their state, and Reserve sends no quantity (TC-US27-16)", async () => {
+    const event = seedEquipmentEvent();
+    const projector = seedEquipmentLine(event, seedEquipmentType("Projector"), { ...APPROVED, quantity: 4 });
+    seedEquipmentLine(event, seedEquipmentType("Laptop"), {
+      ...APPROVED,
+      reservation: {
+        quantity: 1,
+        reserved_by_user_id: TECH_SUPPORT_ID,
+        reserved_at: "2026-10-02T01:30:00Z",
+        released_because_event_cancelled: false,
+      },
+    });
+    seedEquipmentLine(event, seedEquipmentType("Webcam"));
+    const user = userEvent.setup();
+    await openEquipment(user, "tech_support");
+
+    expect(await screen.findByRole("heading", { name: "Approved: to reserve" })).toBeInTheDocument();
+    const row = await approvedList().findByRole("listitem", { name: "Projector for Equipment Request Demo" });
+    expect(row).toHaveTextContent("Quantity 4");
+    expect(row).toHaveTextContent("Not reserved");
+    expect(approvedList().getByRole("listitem", { name: "Laptop for Equipment Request Demo" })).toHaveTextContent(
+      "Reserved Fri, Oct 2, 9:30 AM",
+    );
+    // Pending lines stay in the review queue, not here.
+    expect(approvedList().queryByRole("listitem", { name: "Webcam for Equipment Request Demo" })).not.toBeInTheDocument();
+
+    await user.click(within(row).getByRole("button", { name: "Reserve" }));
+
+    expect(await within(row).findByText("Reserved Fri, Oct 2, 12:00 PM")).toBeInTheDocument();
+    const [reserve] = callsTo("POST", `/api/v1/equipment-lines/${projector.id}/reservation`);
+    expect(reserve.body).toEqual({});
+    expect(reserve.headers.get("X-User-Id")).toBe("tech-support-id");
+    expect(within(row).queryByRole("button", { name: "Reserve" })).not.toBeInTheDocument();
+  });
+
+  it("releases a reservation, and the line can be reserved again (TC-US27-16)", async () => {
+    const event = seedEquipmentEvent();
+    const laptop = seedEquipmentLine(event, seedEquipmentType("Laptop"), {
+      ...APPROVED,
+      reservation: {
+        quantity: 2,
+        reserved_by_user_id: TECH_SUPPORT_ID,
+        reserved_at: "2026-10-02T01:30:00Z",
+        released_because_event_cancelled: false,
+      },
+    });
+    const user = userEvent.setup();
+    await openEquipment(user, "tech_support");
+    const row = await approvedList().findByRole("listitem", { name: "Laptop for Equipment Request Demo" });
+
+    await user.click(within(row).getByRole("button", { name: "Release" }));
+
+    expect(await within(row).findByText("Not reserved")).toBeInTheDocument();
+    expect(callsTo("DELETE", `/api/v1/equipment-lines/${laptop.id}/reservation`)).toHaveLength(1);
+    expect(within(row).getByRole("button", { name: "Reserve" })).toBeEnabled();
+  });
+
+  it("shows a reservation refused for want of stock on that row only (TC-US27-16)", async () => {
+    const event = seedEquipmentEvent();
+    const speakers = seedEquipmentLine(event, seedEquipmentType("Speaker system"), { ...APPROVED, quantity: 5 });
+    refuseReservation(speakers, 2);
+    seedEquipmentLine(event, seedEquipmentType("Projector"), APPROVED);
+    const user = userEvent.setup();
+    await openEquipment(user, "tech_support");
+    const row = await approvedList().findByRole("listitem", { name: "Speaker system for Equipment Request Demo" });
+
+    await user.click(within(row).getByRole("button", { name: "Reserve" }));
+
+    expect(await within(row).findByRole("alert")).toHaveTextContent(
+      "Short by 3: can't reserve. 2 available for 5 requested.",
+    );
+    expect(row).toHaveTextContent("Not reserved");
+    const other = approvedList().getByRole("listitem", { name: "Projector for Equipment Request Demo" });
+    expect(within(other).queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("shows the coordinator a reserved line as Reserved (TC-US27-17)", async () => {
+    const event = seedEquipmentEvent();
+    seedEquipmentLine(event, seedEquipmentType("Projector"), {
+      ...APPROVED,
+      reservation: {
+        quantity: 2,
+        reserved_by_user_id: TECH_SUPPORT_ID,
+        reserved_at: "2026-10-02T01:30:00Z",
+        released_because_event_cancelled: false,
+      },
+    });
+    seedEquipmentLine(event, seedEquipmentType("Laptop"), APPROVED);
+    const user = userEvent.setup();
+    await openEquipment(user, "coordinator");
+    await pickEvent(user, "Equipment Request Demo");
+
+    expect(await lines().findByRole("listitem", { name: "Projector" })).toHaveTextContent("Reserved");
+    expect(lines().getByRole("listitem", { name: "Laptop" })).not.toHaveTextContent("Reserved");
+  });
+
+  it("shows a cancelled event's reservation as released, with no Release (TC-US27-17, D75)", async () => {
+    const event = seedEquipmentEvent();
+    seedEquipmentLine(event, seedEquipmentType("Projector"), {
+      ...APPROVED,
+      reservation: {
+        quantity: 2,
+        reserved_by_user_id: TECH_SUPPORT_ID,
+        reserved_at: "2026-10-02T01:30:00Z",
+        released_because_event_cancelled: true,
+      },
+    });
+    const user = userEvent.setup();
+    await openEquipment(user, "tech_support");
+
+    const row = await approvedList().findByRole("listitem", { name: "Projector for Equipment Request Demo" });
+    expect(row).toHaveTextContent("Released: the event was cancelled");
+    expect(within(row).queryByRole("button", { name: "Release" })).not.toBeInTheDocument();
+    expect(within(row).queryByRole("button", { name: "Reserve" })).not.toBeInTheDocument();
   });
 });
 

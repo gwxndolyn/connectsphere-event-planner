@@ -1,5 +1,6 @@
 // US26 equipment requests (SCRUM-94): the shapes of SCRUM-109's API (§3 "Equipment requests") and
-// SCRUM-110's GET /api/v1/me/equipment-events; US5's availability check (SCRUM-125).
+// SCRUM-110's GET /api/v1/me/equipment-events; US5's availability check (SCRUM-125); US27's reservations
+// (SCRUM-131).
 
 export type LineStatus = "pending" | "approved" | "rejected";
 
@@ -29,8 +30,18 @@ export interface EquipmentLine {
   reviewed_at: string | null;
   /** US5 (SCRUM-125, D64): the latest availability check, or null if none since the line last changed. */
   availability_check: AvailabilityCheck | null;
+  /** US27 (SCRUM-131): the line's reservation, or null. */
+  reservation: Reservation | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface Reservation {
+  quantity: number;
+  reserved_by_user_id: string;
+  reserved_at: string;
+  // D75: nothing cancels an event yet (US9), so a cancelled event's reservation counts as released.
+  released_because_event_cancelled: boolean;
 }
 
 export interface AvailabilityCheck {
