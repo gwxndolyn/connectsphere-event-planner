@@ -154,3 +154,30 @@ test("TC-US27-18: Tech support reserves an approved line, the coordinator sees i
   await expect(again).toContainText("Not reserved");
   await expect(again.getByRole("button", { name: "Reserve" })).toBeVisible();
 });
+
+// US14 (SCRUM-135). Uses Webcam, which no other test here touches, so the demo event has an
+// approved technical support request (D80). An approved line can't be removed, so rerunning on the same
+// database needs a reseed, as for TC-US26-17; the reseed clears the demo event's assignments (SCRUM-133).
+test("TC-US14-17: the coordinator assigns Terry Ong, then unassigns him; the log shows both (AC 1, 3, 5, 6)", async ({ page }) => {
+  await openEvent(page);
+  await addLine(page, "Webcam", "1");
+  await expect(line(page, "Webcam")).toContainText("Pending");
+
+  await openEquipment(page, "tech_support");
+  await page.getByRole("listitem", { name: `Webcam for ${EVENT}` }).getByRole("button", { name: "Approve" }).click();
+  await expect(page.getByRole("status")).toContainText(`Approved: Webcam for ${EVENT}.`);
+
+  await openEvent(page);
+  const section = page.getByRole("region", { name: "Technical support" });
+  const assigned = section.getByRole("list", { name: "Assigned Tech support staff" });
+  await section.getByRole("checkbox", { name: "Terry Ong" }).check();
+  await section.getByRole("button", { name: "Assign" }).click();
+  await expect(assigned.getByRole("listitem", { name: "Terry Ong" })).toContainText("Assigned by Casey Tan");
+
+  await assigned.getByRole("button", { name: "Unassign Terry Ong" }).click();
+  await expect(section.getByRole("checkbox", { name: "Terry Ong" })).toBeVisible();
+  await expect(section.getByText("No one assigned yet.")).toBeVisible();
+  const log = section.getByRole("list", { name: "Assignment log" }).getByRole("listitem");
+  await expect(log.nth(0)).toContainText("Terry Ong unassigned by Casey Tan");
+  await expect(log.nth(1)).toContainText("Terry Ong assigned by Casey Tan");
+});

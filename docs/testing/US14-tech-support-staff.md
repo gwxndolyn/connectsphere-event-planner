@@ -29,7 +29,7 @@ Decided by the acting PO, Matthew, on 31 Oct (team channel).
 - **D80, eligible (AC 1):** at least one approved equipment line (US26), and the event in `planning` or `confirmed`. That's what an "approved technical support request" is.
 - **D81, delivery window (AC 2):** the event's own start and end, with no venue setup or turnaround; back-to-back events don't overlap.
 - **D82, the notification (AC 4):** the event's approved equipment lines and its `equipment_needs`; the venue as attendees see it (D70).
-- **Where** _(SCRUM-135)_: on the coordinator's existing Equipment screen.
+- **D83, where:** on the coordinator's existing Equipment screen.
 
 TC-US14-04 isn't used: it was merged into 03 when the cases were drafted.
 
@@ -60,3 +60,4 @@ TC-US14-04 isn't used: it was merged into 03 when the cases were drafted.
 | --- | --- | --- | --- |
 | 31 Oct | SCRUM-133 | `pytest` (local Postgres): `tests/equipment/test_tech_staff_schema.py`, then the full backend suite; `alembic downgrade -1` and `upgrade head`; the seed | Tests written first: they failed on collection (no `TechStaffAssignment`). After the change: 11 items for TC-US14-01 to 03 pass. TC-US16A's seeded-login count changed from 12 to 13 for the second Tech support user. Whole backend suite 1198 passed; the migration round-trips and the seed runs. Built on SCRUM-118's branch (#102), so its migration chains after `20261106_1200_scrum118_grants` |
 | 31 Oct | SCRUM-134 | `pytest` (local Postgres): `tests/equipment/test_tech_staff_api.py` and `tests/user/test_role_scope.py`, then the full backend suite | Tests written first: the new file failed on collection (no `tech_staff_service`) and TC-US16B-14 failed on the three unknown routes. After the change: 28 items for TC-US14-05 to 14 pass, and the three routes pass the role matrix. TC-US14-13 fails with the staff row's lock taken out (`[201, 201]`) and passes with it, including three reruns. Whole backend suite 1232 passed. No migration |
+| 31 Oct | SCRUM-135 | Vitest (`npm test`), `npm run lint`, `npm run build`; E2E on chromium against a local API (`AUTH_DEV_HEADERS=true`) after a reseed | Tests written first: the five new cases in `equipment.integration.test.tsx` failed (no section). After the change: they pass, as TC-US14-15 and 16; whole Vitest suite 419 passed; lint and build clean. TC-US14-17 passes in `e2e/tests/equipment.spec.ts`, and the whole E2E suite (40 run, the Supabase login and sign-up tests skipped) passes after a reseed. It first used Projector screen, which TC-US26-16's `Projector` row also matched by name, so it uses Webcam |
