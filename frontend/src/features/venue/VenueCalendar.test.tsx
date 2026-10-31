@@ -113,6 +113,21 @@ describe("VenueCalendar week view (US21)", () => {
     expect(closure).not.toHaveClass("venue-calendar__item--pending");
   });
 
+  it("TC-US21-18: a booking for a cancelled event reads \"Booking (event cancelled)\", muted, in the week and month views (D60)", async () => {
+    const user = userEvent.setup();
+    await openHall(user, [booking({ event: { name: "Design Review", request_reference: null, status: "cancelled" } })]);
+    const name = "Booking (event cancelled): Design Review, 10:00 AM – 12:00 PM, occupied 9:30 AM – 12:15 PM";
+
+    const week = await screen.findByRole("button", { name });
+    expect(week).toHaveClass("venue-calendar__item--cancelled");
+    expect(within(week).getByText("Booking (event cancelled)")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Month" }));
+    const chip = await day("Mon, Oct 12").findByRole("button", { name });
+    expect(chip).toHaveClass("venue-calendar__item--cancelled");
+    expect(chip).toHaveTextContent("Booking (event cancelled) 9:30 AM – 12:15 PM");
+  });
+
   it("TC-US21-19: hours outside the venue's opening hours are shaded Closed on every day (D61)", async () => {
     const user = userEvent.setup();
     await openHall(user, [booking()]);
@@ -161,9 +176,9 @@ describe("VenueCalendar item details (TC-US21-20, AC 3)", () => {
     const user = userEvent.setup();
     await openHall(user, [booking({ event: { name: null, request_reference: "ER-2026-000007", status: "cancelled" } })]);
 
-    await user.click(await screen.findByRole("button", { name: /^Booking: ER-2026-000007/ }));
+    await user.click(await screen.findByRole("button", { name: /^Booking \(event cancelled\): ER-2026-000007/ }));
 
-    const dialog = within(screen.getByRole("dialog", { name: "Booking" }));
+    const dialog = within(screen.getByRole("dialog", { name: "Booking (event cancelled)" }));
     expect(dialog.getByText("Event status").nextElementSibling).toHaveTextContent("cancelled");
   });
 

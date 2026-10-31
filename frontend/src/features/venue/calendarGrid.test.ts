@@ -137,6 +137,34 @@ describe("daySegments: each item's occupied window, day by day (TC-US21-17, AC 2
   });
 });
 
+describe("lanes per cluster of overlapping items (#95 review)", () => {
+  it("halves two overlapping morning items and leaves a lone afternoon item full width", () => {
+    // 09:00–11:00 and 10:00–12:00 overlap; 14:00–15:00 overlaps neither.
+    const first = block("2026-10-12T01:00:00Z", "2026-10-12T03:00:00Z");
+    const second = block("2026-10-12T02:00:00Z", "2026-10-12T04:00:00Z");
+    const afternoon = block("2026-10-12T06:00:00Z", "2026-10-12T07:00:00Z");
+
+    expect(daySegments([afternoon, second, first], "2026-10-12")).toMatchObject([
+      { item: first, lane: 0, lanes: 2 },
+      { item: second, lane: 1, lanes: 2 },
+      { item: afternoon, lane: 0, lanes: 1 },
+    ]);
+  });
+
+  it("keeps a cluster together while any item in it still overlaps the next", () => {
+    // 09:00–12:00 holds the cluster open past 10:00–11:00's end, so 11:30–12:30 joins it.
+    const long = block("2026-10-12T01:00:00Z", "2026-10-12T04:00:00Z");
+    const short = block("2026-10-12T02:00:00Z", "2026-10-12T03:00:00Z");
+    const late = block("2026-10-12T03:30:00Z", "2026-10-12T04:30:00Z");
+
+    expect(daySegments([long, short, late], "2026-10-12")).toMatchObject([
+      { item: long, lane: 0, lanes: 2 },
+      { item: short, lane: 1, lanes: 2 },
+      { item: late, lane: 1, lanes: 2 },
+    ]);
+  });
+});
+
 describe("hours drawn and shaded (TC-US21-19, D61)", () => {
   it("draws an hour either side of the opening hours, widened to fit any item", () => {
     expect(hourSpan(VENUE, [])).toEqual({ start: 7, end: 21 });
