@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
@@ -30,7 +30,7 @@ from app.event.models import DeliveryMode, Event, EventStatus
 from app.registration.models import ACTIVE_STATUSES, Registration, RegistrationStatus
 from app.user.models import Attendee, User, UserRole
 from app.user.supabase_admin import SupabaseAdmin, SupabaseAdminError
-from app.venue.models import Venue, VenueBlock, VenueBooking, VenueBookingStatus, occupied_window
+from app.venue.models import PreparationStatus, Venue, VenueBlock, VenueBooking, VenueBookingStatus, occupied_window
 
 # Fixed namespace so slugs map to the same UUIDs on every machine and every run.
 SEED_NAMESPACE = uuid.UUID("3f2b0c54-9b1a-4f3e-9a7e-2c0d1b8e5a41")
@@ -57,6 +57,11 @@ class EventSpec:
     delivery_mode: DeliveryMode = DeliveryMode.IN_PERSON
     venue_name: str | None = "SMU SCIS Building"
     room_number: str | None = "Seminar Room 2-1"
+    # US24 (SCRUM-127): the seeded venue (VenueSpec.slug) of its approved primary booking, named on each
+    # in-person event; none is assumed, so an event without one gets no booking (#96 review).
+    # DECISION-PENDING: D70 — from PR 2 attendees see that booking's venue, not venue_name/room_number,
+    # which stay as the fallback. None for an online event, or a place with no seeded venue.
+    venue_slug: str | None = None
     join_link: str | None = None
     # US6a: off by default, as in the database.
     waitlist_enabled: bool = False
@@ -147,6 +152,7 @@ EVENTS = [
         name="Tech Talk: Agile at Scale",
         note="confirmed, registration open, seats available",
         capacity=40,
+        venue_slug="scis-seminar-2-1",
         confirmed=["calvin.ng.2024@smu.edu.sg", "mei.tan.2024@smu.edu.sg"],
     ),
     EventSpec(
@@ -160,6 +166,7 @@ EVENTS = [
         waitlisted=["sofia.lim.2024@smu.edu.sg", "calvin.ng.2024@smu.edu.sg"],
         venue_name="SMU Connexion",
         room_number="Studio 3-2",
+        venue_slug="connexion-studio-3-2",
     ),
     EventSpec(
         slug="supabase-live-coding",
@@ -168,6 +175,7 @@ EVENTS = [
         delivery_mode=DeliveryMode.ONLINE,
         venue_name=None,
         room_number=None,
+        venue_slug=None,
         join_link="https://smu-sg.zoom.us/j/88123345901",
         capacity=200,
         starts_in=timedelta(days=11),
@@ -184,6 +192,7 @@ EVENTS = [
         capacity=250,
         venue_name="Mochtar Riady Auditorium",
         room_number="Level B1",
+        venue_slug="mochtar-riady-auditorium",
     ),
     EventSpec(
         slug="career-fair-prep",
@@ -195,6 +204,7 @@ EVENTS = [
         capacity=60,
         venue_name="SMU Li Ka Shing Library",
         room_number="Seminar Room 3-4",
+        venue_slug="lks-library-seminar-3-4",
     ),
     EventSpec(
         slug="wellness-week-yoga",
@@ -205,6 +215,7 @@ EVENTS = [
         capacity=25,
         venue_name="SMU Campus Green",
         room_number="Lawn C",
+        venue_slug="campus-green-lawn-c",
     ),
     EventSpec(
         slug="orientation-debrief",
@@ -216,6 +227,8 @@ EVENTS = [
         capacity=100,
         venue_name="SMU School of Accountancy",
         room_number="Function Room 2",
+        # No seeded venue there, so it keeps the event's own venue_name / room_number (D70's fallback).
+        venue_slug=None,
     ),
 ]
 
@@ -391,6 +404,90 @@ class BookableEventSpec:
 # Approved straight away (D24).
 BOOKABLE_EVENT = BookableEventSpec(slug="bookable-venue-booking-demo", name="Venue Booking Demo", expected_attendees=40)
 
+# US24 (SCRUM-92): every seeded booking says what it's for; a single-venue event's is its main venue.
+MAIN_VENUE_PURPOSE = "Main venue"
+
+
+@dataclass
+class MultiVenueBookingSpec:
+    """One venue of the multi-venue demo event (US24)."""
+
+    slug: str
+    venue_slug: str
+    purpose: str
+    status: VenueBookingStatus
+    starts: time
+    ends: time
+    expected_attendees: int
+    room_layout: str
+    is_primary: bool = False
+    rejection_reason: str | None = None
+    # US24 AC 7 (D73, CS3-49): how far Venue staff are with getting it ready.
+    preparation_status: PreparationStatus = PreparationStatus.NOT_STARTED
+
+
+@dataclass
+class MultiVenueEventSpec:
+    """An approved event booked at several venues on one preferred day (US24, SCRUM-127)."""
+
+    slug: str
+    name: str
+    in_days: int
+    starts: time
+    ends: time
+    expected_attendees: int
+    bookings: list[MultiVenueBookingSpec]
+
+
+# US24 (SCRUM-92): a conference with an approved main hall (its primary venue), a breakout room
+# waiting for Venue staff and one they rejected, so the screens (PR 3) show each status and an event
+# whose venues aren't all arranged (AC 6, 7). Assigned to the dev coordinator, who may add and
+# withdraw its bookings (D20). Twelve days ahead, away from US2's slot (day 5) and the other seeded
+# events' days, so its windows clash with nothing.
+MULTI_VENUE_EVENT = MultiVenueEventSpec(
+    slug="multi-venue-conference-demo",
+    name="Multi-Venue Conference Demo",
+    in_days=12,
+    starts=time(9, 0),
+    ends=time(17, 0),
+    expected_attendees=300,
+    bookings=[
+        MultiVenueBookingSpec(
+            slug="multi-venue-main-hall",
+            venue_slug="mochtar-riady-auditorium",
+            purpose="Main hall",
+            status=VenueBookingStatus.APPROVED,
+            starts=time(9, 0),
+            ends=time(17, 0),
+            expected_attendees=300,
+            room_layout="theatre",
+            is_primary=True,
+            preparation_status=PreparationStatus.IN_PROGRESS,
+        ),
+        MultiVenueBookingSpec(
+            slug="multi-venue-breakout-a",
+            venue_slug="scis-seminar-2-1",
+            purpose="Breakout A",
+            status=VenueBookingStatus.REQUESTED,
+            starts=time(13, 0),
+            ends=time(15, 0),
+            expected_attendees=40,
+            room_layout="classroom",
+        ),
+        MultiVenueBookingSpec(
+            slug="multi-venue-breakout-b",
+            venue_slug="lks-library-seminar-3-4",
+            purpose="Breakout B",
+            status=VenueBookingStatus.REJECTED,
+            starts=time(13, 0),
+            ends=time(15, 0),
+            expected_attendees=60,
+            room_layout="classroom",
+            rejection_reason="The library is closed to events that afternoon.",
+        ),
+    ],
+)
+
 # US26 (SCRUM-109): the dev coordinator adds equipment lines to it (SCRUM-110, TC-US26-16). Only a
 # planning or confirmed event takes them, from its assigned coordinator (D20), and no other seeded
 # event is both. Registration is off, so it stays off the attendees' events board.
@@ -400,6 +497,7 @@ EQUIPMENT_EVENT = EventSpec(
     note="confirmed, assigned to the seeded coordinator, registration off (US26)",
     registration_enabled=False,
     starts_in=timedelta(days=14),
+    venue_slug="scis-seminar-2-1",
 )
 
 VENUE_BLOCKS = [
@@ -647,7 +745,24 @@ def upsert_venue_booking(
         "decided_by_user_id": seed_id("user", "venue-staff") if spec.status == VenueBookingStatus.APPROVED else None,
         "rejection_reason": None,
         "alternative_suggestion": None,
+        # US24: the only venue of its event, so its primary one.
+        "purpose": MAIN_VENUE_PURPOSE,
+        "is_primary": True,
+        "preparation_status": PreparationStatus.NOT_STARTED,
     }
+    return _upsert_booking(db, booking_id, values)
+
+
+def _upsert_booking(db: Session, booking_id: uuid.UUID, values: dict[str, object]) -> VenueBooking:
+    """Creates or resets a seeded booking. A seeded primary takes the flag back from any other booking
+    of its event made primary in the app since, so a reseed never trips the one-primary index (US24)."""
+    if values.get("is_primary"):
+        db.execute(
+            update(VenueBooking)
+            .where(VenueBooking.event_id == values["event_id"], VenueBooking.id != booking_id, VenueBooking.is_primary)
+            .values(is_primary=False)
+        )
+        db.flush()
     booking = db.get(VenueBooking, booking_id)
     if booking is None:
         booking = VenueBooking(id=booking_id, **values)
@@ -655,7 +770,111 @@ def upsert_venue_booking(
     else:
         for key, value in values.items():
             setattr(booking, key, value)
+    db.flush()
     return booking
+
+
+def _decision(status: VenueBookingStatus, now: datetime) -> dict[str, object]:
+    """US4: an approved or rejected seeded booking was decided by the seeded Venue Staff member, when seeded."""
+    decided = status in (VenueBookingStatus.APPROVED, VenueBookingStatus.REJECTED)
+    return {
+        "status": status,
+        "withdrawn_at": None,
+        "decided_at": now if decided else None,
+        "decided_by_user_id": seed_id("user", "venue-staff") if decided else None,
+    }
+
+
+def upsert_primary_booking(db: Session, spec: EventSpec, event: Event, coordinator: User, now: datetime) -> VenueBooking:
+    """US24 (SCRUM-127): an in-person seeded event's approved primary booking at `spec.venue_slug`, over
+    the event's own times, for as many attendees as the event holds (AC 3)."""
+    # DECISION-PENDING: D65 — a booking's own window falls within the event's schedule: start_at to end_at.
+    venue = db.get(Venue, seed_id("venue", spec.venue_slug))
+    occupied_starts_at, occupied_ends_at = occupied_window(venue, event.start_at, event.end_at)
+    values = {
+        "event_id": event.id,
+        "venue_id": venue.id,
+        "requested_by_user_id": coordinator.id,
+        "starts_at": event.start_at,
+        "ends_at": event.end_at,
+        "occupied_starts_at": occupied_starts_at,
+        "occupied_ends_at": occupied_ends_at,
+        "expected_attendees": event.capacity,
+        "room_layout": venue.room_layouts[0],
+        **_decision(VenueBookingStatus.APPROVED, now),
+        "rejection_reason": None,
+        "alternative_suggestion": None,
+        "purpose": MAIN_VENUE_PURPOSE,
+        "is_primary": True,
+        "preparation_status": PreparationStatus.NOT_STARTED,
+    }
+    return _upsert_booking(db, seed_id("venue-booking", f"primary-{spec.slug}"), values)
+
+
+def upsert_multi_venue_event(
+    db: Session, spec: MultiVenueEventSpec, organiser: User, coordinator: User, now: datetime
+) -> Event:
+    """US24's demo event and its venues. Bookings the coordinator adds in the app are left alone; the
+    seeded ones are reset, and the main hall is primary again."""
+    # DECISION-PENDING: D65 — before start_at is set, the schedule is a preferred day between the
+    # preferred times, so each window sits on that day inside them.
+    day = now.astimezone(SEED_TIMEZONE).date() + timedelta(days=spec.in_days)
+    event_id = seed_id("event", spec.slug)
+    values = {
+        "name": spec.name,
+        "status": EventStatus.APPROVED,
+        "event_category": "Conference",
+        "purpose": "Seeded for booking several venues for one event (US24)",
+        "preferred_dates": [day],
+        "preferred_start_time": spec.starts,
+        "preferred_end_time": spec.ends,
+        "expected_attendees": spec.expected_attendees,
+        "created_by_user_id": organiser.id,
+        "coordinator_id": coordinator.id,
+    }
+    event = db.get(Event, event_id)
+    if event is None:
+        event = Event(id=event_id, **values)
+        db.add(event)
+    else:
+        for key, value in values.items():
+            setattr(event, key, value)
+    db.flush()
+    # Non-primary ones first, so the main hall takes the flag last.
+    for booking_spec in sorted(spec.bookings, key=lambda b: b.is_primary):
+        venue = db.get(Venue, seed_id("venue", booking_spec.venue_slug))
+        starts_at = datetime.combine(day, booking_spec.starts, SEED_TIMEZONE)
+        ends_at = datetime.combine(day, booking_spec.ends, SEED_TIMEZONE)
+        occupied_starts_at, occupied_ends_at = occupied_window(venue, starts_at, ends_at)
+        _upsert_booking(
+            db,
+            seed_id("venue-booking", booking_spec.slug),
+            {
+                "event_id": event.id,
+                "venue_id": venue.id,
+                "requested_by_user_id": coordinator.id,
+                "starts_at": starts_at,
+                "ends_at": ends_at,
+                "occupied_starts_at": occupied_starts_at,
+                "occupied_ends_at": occupied_ends_at,
+                "expected_attendees": booking_spec.expected_attendees,
+                "room_layout": booking_spec.room_layout,
+                **_decision(booking_spec.status, now),
+                "rejection_reason": booking_spec.rejection_reason,
+                "alternative_suggestion": None,
+                "purpose": booking_spec.purpose,
+                "is_primary": booking_spec.is_primary,
+                "preparation_status": booking_spec.preparation_status,
+            },
+        )
+    return event
+
+
+def seeded_booking_count() -> int:
+    """Every booking the seed owns: US2's slot, each in-person event's primary and the multi-venue
+    demo event's venues (US24). Bookings made in the app aren't counted."""
+    primaries = sum(1 for spec in [*EVENTS, EQUIPMENT_EVENT] if spec.venue_slug)
+    return len(VENUE_BOOKINGS) + primaries + len(MULTI_VENUE_EVENT.bookings)
 
 
 def upsert_venue_block(db: Session, spec: VenueBlockSpec, now: datetime) -> VenueBlock:
@@ -755,6 +974,11 @@ def seed(db: Session, now: datetime | None = None) -> None:
         upsert_venue(db, spec)
     db.flush()
 
+    # US24: each in-person event's venue, as an approved primary booking.
+    for spec in EVENTS:
+        if spec.venue_slug:
+            upsert_primary_booking(db, spec, db.get(Event, seed_id("event", spec.slug)), coordinator, now)
+
     for spec in VENUE_BOOKINGS:
         event = upsert_booking_event(db, spec, organiser)
         db.flush()
@@ -762,7 +986,10 @@ def seed(db: Session, now: datetime | None = None) -> None:
     for spec in VENUE_BLOCKS:
         upsert_venue_block(db, spec, now)
     upsert_bookable_event(db, BOOKABLE_EVENT, organiser, coordinator)
-    upsert_equipment_event(db, EQUIPMENT_EVENT, organiser, coordinator, now)
+    equipment_event = upsert_equipment_event(db, EQUIPMENT_EVENT, organiser, coordinator, now)
+    db.flush()
+    upsert_primary_booking(db, EQUIPMENT_EVENT, equipment_event, coordinator, now)
+    upsert_multi_venue_event(db, MULTI_VENUE_EVENT, organiser, coordinator, now)
     for name, stock in EQUIPMENT_STOCK.items():
         upsert_equipment_type(db, name, stock)
     db.flush()
@@ -851,7 +1078,7 @@ def main() -> int:
         seed(db)
 
         print(f"\n{len(EVENTS)} events, {len(ATTENDEES)} attendees, {len(VENUES)} venues, "
-              f"{len(VENUE_BOOKINGS)} venue bookings, {len(VENUE_BLOCKS)} venue blocks:\n")
+              f"{seeded_booking_count()} venue bookings, {len(VENUE_BLOCKS)} venue blocks:\n")
         for spec in EVENTS:
             print(f"  {spec.name:<34} {spec.note}")
 
