@@ -240,7 +240,7 @@ async def test_tc_us12_09_a_critical_change_creates_a_pending_change_request(
 async def test_tc_us12_10_a_mixed_save_sends_every_changed_field_for_approval(
     client: AsyncClient, db: Session, coordinator: User
 ) -> None:
-    """D57: one critical field holds the whole edit, so the event keeps every previous value (AC 3)."""
+    """D84: one critical field holds the whole edit, so the event keeps every previous value (AC 3)."""
     event = planning_event(db, coordinator)
 
     response = await client.patch(
@@ -380,7 +380,7 @@ async def test_tc_us12_16_a_save_writes_one_audit_entry_per_changed_field(
 async def test_tc_us12_17_a_critical_save_is_logged_against_its_change_request(
     client: AsyncClient, db: Session, coordinator: User
 ) -> None:
-    """D58: a save that creates a change request succeeded too, so its fields are logged, tied to it."""
+    """D85: a save that creates a change request succeeded too, so its fields are logged, tied to it."""
     event = planning_event(db, coordinator)
 
     response = await client.patch(url(event), headers=auth(coordinator), json={"capacity": 90})

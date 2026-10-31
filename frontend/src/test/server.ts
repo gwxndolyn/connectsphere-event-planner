@@ -962,6 +962,8 @@ const handlers = [
     if (userRole(request) !== "coordinator") return error(403, "FORBIDDEN");
     const entries = db.history[params.eventId];
     return entries ? HttpResponse.json({ entries } as unknown as JsonBodyType) : error(404, "NOT_FOUND");
+  }),
+
   // US21 (SCRUM-88) venue calendar, by the rules backend/tests/venue/test_calendar.py proves for
   // app/venue/calendar_service.py: who (D56), the range (D61, deviation 51), an inactive venue as
   // GET /venues/{id} has it, live bookings by their occupied window with a cancelled event's included

@@ -1,8 +1,8 @@
 """add change requests and the audit log for editing an event in planning
 
-Revision ID: 20261101_1200_us12_event_edits
-Revises: 20261031_1200_us16b_d51_checks
-Create Date: 2026-11-01
+Revision ID: 20261108_1200_us12_event_edits
+Revises: 20261107_1200_us14_tech_staff
+Create Date: 2026-11-08
 
 """
 from typing import Sequence, Union
@@ -12,8 +12,8 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 
-revision: str = "20261101_1200_us12_event_edits"
-down_revision: Union[str, None] = "20261031_1200_us16b_d51_checks"
+revision: str = "20261108_1200_us12_event_edits"
+down_revision: Union[str, None] = "20261107_1200_us14_tech_staff"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

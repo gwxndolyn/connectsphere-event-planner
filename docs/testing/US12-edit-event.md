@@ -16,15 +16,15 @@
 
 | Work | Tests |
 | --- | --- |
-| `event_change_requests`, `event_audit_entries` (migration `20261101_1200_us12_event_edits`) | `backend/tests/event/test_event_edits.py` (TC-US12-19) |
+| `event_change_requests`, `event_audit_entries` (migration `20261108_1200_us12_event_edits`) | `backend/tests/event/test_event_edits.py` (TC-US12-19) |
 | `GET /api/v1/me/coordinated-events`, `GET` / `PATCH /api/v1/events/{id}`, `GET /api/v1/events/{id}/history`; seeded **Event Planning Demo** | `backend/tests/event/test_event_edits.py` (TC-US12-01 to 18, 20) |
 | **Events** screen for the coordinator: list, details, Edit, changes awaiting approval, History | `frontend/src/features/eventEdit/eventEdit.integration.test.tsx` (TC-US12-21 to 25); `e2e/tests/event-edit.spec.ts` (TC-US12-20 to 23) |
 
 ## Decisions for this story
 
-- **Critical fields** (D56, `DECISION-PENDING`; chosen by the story owner on 30 Oct): start time, end time, capacity, expected attendance and delivery mode. Non-critical: name, category, purpose, room layout, accessibility needs, equipment needs, join link. The venue isn't edited here; it's booked through US22.
-- **A save mixing both kinds goes for approval whole** (D57, `DECISION-PENDING`; chosen by the story owner on 30 Oct), so "the event record keeps its previous values" (AC 3) holds for every field in it.
-- **A critical save is a successful save**, so AC 5 logs it too, each entry tied to its change request and shown as Pending approval in History (D58, `DECISION-PENDING`). **Nobody approves change requests yet**: the ticket doesn't say who does. That is the next story's.
+- **Critical fields** (D83, `DECISION-PENDING`; chosen by the story owner on 30 Oct): start time, end time, capacity, expected attendance and delivery mode. Non-critical: name, category, purpose, room layout, accessibility needs, equipment needs, join link. The venue isn't edited here; it's booked through US22.
+- **A save mixing both kinds goes for approval whole** (D84, `DECISION-PENDING`; chosen by the story owner on 30 Oct), so "the event record keeps its previous values" (AC 3) holds for every field in it.
+- **A critical save is a successful save**, so AC 5 logs it too, each entry tied to its change request and shown as Pending approval in History (D85, `DECISION-PENDING`). **Nobody approves change requests yet**: the ticket doesn't say who does. That is the next story's.
 - **Who:** only the event's assigned coordinator (D48), for events past the request stage (`planning` onwards). Anyone else, an unassigned event, a request still at the request stage, or an unknown id is `404`. Other roles `403`.
 - **Sending a field at its current value changes nothing and logs nothing**; the screen sends only the fields that differ from what it loaded.
 - **A seeded event to try it on:** **Event Planning Demo**, Planning, assigned to the seeded coordinator, registration off. A reseed puts its details back and clears its history and change requests.
@@ -42,14 +42,14 @@
 | TC-US12-07 | 2 | A room layout | Save it blank | Cleared to null |
 | TC-US12-08 | 2 | A planning event | Save the current values | "Nothing changed"; no audit entry, no change request |
 | TC-US12-09 | 3 | A planning event | Save new start, end and capacity | `202 pending_approval`; the change request lists each field's old and new value; the event keeps its values and lists the request; the message names the fields |
-| TC-US12-10 | 3 | A planning event | Save purpose and expected attendance | The whole edit goes for approval (D57); the event keeps both |
+| TC-US12-10 | 3 | A planning event | Save purpose and expected attendance | The whole edit goes for approval (D84); the event keeps both |
 | TC-US12-11 | 3 | A planning event | Save each critical field alone | Each goes for approval |
 | TC-US12-12 | 4 | A planning event | Clear a required field; capacity 0; attendance −5, 1.5, "lots", true; an unknown mode; a time without offset; a 101-character category | `422 INVALID_EVENT_EDIT` naming the field with a message; nothing written, not even a valid field sent alongside |
 | TC-US12-13 | 4 | A planning event | End before start; start after end | Refused on the field that was moved; nothing written |
 | TC-US12-14 | 4 | Two invalid fields | Save | Both named, in form order |
 | TC-US12-15 | — | A planning event | Send `status` or `venue_name` | `422`; unchanged |
 | TC-US12-16 | 5 | A planning event | Save two changed fields and one unchanged | One audit entry per changed field: user, field, previous, new, time |
-| TC-US12-17 | 5 | A planning event | Save a critical field | Its audit entry points at the change request (D58) |
+| TC-US12-17 | 5 | A planning event | Save a critical field | Its audit entry points at the change request (D85) |
 | TC-US12-18 | 5 | Two saves five minutes apart | Read History | Newest first; who, the change request's status |
 | TC-US12-19 | — | The migration | Insert a change request with no changes | Refused by its CHECK; RLS on both tables |
 | TC-US12-20 | — | A seeded database | Seed, edit, reseed | Event Planning Demo, planning, assigned to the seeded coordinator; a reseed resets it. **E2E:** Edit enabled on it and disabled on a confirmed event |

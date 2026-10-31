@@ -29,10 +29,8 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import SessionLocal
-from app.equipment.models import EquipmentRequestLine, EquipmentType
-from app.event.models import DeliveryMode, Event, EventAuditEntry, EventChangeRequest, EventStatus
 from app.equipment.models import EquipmentRequestLine, EquipmentReservation, EquipmentType, TechStaffAssignment
-from app.event.models import DeliveryMode, Event, EventStatus
+from app.event.models import DeliveryMode, Event, EventAuditEntry, EventChangeRequest, EventStatus
 from app.registration.models import ACTIVE_STATUSES, Registration, RegistrationStatus
 from app.user.models import Attendee, User, UserRole
 from app.user.supabase_admin import SupabaseAdmin, SupabaseAdminError
@@ -1042,14 +1040,11 @@ def seed(db: Session, now: datetime | None = None) -> None:
     for spec in VENUE_BLOCKS:
         upsert_venue_block(db, spec, now)
     upsert_bookable_event(db, BOOKABLE_EVENT, organiser, coordinator)
-    upsert_equipment_event(db, EQUIPMENT_EVENT, organiser, coordinator, now)
-    upsert_planning_event(db, PLANNING_EVENT, organiser, coordinator, now)
-    for name in EQUIPMENT_TYPES:
-        upsert_equipment_type(db, name)
     equipment_event = upsert_equipment_event(db, EQUIPMENT_EVENT, organiser, coordinator, now)
     db.flush()
     upsert_primary_booking(db, EQUIPMENT_EVENT, equipment_event, coordinator, now)
     upsert_multi_venue_event(db, MULTI_VENUE_EVENT, organiser, coordinator, now)
+    upsert_planning_event(db, PLANNING_EVENT, organiser, coordinator, now)
     for name, stock in EQUIPMENT_STOCK.items():
         upsert_equipment_type(db, name, stock)
     db.flush()

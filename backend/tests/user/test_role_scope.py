@@ -31,7 +31,7 @@ from tests.factories import NOW, make_attendee, make_event, make_registration, m
 pytestmark = pytest.mark.anyio
 
 # The newest migration: TC-US16B-29 checks it is the only head (SCRUM-15 added it).
-REVISION = "20261101_1200_us12_event_edits"
+REVISION = "20261108_1200_us12_event_edits"
 QUESTION = {"sections": ["attendance"], "comment": "How many people are coming?"}
 FORBIDDEN = {"code": "FORBIDDEN"}
 NOT_FOUND = {"code": "NOT_FOUND"}

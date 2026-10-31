@@ -31,7 +31,7 @@ from app.user.models import User
 # Past the request stage: an event its coordinator can open (AC 1). The request stage is the request routes'.
 COORDINATED_STATUSES = (EventStatus.PLANNING, EventStatus.CONFIRMED, EventStatus.CANCELLED, EventStatus.COMPLETED)
 
-# DECISION-PENDING: D56 — which fields are critical (the ticket doesn't list them): the schedule, the
+# DECISION-PENDING: D83 — which fields are critical (the ticket doesn't list them): the schedule, the
 # event's size and its format. Everything else is non-critical. The venue is booked through US22, not here.
 CRITICAL_FIELDS = ("start_at", "end_at", "capacity", "expected_attendees", "delivery_mode")
 NON_CRITICAL_FIELDS = (
@@ -205,7 +205,7 @@ class EventEditService:
         critical = [field for field, _, _ in changes if field in CRITICAL_FIELDS]
         request = None
         if critical:
-            # DECISION-PENDING: D57 — the whole edit waits, non-critical fields included, so the event keeps every
+            # DECISION-PENDING: D84 — the whole edit waits, non-critical fields included, so the event keeps every
             # previous value.
             request = EventChangeRequest(
                 event_id=event.id,
@@ -219,7 +219,7 @@ class EventEditService:
             for field, _, new in changes:
                 setattr(event, field, new)
 
-        # DECISION-PENDING: D58 — a critical edit is a successful save too, so it's logged, tied to its
+        # DECISION-PENDING: D85 — a critical edit is a successful save too, so it's logged, tied to its
         # change request. Who approves one (and so what then changes the event) isn't decided.
         for field, old, new in changes:
             db.add(
