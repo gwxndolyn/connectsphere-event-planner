@@ -34,6 +34,7 @@ def upgrade() -> None:
         "(availability_checked_at IS NULL AND availability_checked_by_user_id IS NULL"
         " AND availability_sufficient IS NULL AND availability_shortfall IS NULL)"
         " OR (availability_checked_at IS NOT NULL AND availability_checked_by_user_id IS NOT NULL"
+        " AND availability_sufficient IS NOT NULL AND availability_shortfall IS NOT NULL"
         " AND ((availability_sufficient AND availability_shortfall = 0)"
         " OR (NOT availability_sufficient AND availability_shortfall > 0)))",
     )
