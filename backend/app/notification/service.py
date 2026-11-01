@@ -15,6 +15,8 @@ BookingDecision = Literal["approved", "rejected"]
 RequestDecision = Literal["approved", "rejected"]
 # What the Safety Officer decided on an event's arrangements (SCRUM-99).
 SafetyOutcome = Literal["approved", "rejected"]
+# What a hold notice says (US25, SCRUM-93, AC 4): one was placed, it expires within 24 hours, or it expired.
+HoldStage = Literal["placed", "expiring", "expired"]
 # Who a cancellation notice is for (US9, SCRUM-12, AC 6).
 CancellationRecipient = Literal["organiser", "venue_staff", "tech_support", "attendee"]
 
@@ -201,6 +203,19 @@ class Notifier(Protocol):
 
     def cancellation_requested(
         self, *, email: str, event_id: uuid.UUID, event_name: str, organiser_name: str, reason: str
+    ) -> None: ...
+
+    def venue_held(
+        self,
+        *,
+        email: str,
+        booking_id: uuid.UUID,
+        event_name: str,
+        venue_name: str,
+        starts_at: datetime,
+        ends_at: datetime,
+        expires_at: datetime,
+        stage: HoldStage,
     ) -> None: ...
 
     def cancellation_rejected(
@@ -586,6 +601,33 @@ class LoggingNotifier:
     ) -> None:
         # US9 AC 2, 6: everyone involved hears the event is cancelled, with its name and the reason.
         logger.info("event cancelled: %s (%s), %r (%s); reason: %s", email, recipient, event_name, event_id, reason)
+
+
+    def venue_held(
+        self,
+        *,
+        email: str,
+        booking_id: uuid.UUID,
+        event_name: str,
+        venue_name: str,
+        starts_at: datetime,
+        ends_at: datetime,
+        expires_at: datetime,
+        stage: HoldStage,
+    ) -> None:
+        # US25 (SCRUM-93) AC 1, 4: the event's coordinator hears a venue is held, that the hold expires within
+        # 24 hours (D103), and that it expired.
+        logger.info(
+            "venue hold %s: %s, %s for %r %s to %s, expires %s (booking %s)",
+            stage,
+            email,
+            venue_name,
+            event_name,
+            starts_at.isoformat(),
+            ends_at.isoformat(),
+            expires_at.isoformat(),
+            booking_id,
+        )
 
 
 notifier = LoggingNotifier()
