@@ -383,6 +383,30 @@ async def test_tc_us7_22_the_expired_row_goes_once_the_holder_rejoins_the_queue(
     assert [row["event_id"] for row in body["waitlisted"]] == [str(lapsed.event.id)]
 
 
+async def test_tc_us7_22_two_lapsed_offers_on_one_event_show_as_one_row_the_latest(
+    client: AsyncClient, db: Session
+) -> None:
+    """Offered, lapsed, rejoined, offered again, lapsed again (PR #109 review): one row for the event,
+    carrying the later offer's end."""
+    event = make_event(db, capacity=1, start_at=NOW + timedelta(days=1))
+    attendee = make_attendee(db)
+    earlier, later = NOW - timedelta(hours=30), NOW - timedelta(hours=2)
+    for ended in (later, earlier):
+        make_registration(
+            db,
+            event,
+            attendee,
+            status=RegistrationStatus.EXPIRED,
+            waitlist_joined_at=ended - timedelta(hours=30),
+            offer_expires_at=ended,
+        )
+
+    body = (await client.get("/api/v1/me/registrations", headers=attendee_auth(attendee))).json()
+
+    assert [row["event_id"] for row in body["expired"]] == [str(event.id)]
+    assert datetime.fromisoformat(body["expired"][0]["offer_expires_at"]) == later
+
+
 async def test_tc_us7_22_a_forced_early_expiry_shows_when_it_ended(client: AsyncClient, db: Session) -> None:
     """`/expire-offer` (tests only) can end an offer before its window; the row shows the real end."""
     lapsed = Lapsed(db)
