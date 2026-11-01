@@ -12,7 +12,7 @@ describe("screensFor", () => {
   });
 
   it("TC-US26-16, 17: gives the coordinator Equipment, and Tech support Equipment as home (SCRUM-110)", () => {
-    expect(screensFor("coordinator")).toEqual(["event-requests", "registrations", "venues", "equipment"]);
+    expect(screensFor("coordinator")).toEqual(["event-requests", "events", "registrations", "venues", "equipment"]);
     expect(screensFor("tech_support")).toEqual(["equipment"]);
     expect(screensFor("organiser")).not.toContain("equipment");
     expect(screensFor("venue_staff")).not.toContain("equipment");

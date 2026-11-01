@@ -12,6 +12,8 @@ from app.equipment.router import router as equipment_router
 from app.equipment.router import types_router as equipment_types_router
 from app.event.router import router as event_router
 from app.event.router import v1_router as event_v1_router
+from app.event.edit_router import me_router as event_edit_me_router
+from app.event.edit_router import router as event_edit_router
 from app.event.request_router import coordinators_router as event_request_coordinators_router
 from app.event.request_router import me_router as event_request_me_router
 from app.event.request_router import router as event_request_router
@@ -46,6 +48,9 @@ app.add_exception_handler(DomainError, domain_error_handler)
 
 app.include_router(event_router)
 app.include_router(event_v1_router)
+# After event_v1_router, so "/api/v1/events/available" isn't read as an event id.
+app.include_router(event_edit_router)
+app.include_router(event_edit_me_router)
 app.include_router(registration_router)
 app.include_router(registration_events_router)
 app.include_router(registration_me_router)

@@ -1,0 +1,88 @@
+/* US12 (SCRUM-15): the coordinator's event view, edit form and History. */
+.event-edit-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px 0 8px;
+}
+
+.event-edit-tabs {
+  display: flex;
+  gap: 4px;
+  margin-right: auto;
+}
+
+.event-edit-tab--current {
+  color: var(--tab-active);
+  box-shadow: inset 0 -2px 0 var(--tab-active);
+}
+
+.request-status--planning {
+  background: var(--badge-soon-bg);
+  color: var(--badge-soon-text);
+}
+
+.event-edit-notice--pending {
+  color: var(--badge-soon-text);
+}
+
+.event-edit-hint {
+  margin: 16px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.event-edit-details dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 32px;
+  margin: 16px 0;
+}
+
+.event-edit-details dt {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.event-edit-details dd {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.event-edit-history {
+  width: 100%;
+  margin-top: 16px;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.event-edit-history th,
+.event-edit-history td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.event-edit-history th {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.event-edit-history td .venue-booking-status {
+  margin-left: 8px;
+}
+
+.event-edit-history__id {
+  display: block;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+@media (max-width: 720px) {
+  .event-edit-details dl {
+    grid-template-columns: 1fr;
+  }
+}
