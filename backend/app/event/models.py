@@ -35,6 +35,7 @@ class EventStatus(enum.StrEnum):
     REJECTED = "rejected"
     PLANNING = "planning"
     CONFIRMED = "confirmed"
+    PREPARATION = "preparation"  # SCRUM-85 (US18): after Confirmed; staff preparation updates unlock here
     CANCELLED = "cancelled"
     COMPLETED = "completed"
 
@@ -97,6 +98,10 @@ class Event(Base):
             "status::text = 'rejected' OR rejection_reason IS NULL", name="events_rejection_reason_only_when_rejected"
         ),
         CheckConstraint(
+            "(safety_approved_at IS NULL) = (safety_approved_by_user_id IS NULL)",
+            name="events_safety_approval_consistent",
+        ),
+        CheckConstraint(
             "decided_by_user_id IS NULL OR created_by_user_id IS NULL OR decided_by_user_id <> created_by_user_id",
             name="events_decider_not_creator",
         ),
@@ -147,6 +152,11 @@ class Event(Base):
     decided_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
     decided_by: Mapped["User | None"] = relationship(foreign_keys=[decided_by_user_id], viewonly=True)
     rejection_reason: Mapped[str | None] = mapped_column(Text)
+    # US18 (SCRUM-85): the Safety Officer's approval (US30a will set it) and who confirmed the event, when.
+    safety_approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    safety_approved_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    confirmed_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
 
 
 class EventRegistrationField(Base):

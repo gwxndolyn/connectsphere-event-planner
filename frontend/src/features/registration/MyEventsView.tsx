@@ -14,7 +14,8 @@ interface MyEventsViewProps {
 /**
  * The attendee's upcoming registrations, from `GET /me/registrations` (SCRUM-30/31): already
  * split into sections, sorted by start time and without ended events. A place offered after a
- * withdrawal (US6b) comes first, with "Accept place" (SCRUM-76).
+ * withdrawal (US6b) comes first, with "Accept place" (SCRUM-76). An offer that lapsed comes last,
+ * muted, so its holder sees it expired rather than vanish (SCRUM-137).
  */
 export function MyEventsView({ registry, onBrowse }: MyEventsViewProps) {
   const { myRegistrations, loading, error, withdraw, acceptOffer } = registry;
@@ -23,7 +24,7 @@ export function MyEventsView({ registry, onBrowse }: MyEventsViewProps) {
   const [pending, setPending] = useState<MyRegistration | null>(null);
   // Same reason: once accepted, the row moves from Place available to Confirmed.
   const [accepting, setAccepting] = useState<MyRegistration | null>(null);
-  const { confirmed, waitlisted, offered } = myRegistrations;
+  const { confirmed, waitlisted, offered, expired } = myRegistrations;
 
   return (
     <section className="board">
@@ -37,7 +38,7 @@ export function MyEventsView({ registry, onBrowse }: MyEventsViewProps) {
         <p className="board__empty" role="alert">
           {registrationErrorMessage(error)}
         </p>
-      ) : confirmed.length + waitlisted.length + offered.length === 0 ? (
+      ) : confirmed.length + waitlisted.length + offered.length + expired.length === 0 ? (
         <div className="my-events__empty">
           <p>You haven't registered for any upcoming events yet.</p>
           <button type="button" className="button button--reserve" onClick={onBrowse}>
@@ -65,6 +66,8 @@ export function MyEventsView({ registry, onBrowse }: MyEventsViewProps) {
               cancelLabel="Leave waitlist"
             />
           )}
+
+          {expired.length > 0 && <ExpiredSection registrations={expired} />}
         </>
       )}
 
@@ -167,6 +170,36 @@ function OfferedSection({ registrations, onAccept }: OfferedSectionProps) {
               <button type="button" className="button button--reserve" onClick={() => onAccept(registration)}>
                 Accept place
               </button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+/** SCRUM-137 (TC-US7-22): an offer the holder didn't take up in time. The place has gone to the next
+ * person or back to the event, so there's nothing to press. */
+function ExpiredSection({ registrations }: { registrations: MyRegistration[] }) {
+  return (
+    <div className="my-events__section">
+      <h2 className="my-events__heading">Offer expired</h2>
+      <ul className="my-events__list">
+        {registrations.map((registration) => {
+          const timed = toTimed(registration.date, registration.startTime, registration.endTime);
+          return (
+            <li key={registration.id} className="my-events__row my-events__row--expired">
+              <div className="my-events__info">
+                <p className="my-events__event-title">{registration.eventTitle}</p>
+                <p className="my-events__event-meta">
+                  {formatEventDate(timed)}, {formatEventTimeRange(timed)}
+                </p>
+                {registration.offerExpiresAt && (
+                  <p className="my-events__expired-note">
+                    Your offer expired at {formatInstantDateTime(registration.offerExpiresAt)}; the place has moved on.
+                  </p>
+                )}
+              </div>
             </li>
           );
         })}

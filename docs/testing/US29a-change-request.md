@@ -17,15 +17,15 @@
 
 | Work | Tests |
 | --- | --- |
-| `event_change_requests.reason` (migration `20261109_1200_us29a_change_reqs`), on US12's table | `backend/tests/event/test_change_requests.py` (TC-US29A-12, 18) |
+| `event_change_requests.reason` (migration `20261110_1200_us29a_change_reqs`), on US12's table | `backend/tests/event/test_change_requests.py` (TC-US29A-12, 18) |
 | `POST /api/v1/event-requests/{id}/change-requests`, `GET /api/v1/me/change-requests`; `Notifier.change_requested` | `backend/tests/event/test_change_requests.py` (TC-US29A-01 to 17) |
 | **Change requests** on the organiser's request: form, review, status list | `frontend/src/features/changeRequest/changeRequest.integration.test.tsx` (TC-US29A-19 to 23); `e2e/tests/change-request.spec.ts` (TC-US29A-24) |
 
 ## Decisions for this story
 
 - **One table for both kinds of change request.** US12's `event_change_requests` gains a `reason`, and its `pending_approval` status is AC 4's "Pending". US29b reviews organisers' requests and coordinators' US12 edits in one place. An organiser sees only the requests they made.
-- **Which fields, by stage** (D87, `DECISION-PENDING`; the story owner's choice, 1 Nov): from Submitted to Approved, the preferred dates, start time and end time; from Planning on, the event's own start and end. At every stage: name, category, purpose, expected attendance, room layout, accessibility needs and equipment needs. "Venue requirements" are the room layout and accessibility needs; the venue itself is booked by the coordinator (US22). Capacity and delivery mode are the coordinator's, not the organiser's.
-- **Who is notified** (D88, `DECISION-PENDING`; the story owner's choice, 1 Nov): the assigned coordinator. A Submitted event has none yet (D27), so every active Coordinator Lead hears instead, as when a request joins the queue (D28). Log-only, like the other notices.
+- **Which fields, by stage** (D90, `DECISION-PENDING`; the story owner's choice, 1 Nov): from Submitted to Approved, the preferred dates, start time and end time; from Planning on, the event's own start and end. At every stage: name, category, purpose, expected attendance, room layout, accessibility needs and equipment needs. "Venue requirements" are the room layout and accessibility needs; the venue itself is booked by the coordinator (US22). Capacity and delivery mode are the coordinator's, not the organiser's.
+- **Who is notified** (D91, `DECISION-PENDING`; the story owner's choice, 1 Nov): the assigned coordinator. A Submitted event has none yet (D27), so every active Coordinator Lead hears instead, as when a request joins the queue (D28). Log-only, like the other notices.
 - **Draft:** `404`, as it's still the organiser's to edit directly.
 - **Unchanged values aren't listed**, and a request whose every value matches the event is refused (`NO_CHANGES`).
 
@@ -37,7 +37,7 @@
 | TC-US29A-02 | 1 | Rejected, Cancelled, Completed | They request a change | `409 CHANGE_NOT_ALLOWED` with `status`; nothing stored |
 | TC-US29A-03 | 1 | A draft, another organiser's event, an unknown id | They request a change | `404 NOT_FOUND` |
 | TC-US29A-04 | 1 | A Submitted event | Change preferred date, times, room layout, equipment | Each listed, in form order |
-| TC-US29A-05 | 1 | A Planning event | Change the end; change a preferred time | End accepted; the preference refused "at this stage" (D87) |
+| TC-US29A-05 | 1 | A Planning event | Change the end; change a preferred time | End accepted; the preference refused "at this stage" (D90) |
 | TC-US29A-06 | 2 | A Submitted event | Change attendance, resend the purpose unchanged | Only attendance listed, with current and proposed value |
 | TC-US29A-07 | 2 | A Submitted event | Propose only current values | `422 NO_CHANGES`; nothing stored |
 | TC-US29A-08 | 3 | A Submitted event | No reason, a blank one, no changes, neither | `422 MISSING_REQUIRED_FIELD` naming `reason` and/or `changes` |
@@ -46,7 +46,7 @@
 | TC-US29A-11 | 4 | A Submitted event | Request a change | Pending with the reason and requester; the event keeps its values and status |
 | TC-US29A-12 | 3 | The schema | Insert a blank reason | Refused by `event_change_requests_reason_not_blank` |
 | TC-US29A-13 | 5 | An event with a coordinator | Request a change | `change_requested` to the coordinator: event, organiser, fields, reason |
-| TC-US29A-14 | 5 | A Submitted event (no coordinator) | Request a change | Every active Lead is told, marked as to a Lead (D88) |
+| TC-US29A-14 | 5 | A Submitted event (no coordinator) | Request a change | Every active Lead is told, marked as to a Lead (D91) |
 | TC-US29A-15 | 5 | The notice fails | Request a change | `201`; the request is kept |
 | TC-US29A-16 | 6 | Requests on two events, and another organiser's | List theirs, then for one event | Theirs only, newest first, with status and reference |
 | TC-US29A-17 | 6 | A coordinator's US12 edit on the organiser's event | List theirs | Not listed |
@@ -70,12 +70,12 @@ From the running app (local Postgres, seeded, acting as the seeded organiser Oli
 | 2 | [04-ac2-current-and-proposed-before-sending.png](screenshots/US29a/04-ac2-current-and-proposed-before-sending.png) | Before sending: each changed field with its current and proposed value, and the reason |
 | 4, 6 | [05-ac4-ac6-pending-event-unchanged.png](screenshots/US29a/05-ac4-ac6-pending-event-unchanged.png) | Sent: "Your event keeps its current details"; the request listed as **Pending** |
 | 6 | [06-ac6-status-on-reopening.png](screenshots/US29a/06-ac6-status-on-reopening.png) | Reopening the request shows the change request and its status |
-| 5 | [07-ac5-notification-log.txt](screenshots/US29a/07-ac5-notification-log.txt) | The backend's notice log: the assigned coordinator (Venue Booking Demo), and both Leads for the unassigned request (D88). Notices are log-only (spec §7) |
+| 5 | [07-ac5-notification-log.txt](screenshots/US29a/07-ac5-notification-log.txt) | The backend's notice log: the assigned coordinator (Venue Booking Demo), and both Leads for the unassigned request (D91). Notices are log-only (spec §7) |
 
 ## Run log
 
-1 Nov 2026, this branch, local Postgres 16:
+1 Nov 2026, this branch after merging `main` (SCRUM-85, SCRUM-137), local Postgres 16 in UTC as in CI:
 
-- Backend: `pytest` — 1315 passed (TC-US29A-01 to 18 in `tests/event/test_change_requests.py`).
-- Frontend: `npm run lint`, `npm run build`, `npm test` — 432 passed (TC-US29A-19 to 23).
-- E2E: `npx playwright test --project=chromium` — 44 passed, 1 failed: `change-request.spec.ts` passes; the failure is TC-US5-11 (`equipment.spec.ts`), which fails the same way on `main` (found 31 Oct) and isn't touched here. The `login` project needs Supabase secrets and wasn't run.
+- Backend: `pytest` — 1390 passed (TC-US29A-01 to 18 in `tests/event/test_change_requests.py`).
+- Frontend: `npm run lint`, `npm run build`, `npm test` — 441 passed (TC-US29A-19 to 23).
+- E2E: `npx playwright test --project=chromium` — 46 passed, `change-request.spec.ts` included. The `login` project needs Supabase secrets and wasn't run.

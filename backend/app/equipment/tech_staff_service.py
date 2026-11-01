@@ -15,7 +15,7 @@ from app.core.exceptions import DomainError
 from app.equipment.models import EquipmentLineStatus, EquipmentRequestLine, EquipmentType, TechStaffAssignment
 from app.equipment.schemas import PersonOut, TechStaffAssignedOut, TechStaffLogEntryOut, TechStaffOut
 from app.equipment.service import ELIGIBLE_STATUSES, managed_event
-from app.event.models import Event
+from app.event.models import Event, EventStatus
 from app.notification.service import Notifier
 from app.user.models import User, UserRole
 from app.venue.primary import attendee_venue, primary_venues
@@ -42,13 +42,14 @@ def _started(event: Event, now: datetime) -> bool:
 def _busy(db: Session, event: Event, staff_user_ids: list[uuid.UUID] | None = None) -> set[uuid.UUID]:
     """Staff actively assigned to another event overlapping this one (AC 2). D81 (decided by the acting PO,
     31 Oct): the events' own times, [start, end), with no venue setup or turnaround, so back-to-back
-    doesn't overlap."""
+    doesn't overlap. And on 1 Nov: a cancelled event's assignments don't count, as for equipment (D75)."""
     query = (
         select(TechStaffAssignment.staff_user_id)
         .join(Event, Event.id == TechStaffAssignment.event_id)
         .where(
             TechStaffAssignment.unassigned_at.is_(None),
             TechStaffAssignment.event_id != event.id,
+            Event.status != EventStatus.CANCELLED,
             Event.start_at < event.end_at,
             Event.end_at > event.start_at,
         )

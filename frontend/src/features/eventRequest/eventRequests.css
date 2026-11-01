@@ -423,3 +423,65 @@
   margin: 6px 0 0;
   color: var(--text-muted);
 }
+
+/* US18 (SCRUM-85): the readiness list and Confirm event. */
+.request-confirm {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.request-confirm h2 {
+  margin: 0 0 12px;
+  font-size: 17px;
+}
+
+.readiness-list {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.readiness-item {
+  display: flex;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  text-align: left;
+}
+
+.readiness-item__mark {
+  font-weight: 700;
+}
+
+.readiness-item--complete .readiness-item__mark {
+  color: var(--success);
+}
+
+.readiness-item--outstanding {
+  border-color: var(--danger, var(--border));
+}
+
+.readiness-item__text {
+  display: grid;
+  gap: 2px;
+}
+
+.readiness-item__state {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.readiness-item__detail {
+  color: var(--text-muted);
+}
+
+.request-status--preparation {
+  background: var(--success-bg);
+  color: var(--success);
+}

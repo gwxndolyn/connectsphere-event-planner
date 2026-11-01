@@ -1,7 +1,7 @@
 """US29a (SCRUM-97): an organiser requests a change to their own submitted event. See docs/testing/US29a-change-request.md."""
 
 import uuid
-from datetime import time, timedelta
+from datetime import datetime, time, timedelta
 
 import pytest
 from httpx import AsyncClient
@@ -166,7 +166,11 @@ async def test_tc_us29a_05_a_planned_event_takes_its_start_and_end_not_preferenc
     )
 
     assert moved.status_code == 201
-    assert moved.json()["changes"] == [{"field": "end_at", "old_value": event.end_at.isoformat(), "new_value": new_end}]
+    [change] = moved.json()["changes"]
+    # Compared as instants: the database gives the old value in its session's zone (UTC in CI, SGT locally).
+    assert change["field"] == "end_at"
+    assert datetime.fromisoformat(change["old_value"]) == event.end_at
+    assert datetime.fromisoformat(change["new_value"]) == datetime.fromisoformat(new_end)
     assert preferred.status_code == 422
     assert preferred.json()["errors"] == {"preferred_start_time": "This can't be changed at this stage."}
 
@@ -320,7 +324,7 @@ async def test_tc_us29a_13_the_assigned_coordinator_is_notified(
 async def test_tc_us29a_14_an_unassigned_event_notifies_every_active_lead(
     client: AsyncClient, db: Session, organiser: User, notifier: FakeNotifier
 ) -> None:
-    """D88: a Submitted event has no coordinator yet (D27)."""
+    """D91: a Submitted event has no coordinator yet (D27)."""
     db.execute(text("UPDATE users SET is_active = false WHERE 'coordinator_lead' = ANY(roles)"))
     leads = [make_user(db, UserRole.COORDINATOR_LEAD), make_user(db, UserRole.COORDINATOR_LEAD)]
     make_user(db, UserRole.COORDINATOR_LEAD, active=False)
@@ -398,5 +402,5 @@ def test_tc_us29a_18_one_migration_head(db: Session) -> None:
 
     config = Config(str(BACKEND_DIR / "alembic.ini"))
     config.set_main_option("script_location", str(BACKEND_DIR / "migrations"))
-    assert ScriptDirectory.from_config(config).get_heads() == ["20261109_1200_us29a_change_reqs"]
+    assert ScriptDirectory.from_config(config).get_heads() == ["20261110_1200_us29a_change_reqs"]
     assert db.scalar(select(func.count()).select_from(EventChangeRequest)) == 0

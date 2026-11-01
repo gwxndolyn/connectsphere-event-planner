@@ -1,8 +1,8 @@
 """let an organiser request a change to a submitted event, with a reason
 
-Revision ID: 20261109_1200_us29a_change_reqs
-Revises: 20261108_1200_us12_event_edits
-Create Date: 2026-11-09
+Revision ID: 20261110_1200_us29a_change_reqs
+Revises: 20261109_1200_us18_confirm
+Create Date: 2026-11-10
 
 """
 from typing import Sequence, Union
@@ -11,8 +11,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "20261109_1200_us29a_change_reqs"
-down_revision: Union[str, None] = "20261108_1200_us12_event_edits"
+revision: str = "20261110_1200_us29a_change_reqs"
+down_revision: Union[str, None] = "20261109_1200_us18_confirm"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

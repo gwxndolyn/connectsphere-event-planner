@@ -29,7 +29,7 @@ REQUESTABLE_STATUSES = (
 # Planning onwards, the event has its own start and end (events_final_fields_required); before, only preferences.
 PLANNED_STATUSES = (EventStatus.PLANNING, EventStatus.CONFIRMED)
 
-# DECISION-PENDING: D87 — which fields an organiser may ask to change, by stage. AC 1 names date, time, attendance,
+# DECISION-PENDING: D90 — which fields an organiser may ask to change, by stage. AC 1 names date, time, attendance,
 # venue and equipment requirements and "other details"; the event's own fields are what can change.
 COMMON_FIELDS = (
     "name",
@@ -254,7 +254,7 @@ class ChangeRequestService:
             if coordinator is not None and coordinator.is_active:
                 recipients, to_lead = [coordinator], False
             else:
-                # DECISION-PENDING: D88 — nobody is assigned (a Submitted event, D27), so every active Lead hears
+                # DECISION-PENDING: D91 — nobody is assigned (a Submitted event, D27), so every active Lead hears
                 # instead, as when a request joins the queue (D28).
                 recipients = db.scalars(
                     select(User)
