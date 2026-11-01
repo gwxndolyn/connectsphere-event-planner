@@ -298,6 +298,10 @@ class ChangeDecisionService:
             .with_for_update()
             .execution_options(populate_existing=True)
         ).one()
+        # Calvin's #125 review: who decides (D102), again on the locked rows. A reassignment committed after the
+        # first check refuses the old coordinator, as someone else's request would be.
+        if not _decides(user, request, event):
+            raise DomainError(404, "NOT_FOUND")
         if request.status != ChangeRequestStatus.PENDING_APPROVAL:
             raise DomainError(409, "CHANGE_REQUEST_NOT_PENDING", status=request.status.value)
         return request, event

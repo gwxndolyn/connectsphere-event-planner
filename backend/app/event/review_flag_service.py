@@ -111,7 +111,13 @@ class ReviewFlagService:
                 422, "INVALID_REVIEW_FLAG", fields=["note"], errors={"note": f"The note must be at most {NOTE_MAX_LENGTH} characters."}
             )
         # The event FOR SHARE, as a change decision locks it FOR UPDATE; the flag FOR UPDATE, so two clears queue.
-        db.scalars(select(Event).where(Event.id == event.id).with_for_update(read=True)).one()
+        locked = db.scalars(
+            select(Event).where(Event.id == event.id).with_for_update(read=True).execution_options(populate_existing=True)
+        ).one()
+        # Calvin's #125 review: the coordinator again, on the locked event, so a reassignment committed after the
+        # first check refuses the old one.
+        if not is_assigned_coordinator(locked, coordinator):
+            raise DomainError(404, "NOT_FOUND")
         flag = db.scalars(
             select(EventReviewFlag).where(EventReviewFlag.id == flag_id).with_for_update().execution_options(populate_existing=True)
         ).one()
