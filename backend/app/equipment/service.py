@@ -291,6 +291,10 @@ class EquipmentService:
     def queue(self, db: Session, status: EquipmentLineStatus) -> list[EquipmentLineOut]:
         """Tech Support's lists from every event, oldest first: pending lines to review (US26 AC 3), and
         approved lines to reserve (US27, SCRUM-131)."""
+        # US9 (SCRUM-12): a cancelled event's pending lines aren't Tech support's to review; its approved ones stay,
+        # read as released (D75).
+        if status == EquipmentLineStatus.PENDING:
+            return _lines(db, EquipmentRequestLine.status == status, Event.status != EventStatus.CANCELLED)
         return _lines(db, EquipmentRequestLine.status == status)
 
     def check_availability(
@@ -405,9 +409,14 @@ class EquipmentService:
             raise DomainError(404, "NOT_FOUND")
         # D51: not a line they requested, nor one for an event they now coordinate. The first half is
         # also a CHECK (equipment_request_lines_reviewer_not_requester).
-        refuse_self_decision(reviewer, created_by_user_id=line.requested_by_user_id, event=db.get(Event, line.event_id))
+        # FOR SHARE: a cancel (US9) waits for this review, or this sees the event Cancelled.
+        event = db.scalars(select(Event).where(Event.id == line.event_id).with_for_update(read=True)).one()
+        refuse_self_decision(reviewer, created_by_user_id=line.requested_by_user_id, event=event)
         if line.status != EquipmentLineStatus.PENDING:
             raise _not_pending(line)
+        # US9 (SCRUM-12): a line on a cancelled event can't go ahead, so approving or rejecting it means nothing.
+        if event.status == EventStatus.CANCELLED:
+            raise DomainError(409, "EVENT_NOT_ELIGIBLE", status=event.status.value)
 
         line.status = EquipmentLineStatus(body.decision)
         # DECISION-PENDING: D43 — the note is optional for both decisions (AC 3 doesn't require one).
