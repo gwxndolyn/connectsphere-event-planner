@@ -90,6 +90,32 @@ SCRUM-139's API, called on a local server (`AUTH_DEV_HEADERS=true`) against a fr
 
 ![24 agenda API tests, the 4 routes in the role matrix, and the whole backend suite pass](screenshots/US15-event-agenda/09-backend-tests.png)
 
+SCRUM-140's screen, on a local server and a freshly seeded database, as the seeded organiser Olivia Organiser. For the outside-the-window shot, Agenda Demo's start was moved 90 minutes later in the local database only, then reseeded.
+
+### SCRUM-140: a field error on its field (TC-US15-13, AC 2)
+
+![A presentation with no speaker: the API's message under Speaker or presenter](screenshots/US15-event-agenda/10-field-error.png)
+
+### SCRUM-140: chronological order (TC-US15-13, AC 5)
+
+![Agenda Demo's sessions in time order, though added out of order](screenshots/US15-event-agenda/11-agenda-in-order.png)
+
+### SCRUM-140: an overlap names the clash (TC-US15-14, AC 4)
+
+![An overlapping panel refused, naming Design sprint and its times](screenshots/US15-event-agenda/12-overlap.png)
+
+### SCRUM-140: outside the event's times (TC-US15-14, D94)
+
+![After Agenda Demo's start moved to 10:30, the 10:00 break is marked Outside the event's times](screenshots/US15-event-agenda/13-outside-window.png)
+
+### SCRUM-140: read-only once submitted (TC-US15-14, AC 1)
+
+![A submitted request's Agenda, with no Add session, Edit or Delete](screenshots/US15-event-agenda/14-submitted-read-only.png)
+
+### SCRUM-140: the frontend and E2E tests
+
+![The four agenda Vitest tests, the whole frontend suite, lint and build, and the whole E2E suite with TC-US15-15](screenshots/US15-event-agenda/15-frontend-tests.png)
+
 ## Run log
 
 | Date | Subtask | What ran | Result |
@@ -101,3 +127,4 @@ SCRUM-139's API, called on a local server (`AUTH_DEV_HEADERS=true`) against a fr
 | 1 Nov | SCRUM-139 | After merging `main` (#115, US9's cancellation schema): `alembic upgrade head`; the full backend suite | US9 took deviation 63 and #116 (US30b) is on 64, so this PR's is 65; D93 to D97 are unchanged. Whole backend suite 1500 passed |
 | 1 Nov | SCRUM-139 | After merging `main` (#116, US30b; then #120, the `safety_reviews` RLS fix): the full backend suite; markdownlint | One head (#120's `20261114_1200_us30a_rls`, as this PR adds no migration); US30b keeps deviation 64 and this PR 65. Whole backend suite 1524 passed. A blank line was missing above Run log (MD022), which CI's markdownlint caught |
 | 1 Nov | SCRUM-139 | After merging `main` (#117, US9's cancellation API): the full backend suite; markdownlint | US9's PR 2 took deviation 65, so this PR's is 66; both PRs' routes are in TC-US16B-14's matrix. One head (`20261114_1200_us30a_rls`). Whole backend suite 1575 passed |
+| 1 Nov | SCRUM-140 | Vitest: `src/features/agenda`, then the whole frontend suite; lint and build; the whole E2E suite against a freshly seeded local database | Tests written first: the four Vitest cases failed (no Agenda region) and TC-US15-15 had no screen to drive. After the change: TC-US15-13 and 14 pass (4 cases); whole frontend suite 464 passed; lint and build clean. E2E: 51 passed, 10 skipped (the Supabase login and sign-up cases), TC-US15-15 included. The local frontend needs `VITE_DEV_SAFETY_OFFICER_ID` for the US30a spec, as CI sets |
