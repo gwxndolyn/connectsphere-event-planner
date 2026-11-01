@@ -1585,7 +1585,7 @@ const handlers = [
     return startCancellation(event, body, false);
   }),
 
-  route("post", "/api/v1/event-requests/:id/cancellation", ({ request, params, body }) => {
+  route("post", "/api/v1/event-requests/:id/cancel", ({ request, params, body }) => {
     if (userRole(request) !== "coordinator") return error(403, "FORBIDDEN");
     const event = db.requests.find((r) => r.id === params.id && r.coordinator?.id === request.headers.get("X-User-Id"));
     if (!event || event.status === "draft") return error(404, "NOT_FOUND");

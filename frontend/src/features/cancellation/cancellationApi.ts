@@ -12,7 +12,7 @@ export const cancellationApi = {
     apiClient.post<Cancellation>(`/api/v1/event-requests/${eventId}/cancellation-requests`, { reason }),
 
   cancel: (eventId: string, reason: string) =>
-    apiClient.post<Cancellation>(`/api/v1/event-requests/${eventId}/cancellation`, { reason }),
+    apiClient.post<Cancellation>(`/api/v1/event-requests/${eventId}/cancel`, { reason }),
 
   approve: (cancellationId: string) => apiClient.post<Cancellation>(`/api/v1/event-cancellations/${cancellationId}/approve`, {}),
 

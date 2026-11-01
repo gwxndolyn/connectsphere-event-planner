@@ -44,6 +44,8 @@ describe("cancel an event (US9)", () => {
     const cancellation = await panel();
 
     await user.click(await cancellation.findByRole("button", { name: "Request cancellation" }));
+    // AC 6: the reason goes to everyone registered, so the form says so (Matt's review of #117).
+    expect(cancellation.getByText(/everyone registered or waiting is told, with your reason/)).toBeInTheDocument();
     await user.click(cancellation.getByRole("button", { name: "Send cancellation request" }));
     expect(cancellation.getByRole("alert")).toHaveTextContent("Give a reason");
     expect(cancellation.getByLabelText("Reason for cancelling")).toHaveAttribute("aria-invalid", "true");
@@ -167,12 +169,12 @@ describe("cancel an event (US9)", () => {
     expect(confirm.getByRole("heading", { name: "Cancel Alumni night?" })).toBeInTheDocument();
     expect(confirm.getByText(/This can't be undone./)).toBeInTheDocument();
     expect(confirm.getByText(/The venue flooded./)).toBeInTheDocument();
-    expect(callsTo("POST", /\/cancellation$/)).toHaveLength(0);
+    expect(callsTo("POST", /\/cancel$/)).toHaveLength(0);
 
     await user.click(confirm.getByRole("button", { name: "Cancel event" }));
 
     expect(await cancellation.findByRole("status")).toHaveTextContent("The event is cancelled.");
-    expect(callsTo("POST", `/api/v1/event-requests/${event.id}/cancellation`)[0].body).toEqual({ reason: "The venue flooded." });
+    expect(callsTo("POST", `/api/v1/event-requests/${event.id}/cancel`)[0].body).toEqual({ reason: "The venue flooded." });
     expect(cancellation.getByRole("list", { name: "Cancellation history" })).toHaveTextContent("Cancelled by Casey Tan on");
     expect(cancellation.queryByRole("button", { name: "Cancel event" })).not.toBeInTheDocument();
   });
@@ -181,7 +183,7 @@ describe("cancel an event (US9)", () => {
     const user = userEvent.setup();
     const event = plannedEvent();
     server.use(
-      http.post(`http://api.test/api/v1/event-requests/${event.id}/cancellation`, () =>
+      http.post(`http://api.test/api/v1/event-requests/${event.id}/cancel`, () =>
         HttpResponse.json({ code: "EVENT_STARTED", starts_at: "2026-10-01T01:00:00Z" }, { status: 409 }),
       ),
     );

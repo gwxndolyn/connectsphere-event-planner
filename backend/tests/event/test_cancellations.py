@@ -9,15 +9,24 @@ from httpx import AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.equipment.models import EquipmentReservation, TechStaffAssignment
-from app.event.models import CancellationStatus, Event, EventCancellation, EventStatus
+from app.equipment.models import EquipmentLineStatus, EquipmentRequestLine, EquipmentReservation, TechStaffAssignment
+from app.event.models import (
+    CancellationStatus,
+    ChangeRequestStatus,
+    Event,
+    EventCancellation,
+    EventChangeRequest,
+    EventStatus,
+)
 from app.registration.models import Registration, RegistrationStatus
+from app.safety.models import SafetyReview
 from app.registration.service import WAITLIST_OFFER_WINDOW
 from app.user.models import Attendee, User, UserRole
 from app.venue.models import VenueBookingStatus
 from tests.conftest import FakeNotifier
 from tests.equipment.test_equipment_reservation_schema import make_approved_line, reserve
 from tests.event.test_event_request_clarification_api import auth
+from tests.safety.test_safety_review import approval
 from tests.factories import NOW, make_attendee, make_event, make_registration, make_user, make_venue, make_venue_booking
 
 pytestmark = pytest.mark.anyio
@@ -70,7 +79,7 @@ async def ask(client: AsyncClient, event: Event | uuid.UUID, user: User, reason:
 
 async def cancel(client: AsyncClient, event: Event, user: User, reason: object = REASON):
     body = {} if reason is None else {"reason": reason}
-    return await client.post(f"/api/v1/event-requests/{event.id}/cancellation", headers=auth(user), json=body)
+    return await client.post(f"/api/v1/event-requests/{event.id}/cancel", headers=auth(user), json=body)
 
 
 async def decide(client: AsyncClient, cancellation_id: str, user: User, verb: str, reason: object = None):
@@ -520,7 +529,10 @@ async def test_tc_us9_20_an_approved_request_with_a_venue_starts_at_its_booking(
     client: AsyncClient, db: Session, organiser: User, coordinator: User
 ) -> None:
     booked = approved_request(db, organiser, coordinator, NOW.date() + timedelta(days=30))
-    make_venue_booking(db, event=booked, venue=make_venue(db), user=coordinator, starts_at=NOW - timedelta(hours=1))
+    make_venue_booking(
+        db, event=booked, venue=make_venue(db), user=coordinator, starts_at=NOW - timedelta(hours=1),
+        status=VenueBookingStatus.APPROVED, decided_by_user_id=make_user(db, UserRole.VENUE_STAFF).id,
+    )
 
     response = await ask(client, booked, organiser)
 
@@ -538,7 +550,7 @@ async def test_tc_us9_22_the_organiser_and_coordinator_read_the_history(
     second = (await ask(client, event, organiser, "Asking again")).json()
     url = f"/api/v1/event-requests/{event.id}/cancellations"
 
-    for reader in (organiser, coordinator):
+    for reader in (organiser, coordinator, make_user(db, UserRole.COORDINATOR_LEAD)):
         response = await client.get(url, headers=auth(reader))
         assert response.status_code == 200
         listed = response.json()["cancellations"]
@@ -693,3 +705,95 @@ def test_tc_us9_32_a_reseed_un_cancels_any_seeded_event_and_drops_its_approved_r
     db.refresh(other)
     assert (event.status, rows(db, event)) == (EventStatus.PLANNING, 0)
     assert (other.status, rows(db, other)) == (EventStatus.CANCELLED, 1)
+
+# --- Work still open on a cancelled event (Matt's review of #117) ---
+
+
+async def test_tc_us9_33_cancelling_rejects_the_events_pending_change_requests(
+    client: AsyncClient, db: Session, organiser: User, coordinator: User, event: Event
+) -> None:
+    pending = EventChangeRequest(
+        event_id=event.id, requested_by_user_id=organiser.id, reason="Bigger room",
+        changes=[{"field": "expected_attendees", "old_value": 40, "new_value": 60}],
+    )
+    other = owned_event(db, organiser, coordinator)
+    elsewhere = EventChangeRequest(
+        event_id=other.id, requested_by_user_id=organiser.id, reason="Bigger room",
+        changes=[{"field": "expected_attendees", "old_value": 40, "new_value": 60}],
+    )
+    db.add_all([pending, elsewhere])
+    db.flush()
+
+    await cancel(client, event, coordinator)
+
+    db.refresh(pending)
+    db.refresh(elsewhere)
+    assert (pending.status, elsewhere.status) == (ChangeRequestStatus.REJECTED, ChangeRequestStatus.PENDING_APPROVAL)
+
+
+async def test_tc_us9_33_tech_support_neither_lists_nor_reviews_a_cancelled_events_pending_line(
+    client: AsyncClient, db: Session, organiser: User, coordinator: User, event: Event
+) -> None:
+    tech = make_user(db, UserRole.TECH_SUPPORT)
+    line = EquipmentRequestLine(
+        event_id=event.id, equipment_type_id=make_approved_line(db).equipment_type_id, quantity=1,
+        requested_by_user_id=coordinator.id,
+    )
+    db.add(line)
+    db.flush()
+    await cancel(client, event, coordinator)
+
+    queue = await client.get("/api/v1/equipment-lines?status=pending", headers=auth(tech))
+    reviewed = await client.post(
+        f"/api/v1/equipment-lines/{line.id}/review", headers=auth(tech), json={"decision": "approved"}
+    )
+
+    assert str(line.id) not in queue.text
+    assert (reviewed.status_code, reviewed.json()) == (409, {"code": "EVENT_NOT_ELIGIBLE", "status": "cancelled"})
+    db.refresh(line)
+    assert line.status == EquipmentLineStatus.PENDING
+
+
+async def test_tc_us9_33_the_safety_officer_neither_lists_nor_reviews_a_cancelled_event(
+    client: AsyncClient, db: Session, coordinator: User, event: Event
+) -> None:
+    officer = make_user(db, UserRole.SAFETY_OFFICER)
+    await cancel(client, event, coordinator)
+
+    queue = await client.get("/api/v1/safety-reviews", headers=auth(officer))
+    reviewed = await client.post(f"/api/v1/safety-reviews/{event.id}", headers=auth(officer), json=approval())
+
+    assert str(event.id) not in queue.text
+    assert (reviewed.status_code, reviewed.json()) == (
+        409,
+        {"code": "SAFETY_REVIEW_NOT_ALLOWED", "reason": "status", "status": "cancelled"},
+    )
+    assert db.scalar(select(func.count()).select_from(SafetyReview).where(SafetyReview.event_id == event.id)) == 0
+
+
+# --- Nobody to decide, and a stale pending booking (Matt's review of #117) ---
+
+
+async def test_tc_us9_34_with_no_active_coordinator_the_leads_are_told(
+    client: AsyncClient, db: Session, organiser: User, coordinator: User, event: Event, notifier: FakeNotifier
+) -> None:
+    leads = [make_user(db, UserRole.COORDINATOR_LEAD) for _ in range(2)]
+    make_user(db, UserRole.COORDINATOR_LEAD, active=False)
+    coordinator.is_active = False
+    db.flush()
+
+    response = await ask(client, event, organiser)
+
+    assert response.status_code == 201
+    assert sorted(call["email"] for call in notifier.cancellation_requests) == sorted(lead.email for lead in leads)
+
+
+async def test_tc_us9_35_a_pending_booking_in_the_past_doesnt_count_as_the_start(
+    client: AsyncClient, db: Session, organiser: User, coordinator: User
+) -> None:
+    approved = approved_request(db, organiser, coordinator, NOW.date() + timedelta(days=30))
+    make_venue_booking(db, event=approved, venue=make_venue(db), user=coordinator, starts_at=NOW - timedelta(hours=1))
+
+    response = await ask(client, approved, organiser)
+
+    assert response.status_code == 201  # never approved, so it doesn't place the event (D101)

@@ -163,7 +163,8 @@ export function EventCancellation({ event, role, onChanged }: EventCancellationP
       {step === "ask" && (
         <div className="event-cancellation__form">
           <p className="event-cancellation__hint">
-            Your coordinator decides whether to cancel. Until then the event goes ahead as planned.
+            Your coordinator decides whether to cancel. Until then the event goes ahead as planned. If it's cancelled,
+            everyone registered or waiting is told, with your reason.
           </p>
           {reasonField("Reason for cancelling")}
           {actions("Back", "Send cancellation request", "Sending…", () => {

@@ -307,7 +307,7 @@ def request_cancellation(
     return cancellation_service.request(db, organiser, request_id, body, now, notifier)
 
 
-@router.post("/{request_id}/cancellation", response_model=CancellationOut)
+@router.post("/{request_id}/cancel", response_model=CancellationOut)
 def cancel_event(
     request_id: uuid.UUID,
     body: CancellationWrite,
@@ -322,7 +322,7 @@ def cancel_event(
 @router.get("/{request_id}/cancellations", response_model=CancellationsOut)
 def list_cancellations(
     request_id: uuid.UUID,
-    reader: Annotated[User, Depends(require_user_roles(UserRole.ORGANISER, UserRole.COORDINATOR))],
+    reader: Reader,
     db: Session = Depends(get_db),
 ) -> CancellationsOut:
     return CancellationsOut(cancellations=cancellation_service.list_for_event(db, reader, request_id))

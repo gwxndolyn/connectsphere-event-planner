@@ -309,8 +309,8 @@ ROUTES = [
     ("GET", "/api/v1/me/change-requests", {ORGANISER}),
     # SCRUM-12 (US9): the organiser asks to cancel; the assigned coordinator decides, or cancels directly.
     ("POST", "/api/v1/event-requests/{request_id}/cancellation-requests", {ORGANISER}),
-    ("POST", "/api/v1/event-requests/{request_id}/cancellation", {COORDINATOR}),
-    ("GET", "/api/v1/event-requests/{request_id}/cancellations", {ORGANISER, COORDINATOR}),
+    ("POST", "/api/v1/event-requests/{request_id}/cancel", {COORDINATOR}),
+    ("GET", "/api/v1/event-requests/{request_id}/cancellations", {ORGANISER, COORDINATOR, LEAD}),
     ("POST", "/api/v1/event-cancellations/{cancellation_id}/approve", {COORDINATOR}),
     ("POST", "/api/v1/event-cancellations/{cancellation_id}/reject", {COORDINATOR}),
 ]
