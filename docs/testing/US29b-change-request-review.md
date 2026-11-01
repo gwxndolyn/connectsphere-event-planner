@@ -83,7 +83,7 @@ After merging `origin/main` (#115, US9 cancellations schema, SCRUM-12), 1 Nov 20
 - Migration: local database rebuilt (it had run the old revision id), then `alembic upgrade head`, `downgrade -1`, `upgrade head`; `python -m app.seed`.
 - Backend: `pytest`: 1480 passed (main's 1472 plus TC-US29B-01 to 07's 8).
 
-After merging `origin/main` (#116, US30b request changes after a safety review, SCRUM-100), 1 Nov 2026: the migration is renamed `20261114_1200_us29b_decisions` and follows `20261113_1200_us30b_changes` (one head); US29b's decisions are renumbered D100 to D105, since US30b took D99. Deviation 64 is now US30b's, so US29b's API and screen deviations will be 66 and 67 (65 went to US9 in #117).
+After merging `origin/main` (#116, US30b request changes after a safety review, SCRUM-100), 1 Nov 2026: the migration is renamed `20261114_1200_us29b_decisions` and follows `20261113_1200_us30b_changes` (one head); US29b's decisions are renumbered D100 to D105, since US30b took D99. Deviation 64 is now US30b's, so US29b's API and screen deviations will be 67 and 68 (65 went to US9 in #117, 66 to US15 in #118).
 
 - Migration: local database downgraded to `20261112_1200_us9_cancellations` before the rename, then `alembic upgrade head`; `python -m app.seed --yes`.
 - Backend: `pytest`: 1503 passed (main's 1495 plus TC-US29B-01 to 07's 8). Frontend: Vitest 460 passed.
@@ -96,3 +96,4 @@ After merging `origin/main` (421ff52, SCRUM-99 row level security for `safety_re
 - Merged origin/main (#117): decisions renumbered D102–D107; backend 1555 collected; `pytest backend/tests/event backend/tests/user`: 616 passed, 1 failed (TC-US9-33: US9's cancellation rejects pending change requests without the decision fields US29b's CHECKs require).
 - Calvin's review: renamed to `20261115_1200_us29b_decisions`; held edits log `requested`, with a CHECK; backend 1555 (1554 passed, 1 failed: TC-US9-33, as above).
 - #117 clash fixed: cancelling decides the change requests it rejects (`decided_at`, the canceller, "The event was cancelled."); the migration backfills older ones from the approved cancellation; `event_change_requests_decider_not_requester` covers approvals only; backend 1557 passed.
+- Merged origin/main (#118): deviations 67 and 68; backend 1585.
