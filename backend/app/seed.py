@@ -973,6 +973,8 @@ def upsert_change_request_event(
     # Confirmed through US18, as the coordinator would have: its date and capacity from its booking (D86).
     event.status = EventStatus.CONFIRMED
     event.purpose = "Seeded for reviewing an organiser's change request (US29b)"
+    # The other fields an organiser may ask to change (D90); name, category and attendance are reset above.
+    event.room_layout_preference = event.accessibility_needs = event.equipment_needs = None
     event.start_at, event.end_at = booking.starts_at, booking.ends_at
     event.capacity = spec.expected_attendees
     event.delivery_mode = DeliveryMode.IN_PERSON
