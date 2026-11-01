@@ -4,7 +4,7 @@
 
 **Source of truth:** the acceptance criteria in Jira SCRUM-100, with the 13 Oct change (customer clarification session 3): after a request for changes the event stays in Planning until all approvals are done, and nothing is reset automatically; the Event Coordinator makes the changes if needed.
 
-**Delivery:** one PR, stacked on SCRUM-99 (US30a). It adds the migration `20261111_1200_us30b_changes` (`safety_reviews.areas`, the `changes_requested` outcome and a CHECK that it carries comments and an area), the `changes_requested` outcome and `areas` on `POST /api/v1/safety-reviews/{event_id}`, `Notifier.safety_changes_requested`, the readiness wording, and on the screens **Request changes** with the **Areas affected** tick boxes, the areas on the organiser's and coordinator's **Safety review** panel, and **Mark changes done**. Marking changes done is US30a's send-back (`POST …/safety-review-request`).
+**Delivery:** one PR, stacked on SCRUM-99 (US30a). It adds the migration `20261113_1200_us30b_changes` (`safety_reviews.areas`, the `changes_requested` outcome and a CHECK that it carries comments and an area), the `changes_requested` outcome and `areas` on `POST /api/v1/safety-reviews/{event_id}`, `Notifier.safety_changes_requested`, the readiness wording, and on the screens **Request changes** with the **Areas affected** tick boxes, the areas on the organiser's and coordinator's **Safety review** panel, and **Mark changes done**. Marking changes done is US30a's send-back (`POST …/safety-review-request`).
 
 **Tests:**
 
@@ -21,8 +21,8 @@
 
 ## Decisions
 
-- **D98: what "request changes" does and who says the changes are done.** A review with comments and at least one area; it records the review and changes nothing else. The coordinator's **Mark changes done** puts it back in the queue. See `claude_instructions.md`
-- **Deviation 63:** the event's status doesn't move (nothing moves an approved request to Planning, D53, and an approval is final, D92), nothing is reset, and the seven checklist items are still answered. See `claude_instructions.md`
+- **D99: what "request changes" does and who says the changes are done.** A review with comments and at least one area; it records the review and changes nothing else. The coordinator's **Mark changes done** puts it back in the queue. See `claude_instructions.md`
+- **Deviation 64:** the event's status doesn't move (nothing moves an approved request to Planning, D53, and an approval is final, D92), nothing is reset, and the seven checklist items are still answered. See `claude_instructions.md`
 
 ## Test cases
 
@@ -99,6 +99,6 @@ The Safety Officer reviews it again and approves:
 
 | Date | Where | Result |
 |---|---|---|
-| 1 Nov 2026 | Backend, `pytest`, rebased onto `main` at SCRUM-138 | 1468 passed |
+| 1 Nov 2026 | Backend, `pytest`, rebased onto `main` at SCRUM-12 | 1495 passed |
 | 1 Nov 2026 | Frontend, Vitest, lint, build | 458 passed; lint and build clean |
 | 1 Nov 2026 | E2E, the full suite against a fresh local database | 50 passed, 10 skipped (the Supabase login and sign-up cases, which need credentials), 0 failed |

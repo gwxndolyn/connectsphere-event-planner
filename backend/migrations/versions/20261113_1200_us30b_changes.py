@@ -1,8 +1,8 @@
 """let a Safety Officer request changes to an event's arrangements, with the areas affected
 
-Revision ID: 20261111_1200_us30b_changes
-Revises: 20261111_1200_us15_sessions
-Create Date: 2026-11-11
+Revision ID: 20261113_1200_us30b_changes
+Revises: 20261112_1200_us9_cancellations
+Create Date: 2026-11-13
 
 """
 from typing import Sequence, Union
@@ -12,8 +12,8 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 
-revision: str = "20261111_1200_us30b_changes"
-down_revision: Union[str, None] = "20261111_1200_us15_sessions"
+revision: str = "20261113_1200_us30b_changes"
+down_revision: Union[str, None] = "20261112_1200_us9_cancellations"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
