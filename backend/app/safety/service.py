@@ -13,7 +13,7 @@ from app.event.models import Event, EventStatus
 from app.event.request_service import event_request_service
 from app.event.self_decision import refuse_self_decision
 from app.notification.service import Notifier
-from app.safety.models import CHECKLIST, CHECKLIST_KEYS, SafetyReview
+from app.safety.models import CHANGE_AREA_KEYS, CHANGE_AREAS, CHECKLIST, CHECKLIST_KEYS, SafetyReview
 from app.safety.schemas import (
     ChecklistItemOut,
     ReviewEquipmentOut,
@@ -27,7 +27,7 @@ from app.safety.schemas import (
     SafetyReviewWrite,
     SafetyStatusOut,
 )
-from app.safety.state import latest_review, safety_state
+from app.safety.state import AWAITING_REVISION, latest_review, safety_state
 from app.user.models import User
 from app.venue.models import Venue, VenueBooking, VenueBookingStatus
 
@@ -41,7 +41,8 @@ READABLE_STATUSES = REVIEWABLE_STATUSES + (EventStatus.CONFIRMED, EventStatus.PR
 
 class SafetyService:
     """SCRUM-99 (US30a): the Safety Officer's queue, checklist review and decision, and what the
-    Coordinator and Organiser see of it."""
+    Coordinator and Organiser see of it. SCRUM-100 (US30b): the decision may also be a request for
+    changes."""
 
     # --- the Safety Officer ---
 
@@ -126,6 +127,7 @@ class SafetyService:
                 for line, kind in lines
             ],
             checklist=[ChecklistItemOut(key=key, label=label) for key, label in CHECKLIST],
+            change_areas=[ChecklistItemOut(key=key, label=label) for key, label in CHANGE_AREAS],
             history=[SafetyReviewInternalOut.model_validate(review) for review in history],
         )
 
@@ -144,7 +146,7 @@ class SafetyService:
         # D51: no one reviews an event they created or coordinate, whatever roles they hold.
         refuse_self_decision(officer, created_by_user_id=event.created_by_user_id, event=event)
         self._check_reviewable(db, event)
-        outcome, checklist, comments, notes, issues = self._validated(body)
+        outcome, checklist, comments, notes, issues, areas = self._validated(body)
 
         review = SafetyReview(
             event_id=event.id,
@@ -153,6 +155,7 @@ class SafetyService:
             checklist=checklist,
             comments=comments,
             internal_notes=notes,
+            areas=areas,
             created_at=now,
         )
         db.add(review)
@@ -166,7 +169,7 @@ class SafetyService:
         notice = (event.coordinator_id, event.request_reference, event.name)
         db.commit()
 
-        self._notify(db, notifier, event_id, *notice, outcome, comments, issues)
+        self._notify(db, notifier, event_id, *notice, outcome, comments, issues, areas)
         return result
 
     # --- the Coordinator and Organiser ---
@@ -189,14 +192,15 @@ class SafetyService:
         )
 
     def request_review(self, db: Session, coordinator: User, event_id: uuid.UUID, now: datetime) -> SafetyStatusOut:
-        """AC 4: after a rejection the coordinator revises the arrangement and sends it for another review."""
+        """US30a AC 4, US30b AC 4: after a rejection, or a request for changes, the coordinator revises the
+        arrangement and sends it for another review (for changes, this is "marking them done")."""
         event = db.scalars(select(Event).where(Event.id == event_id).with_for_update()).one_or_none()
         if event is None or event.status == EventStatus.DRAFT or event.coordinator_id != coordinator.id:
             raise DomainError(404, "NOT_FOUND")
         if event.status not in REVIEWABLE_STATUSES:
             raise DomainError(409, "SAFETY_REVIEW_NOT_ALLOWED", reason="status", status=event.status.value)
         state = safety_state(event, latest_review(db, event.id))
-        if state != "rejected":
+        if state not in AWAITING_REVISION:
             # Approved, never reviewed, or already sent back.
             reason = "already_approved" if state == "approved" else "not_rejected"
             if state == "pending" and latest_review(db, event.id) is not None:
@@ -224,8 +228,8 @@ class SafetyService:
         state = safety_state(event, latest)
         if state == "approved":
             raise DomainError(409, "SAFETY_REVIEW_NOT_ALLOWED", reason="already_approved", status=event.status.value)
-        if state == "rejected":
-            # Waiting for the coordinator to revise it and send it back (AC 4).
+        if state in AWAITING_REVISION:
+            # Waiting for the coordinator to revise it and send it back (US30a AC 4, US30b AC 4).
             raise DomainError(409, "SAFETY_REVIEW_NOT_ALLOWED", reason="awaiting_revision", status=event.status.value)
         ready, _ = self._arrangements(db, event, lock=True)
         if not ready:
@@ -233,19 +237,28 @@ class SafetyService:
                 409, "SAFETY_REVIEW_NOT_ALLOWED", reason="arrangements_incomplete", status=event.status.value
             )
 
-    def _validated(self, body: SafetyReviewWrite) -> tuple[str, dict, str | None, str | None, list[str]]:
-        """AC 2-4: an outcome, all seven checklist items answered, and comments on a rejection."""
+    def _validated(
+        self, body: SafetyReviewWrite
+    ) -> tuple[str, dict, str | None, str | None, list[str], list[str] | None]:
+        """US30a AC 2-4, US30b AC 1: an outcome, all seven checklist items answered, comments on a rejection
+        or a request for changes, and the areas ticked on a request for changes."""
         sent = body.checklist or {}
         unknown = [key for key in sent if key not in CHECKLIST_KEYS]
         if unknown:
             raise DomainError(422, "INVALID_SAFETY_REVIEW", fields=["checklist"], items=unknown)
+        unknown_areas = [key for key in body.areas or [] if key not in CHANGE_AREA_KEYS]
+        if unknown_areas or (body.areas and body.outcome != "changes_requested"):
+            # Areas belong to a request for changes only.
+            raise DomainError(422, "INVALID_SAFETY_REVIEW", fields=["areas"], items=unknown_areas or body.areas)
         comments = (body.comments or "").strip() or None
         missing: list[str] = []
         if body.outcome is None:
             missing.append("outcome")
         missing += [f"checklist.{key}" for key in CHECKLIST_KEYS if sent.get(key) is None or sent[key].result is None]
-        if body.outcome == "rejected" and comments is None:
+        if body.outcome in ("rejected", "changes_requested") and comments is None:
             missing.append("comments")
+        if body.outcome == "changes_requested" and not body.areas:
+            missing.append("areas")
         if missing:
             raise DomainError(422, "MISSING_REQUIRED_FIELD", fields=missing)
         assert body.outcome is not None
@@ -265,6 +278,8 @@ class SafetyService:
             comments,
             (body.internal_notes or "").strip() or None,
             [labels[key] for key in flagged],
+            # The areas in the form's order, each once.
+            [key for key in CHANGE_AREA_KEYS if key in (body.areas or [])] if body.outcome == "changes_requested" else None,
         )
 
     def _notify(
@@ -278,8 +293,10 @@ class SafetyService:
         outcome: str,
         comments: str | None,
         issues: list[str],
+        areas: list[str] | None,
     ) -> None:
-        """AC 5: the event's coordinator hears the outcome and the comments. After the commit, best effort
+        """US30a AC 5, US30b AC 3: the event's coordinator hears the outcome and the comments, and for a
+        request for changes the areas. After the commit, best effort
         like the other notices: a failure is logged and never undoes the review."""
         try:
             coordinator = db.get(User, coordinator_id) if coordinator_id else None
@@ -290,6 +307,17 @@ class SafetyService:
             logger.warning("could not notify the coordinator of event %s: none assigned or no email", event_id)
             return
         try:
+            if outcome == "changes_requested":
+                labels = dict(CHANGE_AREAS)
+                notifier.safety_changes_requested(
+                    email=coordinator.email,
+                    request_reference=request_reference or MISSING_REFERENCE,
+                    event_name=event_name or MISSING_NAME,
+                    comments=comments or "",
+                    areas=[labels[key] for key in areas or []],
+                    issues=issues,
+                )
+                return
             notifier.safety_review_decided(
                 email=coordinator.email,
                 request_reference=request_reference or MISSING_REFERENCE,

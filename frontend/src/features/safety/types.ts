@@ -18,7 +18,7 @@ export interface SafetyQueueRow {
   expected_attendees: number | null;
   venues: string[];
   starts_at: string | null;
-  // Sent back after a rejection, so it has been reviewed before.
+  // Sent back after a rejection or a request for changes, so it has been reviewed before.
   resent: boolean;
 }
 
@@ -29,9 +29,11 @@ export interface Reviewer {
 
 export interface SafetyReview {
   id: string;
-  outcome: "approved" | "rejected";
+  outcome: "approved" | "rejected" | "changes_requested";
   checklist: Record<string, ChecklistAnswer>;
   comments: string | null;
+  // US30b: the areas a request for changes marked for review; null for any other outcome.
+  areas: string[] | null;
   reviewer: Reviewer;
   created_at: string;
 }
@@ -64,7 +66,7 @@ export interface ReviewEquipment {
   notes: string | null;
 }
 
-export type SafetyState = "pending" | "approved" | "rejected";
+export type SafetyState = "pending" | "approved" | "rejected" | "changes_requested";
 
 export interface SafetyReviewDetail {
   event: {
@@ -81,6 +83,8 @@ export interface SafetyReviewDetail {
   venues: ReviewVenue[];
   equipment: ReviewEquipment[];
   checklist: ChecklistItem[];
+  // US30b AC 1: the areas a request for changes can mark.
+  change_areas: ChecklistItem[];
   history: SafetyReviewInternal[];
 }
 

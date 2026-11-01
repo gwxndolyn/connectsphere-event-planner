@@ -10,6 +10,19 @@ export const CHECKLIST_LABELS: Record<string, string> = {
   venue_restrictions: "Known venue restrictions",
 };
 
+// US30b AC 1: the areas a request for changes can mark, for showing a stored review.
+export const CHANGE_AREA_LABELS: Record<string, string> = {
+  venue: "Venue",
+  layout: "Layout",
+  equipment: "Equipment",
+  accessibility: "Accessibility",
+  other: "Other",
+};
+
+export function areaLabel(key: string): string {
+  return CHANGE_AREA_LABELS[key] ?? key;
+}
+
 export function checklistLabel(key: string): string {
   return CHECKLIST_LABELS[key] ?? key;
 }
