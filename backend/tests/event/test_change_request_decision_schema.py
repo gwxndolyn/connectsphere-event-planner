@@ -384,13 +384,22 @@ def test_tc_us29b_07_seed_has_a_change_request_demo_and_a_reseed_resets_it(db: S
     demo = db.get(Event, seed_id("event", CHANGE_REQUEST_EVENT.slug))
     coordinator_id = seed_id("user", "event-coordinator")
     organiser_id = seed_id("user", "event-organiser")
+    safety_officer_id = seed_id("user", "safety-officer")
 
     def check_seeded() -> None:
         db.expire_all()
         assert demo.status == EventStatus.CONFIRMED
         assert demo.coordinator_id == coordinator_id and demo.created_by_user_id == organiser_id
         assert demo.confirmed_at is not None and demo.confirmed_by_user_id == coordinator_id
-        assert demo.safety_approved_at is not None
+        assert demo.safety_approved_at is not None and demo.safety_approved_by_user_id == safety_officer_id
+        # The approval has its review (US30a), so the screens name the officer and a later significant change
+        # can clear the approval while the review stays (D103, TC-US29B-12).
+        reviews = db.execute(
+            text("select reviewer_id, outcome, created_at from safety_reviews where event_id = :e"), {"e": demo.id}
+        ).all()
+        assert [(r.reviewer_id, r.outcome, r.created_at) for r in reviews] == [
+            (safety_officer_id, "approved", demo.safety_approved_at)
+        ]
         # Off the attendees' board, like the other demos.
         assert demo.registration_enabled is False
         bookings = db.scalars(select(VenueBooking).where(VenueBooking.event_id == demo.id)).all()
@@ -424,6 +433,14 @@ def test_tc_us29b_07_seed_has_a_change_request_demo_and_a_reseed_resets_it(db: S
     demo.safety_approved_at = demo.safety_approved_by_user_id = None
     demo.start_at, demo.end_at = demo.start_at + timedelta(hours=1), demo.end_at + timedelta(hours=1)
     db.flush()
+    # And a later review of the changed arrangement, which a reseed forgets.
+    db.execute(
+        text(
+            "insert into safety_reviews (event_id, reviewer_id, outcome, checklist, comments) "
+            "values (:e, :s, 'rejected', '{}', 'The later start clashes with the library closing.')"
+        ),
+        {"e": demo.id, "s": safety_officer_id},
+    )
     booking = db.scalars(select(VenueBooking).where(VenueBooking.event_id == demo.id)).one()
     line = db.scalars(select(EquipmentRequestLine).where(EquipmentRequestLine.event_id == demo.id)).one()
     insert_flag(db, demo.id, request.id, "venue_booking", venue_booking_id=booking.id)
