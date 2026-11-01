@@ -20,12 +20,13 @@
 | 1, SCRUM-141 | Decision columns on `event_change_requests`, `event_audit_entries.action`, `event_review_flags` (migration `20261115_1200_us29b_decisions`); seeded **Change Request Demo** | `backend/tests/event/test_change_request_decision_schema.py` (TC-US29B-01 to 07) |
 | 2, SCRUM-142 | List, approve and reject change requests; list and clear review flags; readiness and safety queue; notices | `backend/tests/event/test_change_request_decisions.py`, `backend/tests/event/test_review_flags.py` (TC-US29B-08 to 25) |
 | 3, SCRUM-143 | The coordinator's review panel, flags in the readiness list, the safety notice, the organiser's outcome | `frontend/src/features/changeRequest/changeRequestReview.integration.test.tsx` (TC-US29B-26 to 32); `e2e/tests/change-request-review.spec.ts` (TC-US29B-33) |
+| 4, SCRUM-144 | The Lead's **Coordinator edits to approve** and the same review panel, for a coordinator's own US12 edit (D102) | `frontend/src/features/changeRequest/leadChangeRequestReview.integration.test.tsx` (TC-US29B-34, 35) |
 
 ## Decisions for this story
 
 All six are **the story owner's defaults, asked of the acting PO (Matthew) on 1 Nov**, and marked `DECISION-PENDING` in the code. They'll be updated when he answers.
 
-- **D102, who decides** (settles D89): the event's assigned coordinator decides an Organiser's request. A coordinator's own US12 critical edit goes to any active Coordinator Lead (D51), through the API only: there is no Lead screen in this story, and a follow-up ticket adds it.
+- **D102, who decides** (settles D89): the event's assigned coordinator decides an Organiser's request. A coordinator's own US12 critical edit goes to any active Coordinator Lead (D51), on the Lead's Event requests screen under **Coordinator edits to approve** (SCRUM-144; the API alone until then).
 - **D103, significant:** schedule, attendance, layout, venue (accessibility, delivery mode) or equipment; not name, category, purpose or join link.
 - **D104, flags:** one row per affected live booking, reserved equipment line, and one for the event's registrations; one open flag per item. The coordinator clears each with an optional note. Open flags block confirming. Nothing on the item changes.
 - **D105, statuses:** Confirmed goes back to Planning (its confirmation cleared); Approved and Planning stay; request-stage events just take the values; approving is refused in Preparation, Cancelled, Completed and Rejected. Registration closes until the event is confirmed again.
@@ -69,6 +70,8 @@ All six are **the story owner's defaults, asked of the acting PO (Matthew) on 1 
 | TC-US29B-31 | 6 | An approved significant change on a safety-approved event | The review screen loads | "A new safety review is needed" and why; Safety check outstanding |
 | TC-US29B-32 | 4 | Decided requests | The Organiser opens Change requests | Approved or Rejected, the date and any reason |
 | TC-US29B-33 | 1–6 | A fresh seed | The Organiser requests a later start on Change Request Demo; the coordinator reviews and approves it | The coordinator sees Planning, the flags and the safety notice; the Organiser sees Approved and the new times |
+| TC-US29B-34 | 1, 2, 3 (D102) | Casey's held capacity edit (60 to 80) on a planning event with an approved booking | The Lead opens Coordinator edits to approve, reviews it and approves after the confirm step | The row names the event, Casey Tan, the date and Significant; the panel shows 60 and 80, the reason and what approving does; Approved, the event's capacity is 80, the decision names the Lead and the list is empty; Casey never sees the edit in their own list, and their review screen's Review after change shows the booking flag with Mark reviewed |
+| TC-US29B-35 | 2 (D102) | Casey's held edit; separately, an organiser's request | The Lead rejects with no reason, then with one; the Lead opens Event requests | An inline error and nothing sent; Rejected with the reason, capacity unchanged, the list empty; the organiser's request isn't listed and the section is hidden |
 
 ## Run log
 
@@ -115,3 +118,9 @@ SCRUM-143 (PR 3), 1 Nov 2026, branch `feat(SCRUM-143)Change-Request-Review-Scree
 - Frontend: `npm run lint` clean, `tsc -b` clean, `npm run build` passes; Vitest 486 passed (45 files).
 - E2E, freshly seeded, backend without `--reload`: 53 passed, 10 skipped (the login and sign-up cases without their secrets), 63 in all; reseeded afterwards.
 - Seed fix: a reseed now resets Change Request Demo's equipment needs, so TC-US29B-33 reruns. It also resets room layout and accessibility needs, the other organiser-requestable fields (D90) the seed left alone; TC-US29B-07 sets them, with attendance 30 and "Two projectors", before the reseed and failed first on them.
+
+SCRUM-144 (Lead screen), 1 Nov 2026, branch `feat(SCRUM-144)Lead-Change-Request-Review` (from SCRUM-143's), frontend only:
+
+- TC-US29B-34 and 35 written first in `frontend/src/features/changeRequest/leadChangeRequestReview.integration.test.tsx`: 4 failed (no Coordinator edits to approve; the fake backend answered a Lead 403).
+- The fake backend lists and decides as the API does for a Lead (a coordinator's own edit on their event; an organiser's request is 404; the Lead's own is `SELF_DECISION_NOT_ALLOWED`), and a decision names the Lead.
+- Frontend: `npm run lint` clean, `tsc -b` clean, `npm run build` passes; Vitest 490 passed (46 files). No E2E: the seed has no coordinator edit, and adding one is a backend change.
