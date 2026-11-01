@@ -2,7 +2,7 @@ import type { DevRole } from "../api/client";
 import { roleLabel } from "../auth/currentRole";
 import "./SiteHeader.css";
 
-export type View = "discovery" | "my-events" | "event-requests" | "registrations" | "venues" | "equipment";
+export type View = "discovery" | "my-events" | "event-requests" | "events" | "registrations" | "venues" | "equipment";
 
 interface SiteHeaderProps {
   search: string;
@@ -94,6 +94,16 @@ export function SiteHeader({
             onClick={() => onNavigate("event-requests")}
           >
             Event requests
+          </button>
+        )}
+        {views.includes("events") && (
+          <button
+            type="button"
+            className="site-header__nav-link"
+            aria-current={view === "events" ? "page" : undefined}
+            onClick={() => onNavigate("events")}
+          >
+            Events
           </button>
         )}
         {views.includes("registrations") && (

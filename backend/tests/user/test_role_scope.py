@@ -30,7 +30,8 @@ from tests.factories import NOW, make_attendee, make_event, make_registration, m
 
 pytestmark = pytest.mark.anyio
 
-REVISION = "20261031_1200_us16b_d51_checks"
+# The newest migration: TC-US16B-29 checks it is the only head (SCRUM-15 added it).
+REVISION = "20261108_1200_us12_event_edits"
 QUESTION = {"sections": ["attendance"], "comment": "How many people are coming?"}
 FORBIDDEN = {"code": "FORBIDDEN"}
 NOT_FOUND = {"code": "NOT_FOUND"}
@@ -287,6 +288,11 @@ ROUTES = [
     ("DELETE", "/api/v1/events/{event_id}/tech-staff/{staff_user_id}", {COORDINATOR}),
     ("GET", "/api/v1/events/{event_id}/registrations", {ORGANISER, COORDINATOR}),
     ("GET", "/api/v1/me/managed-events", {ORGANISER, COORDINATOR}),
+    # SCRUM-15 (US12): the event's assigned coordinator opens, edits and reads the history of an event.
+    ("GET", "/api/v1/me/coordinated-events", {COORDINATOR}),
+    ("GET", "/api/v1/events/{event_id}", {COORDINATOR}),
+    ("PATCH", "/api/v1/events/{event_id}", {COORDINATOR}),
+    ("GET", "/api/v1/events/{event_id}/history", {COORDINATOR}),
 ]
 # Every other route, by who may call it, so that a new route fails the test below until someone decides
 # which list it belongs in (PR #88 review).

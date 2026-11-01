@@ -57,6 +57,7 @@ describe("role switcher (US16b AC 2)", () => {
     expect(nav.getAllByRole("button").map((button) => button.textContent)).toEqual([
       "ConnectSphere",
       "Event requests",
+      "Events",
       "Registrations",
       "Venues",
       "Equipment",
