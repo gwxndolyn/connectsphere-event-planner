@@ -117,6 +117,6 @@ Equipment Request Demo is already Confirmed: the panel offers no Confirm event, 
 
 | Date | Where | Result |
 |---|---|---|
-| 1 Nov 2026 | Backend, `pytest`, rebased onto `main` at #107 | 1331 passed |
+| 1 Nov 2026 | Backend, `pytest`, rebased onto `main` at #107 | 1332 passed |
 | 1 Nov 2026 | Frontend, Vitest, lint, build | 434 passed; lint and build clean |
 | 1 Nov 2026 | E2E, TC-US18-30 with the US12, US17 and equipment journeys, fresh local database | 12 passed; the rest of the suite was not run |
