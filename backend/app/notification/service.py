@@ -173,6 +173,17 @@ class Notifier(Protocol):
         issues: list[str],
     ) -> None: ...
 
+    def safety_changes_requested(
+        self,
+        *,
+        email: str,
+        request_reference: str,
+        event_name: str,
+        comments: str,
+        areas: list[str],
+        issues: list[str],
+    ) -> None: ...
+
 
     def change_requested(
         self,
@@ -482,6 +493,27 @@ class LoggingNotifier:
             event_name,
             ", ".join(issues) or "none",
             comments or "none",
+        )
+
+    def safety_changes_requested(
+        self,
+        *,
+        email: str,
+        request_reference: str,
+        event_name: str,
+        comments: str,
+        areas: list[str],
+        issues: list[str],
+    ) -> None:
+        # SCRUM-100 (US30b) AC 3: the event's coordinator hears the comments and the areas to review.
+        logger.info(
+            "safety changes requested: %s, %s (%s); areas: %s; issues: %s; comments: %s",
+            email,
+            request_reference,
+            event_name,
+            ", ".join(areas),
+            ", ".join(issues) or "none",
+            comments,
         )
 
 

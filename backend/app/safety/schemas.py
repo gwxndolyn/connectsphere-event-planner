@@ -15,18 +15,23 @@ class ChecklistEntryWrite(BaseModel):
     comment: str | None = Field(default=None, max_length=1000)
 
 
+SafetyStateName = Literal["pending", "approved", "rejected", "changes_requested"]
+
+
 class SafetyReviewWrite(BaseModel):
-    """US30a AC 2-4. Every field is optional here so a missing one gets the API's own
+    """US30a AC 2-4 and US30b AC 1. Every field is optional here so a missing one gets the API's own
     MISSING_REQUIRED_FIELD, like a blank one (as US17's reject body does)."""
 
     model_config = ConfigDict(extra="forbid")
 
-    outcome: Literal["approved", "rejected"] | None = None
+    outcome: Literal["approved", "rejected", "changes_requested"] | None = None
     checklist: dict[str, ChecklistEntryWrite] | None = None
-    # What the Coordinator and Organiser read; required on a rejection (AC 4).
+    # What the Coordinator and Organiser read; required on a rejection (US30a AC 4) and on a request for changes (US30b AC 1).
     comments: str | None = Field(default=None, max_length=2000)
     # The Safety Officer's own notes: never shown to the Organiser or the Coordinator (AC 7).
     internal_notes: str | None = Field(default=None, max_length=2000)
+    # The CHANGE_AREAS ticked on a request for changes (US30b AC 1); required then, and refused otherwise.
+    areas: list[str] | None = Field(default=None, max_length=10)
 
 
 class SafetyReviewOut(BaseModel):
@@ -38,6 +43,8 @@ class SafetyReviewOut(BaseModel):
     outcome: str
     checklist: dict[str, Any]
     comments: str | None
+    # The areas marked for review when changes were requested (US30b AC 2, 3); null for any other outcome.
+    areas: list[str] | None
     reviewer: CoordinatorOut
     created_at: datetime
 
@@ -51,7 +58,7 @@ class SafetyReviewInternalOut(SafetyReviewOut):
 class SafetyStatusOut(BaseModel):
     """What the Organiser and Coordinator see of an event's safety review (AC 7)."""
 
-    state: Literal["pending", "approved", "rejected"]
+    state: SafetyStateName
     # Newest first.
     reviews: list[SafetyReviewOut]
 
@@ -63,7 +70,8 @@ class SafetyQueueRowOut(BaseModel):
     expected_attendees: int | None
     venues: list[str]
     starts_at: datetime | None
-    # Sent back after a rejection (AC 4), so the Safety Officer knows it has been reviewed before.
+    # Sent back after a rejection or a request for changes (US30a AC 4, US30b AC 4), so the Safety Officer
+    # knows it has been reviewed before.
     resent: bool
 
 
@@ -118,8 +126,10 @@ class SafetyReviewDetailOut(BaseModel):
     or equipment edits yet)."""
 
     event: ReviewEventOut
-    state: Literal["pending", "approved", "rejected"]
+    state: SafetyStateName
     venues: list[ReviewVenueOut]
     equipment: list[ReviewEquipmentOut]
     checklist: list[ChecklistItemOut]
+    # The areas a request for changes can mark (US30b AC 1), in the order the form shows them.
+    change_areas: list[ChecklistItemOut]
     history: list[SafetyReviewInternalOut]
