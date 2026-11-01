@@ -23,8 +23,7 @@ NEW_STATUSES = OLD_STATUSES + ("held", "expired")
 # D21: Requested and Approved block the window; since US25 a hold does too (AC 2). Holds are not bookings
 # anywhere else (AC 6), so the one-primary index keeps the old pair.
 BLOCKING = "status IN ('requested', 'approved', 'held')"
-OLD_BLOCKING = "status IN ('requested', 'approved')"
-LIVE = "status IN ('requested', 'approved')"
+LIVE = "status IN ('requested', 'approved')"  # LIVE_BOOKING_STATUSES; the guard's set before US25
 
 STATUS_CONSTRAINTS = (
     ("venue_bookings_withdrawn_consistent", "(status = 'withdrawn') = (withdrawn_at IS NOT NULL)"),
@@ -101,10 +100,15 @@ def upgrade() -> None:
         "venue_bookings",
         "(hold_expires_at IS NULL) = (held_by_user_id IS NULL) "
         "AND (status NOT IN ('held', 'expired') OR hold_expires_at IS NOT NULL) "
-        "AND (hold_warned_at IS NULL OR hold_expires_at IS NOT NULL)",
+        "AND (hold_warned_at IS NULL OR (hold_expires_at IS NOT NULL AND hold_warned_at < hold_expires_at)) "
+        # While held, the requester is whoever placed it; confirming makes the coordinator the requester (D105).
+        "AND (status <> 'held' OR requested_by_user_id = held_by_user_id)",
     )
+    # A hold lapses at its expiry, never before it (AC 3).
     op.create_check_constraint(
-        "venue_bookings_expired_consistent", "venue_bookings", "(status = 'expired') = (expired_at IS NOT NULL)"
+        "venue_bookings_expired_consistent",
+        "venue_bookings",
+        "(status = 'expired') = (expired_at IS NOT NULL) AND (expired_at IS NULL OR expired_at >= hold_expires_at)",
     )
     # A hold isn't a venue the event has yet (AC 6), so it can't be the one attendees see (US24, D68).
     op.create_check_constraint("venue_bookings_hold_not_primary", "venue_bookings", "status <> 'held' OR NOT is_primary")
@@ -122,4 +126,4 @@ def downgrade() -> None:
     op.drop_constraint("fk_venue_bookings_held_by_user_id_users", "venue_bookings", type_="foreignkey")
     op.drop_column("venue_bookings", "held_by_user_id")
     op.drop_column("venue_bookings", "hold_expires_at")
-    _retype("venue_booking_status_old", OLD_STATUSES, OLD_DECIDED, OLD_BLOCKING)
+    _retype("venue_booking_status_old", OLD_STATUSES, OLD_DECIDED, LIVE)

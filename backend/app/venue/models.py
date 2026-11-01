@@ -96,10 +96,11 @@ class PreparationStatus(enum.StrEnum):
 # D21 (decided by the team): Requested and Approved both block the window, from the sessions 1-2
 # clarification behind AC 7, "any overlap is prevented; first come, first served". AC 3 lists only
 # approved bookings, but first come, first served needs a pending request to hold the window too.
-# The migration's exclusion constraint uses the same pair; change both together.
+# These are an event's venues; since US25 the overlap guard uses BLOCKING_STATUSES, which adds holds.
 LIVE_BOOKING_STATUSES = (VenueBookingStatus.REQUESTED, VenueBookingStatus.APPROVED)
 # US25 AC 2: what keeps another request out of the window, the overlap guard's set. A hold blocks the window but
-# isn't one of the event's venues (AC 6), so everything else reads LIVE_BOOKING_STATUSES.
+# isn't one of the event's venues (AC 6), so everything else reads LIVE_BOOKING_STATUSES. The migration's
+# exclusion constraint (venue_bookings_no_overlap) uses the same set; change both together.
 BLOCKING_STATUSES = (*LIVE_BOOKING_STATUSES, VenueBookingStatus.HELD)
 
 
@@ -116,7 +117,7 @@ def occupied_window(venue: "Venue", starts_at: datetime, ends_at: datetime) -> t
 class VenueBooking(Base):
     """A coordinator's request to hold a venue for an event (US22, SCRUM-89).
 
-    The exclusion constraint `venue_bookings_no_overlap` refuses a Requested or Approved booking
+    The exclusion constraint `venue_bookings_no_overlap` refuses a Requested, Approved or (US25) held booking
     whose occupied window [occupied_starts_at, occupied_ends_at) overlaps another's at the same
     venue, even by one second; windows that only touch are allowed (US13 AC 3). It also settles
     AC 7's race, since a concurrent second insert waits for the first to commit and then fails. The
@@ -167,10 +168,14 @@ class VenueBooking(Base):
         CheckConstraint(
             "(hold_expires_at IS NULL) = (held_by_user_id IS NULL) "
             "AND (status NOT IN ('held', 'expired') OR hold_expires_at IS NOT NULL) "
-            "AND (hold_warned_at IS NULL OR hold_expires_at IS NOT NULL)",
+            "AND (hold_warned_at IS NULL OR (hold_expires_at IS NOT NULL AND hold_warned_at < hold_expires_at)) "
+            "AND (status <> 'held' OR requested_by_user_id = held_by_user_id)",
             name="venue_bookings_hold_consistent",
         ),
-        CheckConstraint("(status = 'expired') = (expired_at IS NOT NULL)", name="venue_bookings_expired_consistent"),
+        CheckConstraint(
+            "(status = 'expired') = (expired_at IS NOT NULL) AND (expired_at IS NULL OR expired_at >= hold_expires_at)",
+            name="venue_bookings_expired_consistent",
+        ),
         CheckConstraint("status <> 'held' OR NOT is_primary", name="venue_bookings_hold_not_primary"),
         # DECISION-PENDING: D73 — preparation is tracked per venue (CS3-49); PreparationStatus's values.
         CheckConstraint(
