@@ -16,6 +16,9 @@ Likewise it deletes every venue booking on Multi-Venue Conference Demo that the 
 the Breakout C each E2E run of TC-US24-26 adds and withdraws (SCRUM-129); other events' bookings are
 untouched. And it deletes Agenda Demo's sessions (SCRUM-138), so TC-US15-15 reruns start with an empty
 agenda.
+It puts Cancellation Demo back in Planning and deletes its cancellation record, so TC-US9-32 reruns start from the
+same event (SCRUM-12). Every seeded event goes back to its own status, so one cancelled in the app loses its approved
+cancellation too; other events' cancellations are untouched.
 """
 
 import sys
@@ -1306,7 +1309,9 @@ REMOTE_RESEED_WARNING = (
     "Reseeding also deletes every equipment line on Equipment Request Demo, approved ones included, "
     "every venue booking on Multi-Venue Conference Demo that the seed didn't make, "
     "and every session on Agenda Demo's agenda. "
-    "Other events' lines, bookings and sessions are untouched."
+    "It puts Cancellation Demo back in Planning with no cancellation record, and drops the approved cancellation "
+    "of any other seeded event that was cancelled in the app, which the reseed puts back in its own status. "
+    "Other events' lines, bookings, sessions and cancellations are untouched."
 )
 
 
