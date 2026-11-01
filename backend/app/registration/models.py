@@ -36,7 +36,7 @@ class Registration(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, server_default=text("gen_random_uuid()"))
     event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id"))
-    # Null only for email-only waitlist entries — see spec §6 D3.
+    # Null only for email-only waitlist entries made before SCRUM-136 — see spec §6 D3.
     attendee_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("attendees.id"))
     attendee_email: Mapped[str] = mapped_column(Text)
     status: Mapped[RegistrationStatus] = mapped_column(pg_enum(RegistrationStatus, "registration_status"))

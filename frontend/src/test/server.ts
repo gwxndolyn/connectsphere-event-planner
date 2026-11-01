@@ -123,6 +123,22 @@ export interface FakeAvailability {
   shortfall: number;
 }
 
+// US14 Tech support staff (SCRUM-134's API, SCRUM-135's screen): a staff member, or who acted.
+export interface FakePerson {
+  id: string;
+  name: string;
+}
+
+/** One assignment, active until unassigned; the rows are also the log (D79). */
+interface FakeTechStaffRow {
+  event_id: string;
+  staff: FakePerson;
+  assigned_by: FakePerson;
+  assigned_at: string;
+  unassigned_by: FakePerson | null;
+  unassigned_at: string | null;
+}
+
 // US2's venue closures, which the US21 calendar shows as "Unavailable" (SCRUM-123).
 export interface FakeVenueBlock {
   id: string;
@@ -166,6 +182,9 @@ interface Db {
   availability: Record<string, FakeAvailability>;
   // US27 (SCRUM-132): lines whose reservation the API refuses for want of stock (see refuseReservation).
   reservationShortfalls: Record<string, FakeReservationShortfall>;
+  // US14 (SCRUM-135): the active Tech support users, and every assignment.
+  techStaff: FakePerson[];
+  techStaffRows: FakeTechStaffRow[];
   // US28: the events each managing role sees, and what each event's registrations call returns.
   managedEvents: Record<"organiser" | "coordinator", EventRegistrations[]>;
   // US12 (SCRUM-15): the coordinator's events and each one's History, newest first.
@@ -198,6 +217,8 @@ function emptyDb(): Db {
     equipmentLines: [],
     availability: {},
     reservationShortfalls: {},
+    techStaff: [],
+    techStaffRows: [],
     calls: [],
     nextId: 1,
     nextReference: 1,
@@ -471,6 +492,31 @@ export function refuseReservation(line: FakeEquipmentLine, available: number): v
   db.reservationShortfalls[line.id] = { available, requested: line.quantity, shortfall: line.quantity - available };
 }
 
+/** An active Tech support user (US14). Who's busy on an overlapping event is the API's to work out (D81). */
+export function seedTechStaff(name: string): FakePerson {
+  const person = { id: newId("tech-staff"), name };
+  db.techStaff.push(person);
+  return person;
+}
+
+/** Each assign or unassign a minute after the last, so the log's order is clear. */
+function techStaffStamp(): string {
+  const minute = db.techStaffRows.reduce((count, row) => count + (row.unassigned_at ? 2 : 1), 0);
+  return `2026-10-02T04:${String(minute).padStart(2, "0")}:00Z`;
+}
+
+/** `staff` assigned to `event` by the coordinator the tests act as. */
+export function seedTechStaffAssignment(event: FakeEquipmentEvent, staff: FakePerson): void {
+  db.techStaffRows.push({
+    event_id: event.id,
+    staff,
+    assigned_by: COORDINATOR_PERSON,
+    assigned_at: techStaffStamp(),
+    unassigned_by: null,
+    unassigned_at: null,
+  });
+}
+
 /** The venues the next search returns, in that order: the API decides which venues fit, not the fake. */
 export function nextSearchResult(venues: Venue[]) {
   db.searchResult = venues;
@@ -698,6 +744,30 @@ function duplicateLine(eventId: string, typeId: unknown, lineId?: string): Respo
     : null;
 }
 
+// US14 (SCRUM-134): GET /events/{id}/tech-staff, and POST's answer. D80: an approved line, on a planning
+// or confirmed event.
+function techStaffBody(event: FakeEquipmentEvent) {
+  const eligible =
+    EQUIPMENT_ELIGIBLE.has(event.status) && db.equipmentLines.some((l) => l.event.id === event.id && l.status === "approved");
+  const rows = db.techStaffRows.filter((row) => row.event_id === event.id);
+  const active = rows.filter((row) => !row.unassigned_at);
+  const assignedIds = new Set(active.map((row) => row.staff.id));
+  const log = rows
+    .flatMap((row) => [
+      { action: "assigned", staff: row.staff, by: row.assigned_by, at: row.assigned_at },
+      ...(row.unassigned_at ? [{ action: "unassigned", staff: row.staff, by: row.unassigned_by!, at: row.unassigned_at }] : []),
+    ])
+    .sort((a, b) => b.at.localeCompare(a.at));
+  return {
+    eligible,
+    assigned: active.map(({ staff, assigned_by, assigned_at }) => ({ staff, assigned_by, assigned_at })),
+    available: eligible
+      ? db.techStaff.filter((p) => !assignedIds.has(p.id)).sort((a, b) => a.name.localeCompare(b.name))
+      : [],
+    log,
+  };
+}
+
 function cleanNotes(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
@@ -800,21 +870,26 @@ const handlers = [
     return HttpResponse.json(confirmationBody(registration), { status: 201 });
   }),
 
-  // Body-only, no identity header (D7); linked to the attendee when the email is theirs (D3).
-  route("post", "/api/v1/events/:eventId/waitlist", ({ params, body }) => {
+  // SCRUM-136 (D3, D7): the logged-in attendee joins; there's no body. An email-only place of
+  // theirs from before is linked to them and answered ALREADY_REGISTERED, as the API does.
+  route("post", "/api/v1/events/:eventId/waitlist", ({ request, params }) => {
+    const attendee = attendeeOf(request);
+    if (!attendee) return error(401, "UNAUTHENTICATED");
     const event = db.events.find((e) => e.id === params.eventId);
     if (!event) return error(404, "NOT_FOUND");
-    const email = (body as { email?: string } | null)?.email ?? "";
-    if (db.registrations.some((r) => r.event_id === event.id && r.email === email)) {
+    if (db.registrations.some((r) => r.event_id === event.id && r.attendee_id === attendee)) {
+      return error(409, "ALREADY_REGISTERED");
+    }
+    const emailOnly = db.registrations.find(
+      (r) => r.event_id === event.id && r.attendee_id === null && r.email.toLowerCase() === ATTENDEE_EMAIL.toLowerCase(),
+    );
+    if (emailOnly) {
+      emailOnly.attendee_id = attendee;
       return error(409, "ALREADY_REGISTERED");
     }
     if (!event.waitlist_enabled) return error(409, "WAITLIST_NOT_ENABLED");
     if (seatsRemaining(event) > 0) return error(409, "SEATS_AVAILABLE");
-    const registration = seedRegistration(event, {
-      attendee_id: email === ATTENDEE_EMAIL ? ATTENDEE_ID : null,
-      email,
-      status: "waitlisted",
-    });
+    const registration = seedRegistration(event, { attendee_id: attendee, email: ATTENDEE_EMAIL, status: "waitlisted" });
     return HttpResponse.json(
       { registration_id: registration.id, status: "waitlisted", position: waitlistPosition(registration) },
       { status: 201 },
@@ -1634,6 +1709,48 @@ const handlers = [
     if (!line) return error(404, "NOT_FOUND");
     if (!line.reservation) return error(409, "NOT_RESERVED");
     line.reservation = null;
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  // US14 (SCRUM-134): the event's coordinator only. Overlaps (STAFF_UNAVAILABLE) and EVENT_STARTED are
+  // the API's to decide; tests that need them answer with server.use.
+  route("get", "/api/v1/events/:id/tech-staff", ({ request, params }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "coordinator") return error(403, "FORBIDDEN");
+    const event = managedEquipmentEvent(request, params.id);
+    if (!event) return error(404, "NOT_FOUND");
+    return HttpResponse.json(techStaffBody(event));
+  }),
+
+  route("post", "/api/v1/events/:id/tech-staff", ({ request, params, body }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "coordinator") return error(403, "FORBIDDEN");
+    const event = managedEquipmentEvent(request, params.id);
+    if (!event) return error(404, "NOT_FOUND");
+    const ids = (body as { staff_user_ids?: unknown } | null)?.staff_user_ids;
+    if (!Array.isArray(ids) || ids.length === 0) return HttpResponse.json({ detail: "staff_user_ids" }, { status: 422 });
+    if (!techStaffBody(event).eligible) return error(409, "NO_APPROVED_TECH_REQUEST");
+    const invalid = ids.filter((id) => !db.techStaff.some((p) => p.id === id));
+    if (invalid.length) return error(422, "INVALID_STAFF", { staff_user_ids: invalid });
+    const active = db.techStaffRows.filter((row) => row.event_id === event.id && !row.unassigned_at);
+    const already = ids.filter((id) => active.some((row) => row.staff.id === id));
+    if (already.length) return error(409, "ALREADY_ASSIGNED", { staff_user_ids: already });
+    for (const id of ids) seedTechStaffAssignment(event, db.techStaff.find((p) => p.id === id)!);
+    return HttpResponse.json(techStaffBody(event), { status: 201 });
+  }),
+
+  route("delete", "/api/v1/events/:id/tech-staff/:staffId", ({ request, params }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "coordinator") return error(403, "FORBIDDEN");
+    const event = managedEquipmentEvent(request, params.id);
+    if (!event) return error(404, "NOT_FOUND");
+    const row = db.techStaffRows.find((r) => r.event_id === event.id && r.staff.id === params.staffId && !r.unassigned_at);
+    if (!row) return error(409, "NOT_ASSIGNED");
+    row.unassigned_at = techStaffStamp();
+    row.unassigned_by = COORDINATOR_PERSON;
     return new HttpResponse(null, { status: 204 });
   }),
 

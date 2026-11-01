@@ -143,8 +143,8 @@ function toMyRegistration(row: MyRegistrationOut, status: MyRegistrationStatus):
   };
 }
 
-// Attendee routes, identified by X-Attendee-Id, except joining a waitlist, which takes only an
-// email (D7).
+// Attendee routes, identified by X-Attendee-Id. Joining a waitlist is one too since SCRUM-136
+// (D3, D7): the place is the logged-in attendee's, not a typed email's.
 export const registrationApi = {
   async listAvailable(): Promise<EventAvailability[]> {
     const body = await apiClient.get<{ events: AvailableEventOut[] }>("/api/v1/events/available", "attendee");
@@ -169,8 +169,8 @@ export const registrationApi = {
     return toConfirmation(body);
   },
 
-  async joinWaitlist(eventId: string, email: string): Promise<WaitlistConfirmation> {
-    const body = await apiClient.post<WaitlistJoinResponseOut>(`/api/v1/events/${eventId}/waitlist`, { email }, "none");
+  async joinWaitlist(eventId: string): Promise<WaitlistConfirmation> {
+    const body = await apiClient.post<WaitlistJoinResponseOut>(`/api/v1/events/${eventId}/waitlist`, {}, "attendee");
     return { registrationId: body.registration_id, status: body.status, position: body.position };
   },
 

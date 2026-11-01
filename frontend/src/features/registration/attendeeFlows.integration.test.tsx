@@ -6,6 +6,7 @@ import App from "../../App";
 import { setDevRole } from "../../api/client";
 import {
   ATTENDEE_EMAIL,
+  ATTENDEE_ID,
   callsTo,
   db,
   fillSeats,
@@ -232,7 +233,7 @@ describe("register → My events → withdraw (US3, US11, US7)", () => {
 });
 
 describe("waitlist (US6a)", () => {
-  it("joins a full event's waitlist by email and shows the position on the board and in My events", async () => {
+  it("joins a full event's waitlist as the logged-in attendee and shows the position on the board and in My events (TC-US6A-11)", async () => {
     const user = userEvent.setup();
     const event = seedEvent({ name: "Design Sprint Bootcamp", capacity: 2, waitlist_enabled: true });
     fillSeats(event, 2);
@@ -242,14 +243,16 @@ describe("waitlist (US6a)", () => {
     await user.click(await card("Design Sprint Bootcamp"));
     const dialog = within(screen.getByRole("dialog"));
     expect(dialog.queryByRole("button", { name: "Reserve my seat" })).not.toBeInTheDocument();
-    await user.type(dialog.getByLabelText("Email"), ATTENDEE_EMAIL);
+    // SCRUM-136: nothing to type; the place is the logged-in attendee's.
+    expect(dialog.queryByRole("textbox")).not.toBeInTheDocument();
     await user.click(dialog.getByRole("button", { name: "Join the waitlist" }));
 
     expect(await dialog.findByText("You're #2 in the queue")).toBeInTheDocument();
-    // Joining takes only an email: no identity header (D7).
     const [join] = callsTo("POST", `/api/v1/events/${event.id}/waitlist`);
-    expect(join.body).toEqual({ email: ATTENDEE_EMAIL });
-    expect(join.headers.get("X-Attendee-Id")).toBeNull();
+    expect(join.body).toEqual({});
+    expect(join.headers.get("X-Attendee-Id")).toBe(ATTENDEE_ID);
+    const place = db.registrations.find((r) => r.event_id === event.id && r.attendee_id === ATTENDEE_ID);
+    expect(place).toMatchObject({ email: ATTENDEE_EMAIL, status: "waitlisted" });
 
     await user.click(dialog.getByRole("button", { name: "Back to events" }));
     expect(await card("Design Sprint Bootcamp")).toHaveTextContent("You're on the waitlist (#2)");

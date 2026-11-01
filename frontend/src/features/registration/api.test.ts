@@ -184,18 +184,18 @@ describe("registrationApi mapping", () => {
     });
   });
 
-  it("joins a waitlist by email with no identity header (D7)", async () => {
+  it("joins a waitlist as the logged-in attendee, with no email (SCRUM-136)", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ registration_id: "r9", status: "waitlisted", position: 4 }, 201));
 
-    await expect(registrationApi.joinWaitlist("e1", "calvin@smu.edu.sg")).resolves.toEqual({
+    await expect(registrationApi.joinWaitlist("e1")).resolves.toEqual({
       registrationId: "r9",
       status: "waitlisted",
       position: 4,
     });
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe("http://api.test/api/v1/events/e1/waitlist");
-    expect(JSON.parse(init.body)).toEqual({ email: "calvin@smu.edu.sg" });
-    expect((init.headers as Headers).get("X-Attendee-Id")).toBeNull();
+    expect(JSON.parse(init.body)).toEqual({});
+    expect((init.headers as Headers).get("X-Attendee-Id")).toBe("attendee-id");
   });
 
   it("maps a withdrawal result", async () => {

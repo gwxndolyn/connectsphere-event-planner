@@ -8,6 +8,7 @@ import type {
   EquipmentType,
   LineFormValues,
   LineStatus,
+  TechStaff,
 } from "./types";
 
 // US26 routes identify the caller by X-User-Id (or a token): the event's assigned coordinator manages
@@ -56,6 +57,16 @@ export const equipmentApi = {
   // US5 (SCRUM-125): Tech support only; the outcome is recorded on the line (D64).
   checkAvailability: (lineId: string) =>
     apiClient.post<EquipmentAvailability>(`/api/v1/equipment-lines/${lineId}/availability-check`, {}),
+
+  // US14 (SCRUM-134): the event's coordinator only (D20).
+  techStaff: (eventId: string) => apiClient.get<TechStaff>(`/api/v1/events/${eventId}/tech-staff`),
+
+  assignTechStaff: (eventId: string, staffUserIds: string[]) =>
+    apiClient.post<TechStaff>(`/api/v1/events/${eventId}/tech-staff`, { staff_user_ids: staffUserIds }),
+
+  async unassignTechStaff(eventId: string, staffUserId: string): Promise<void> {
+    await apiClient.delete(`/api/v1/events/${eventId}/tech-staff/${staffUserId}`);
+  },
 };
 
 /** "Sufficient" or "Short by N" (US5 AC 4). */
@@ -124,6 +135,33 @@ export function equipmentErrorMessage(error: unknown): string {
       return "Set the dev user id for the role you're acting as in frontend/.env, then restart the frontend.";
     default:
       return FALLBACK_MESSAGE;
+  }
+}
+
+/**
+ * Readable text for the US14 routes' refusals (deviation 56), naming the staff concerned from `nameOf`.
+ * Anything else reads as for the other equipment routes.
+ */
+export function techStaffErrorMessage(error: unknown, nameOf: (id: string) => string): string {
+  if (!(error instanceof ApiError)) return equipmentErrorMessage(error);
+  const ids = Array.isArray(error.body.staff_user_ids) ? error.body.staff_user_ids.map(String) : [];
+  const names = ids.map(nameOf).join(", ") || "Someone you picked";
+  const verb = ids.length > 1 ? "are" : "is";
+  switch (error.code) {
+    case "NO_APPROVED_TECH_REQUEST":
+      return "Needs an approved equipment request first.";
+    case "STAFF_UNAVAILABLE":
+      return `${names} ${verb} now on another event at these times, so no one was assigned.`;
+    case "ALREADY_ASSIGNED":
+      return `${names} ${verb} already assigned to this event.`;
+    case "INVALID_STAFF":
+      return `${names} can't be assigned: not an active Tech support user.`;
+    case "EVENT_STARTED":
+      return "This event has already started, so its Technical support staff can't be changed.";
+    case "NOT_ASSIGNED":
+      return "That person isn't assigned to this event any more.";
+    default:
+      return equipmentErrorMessage(error);
   }
 }
 

@@ -12,7 +12,6 @@ from app.registration.schemas import (
     OfferReleaseResponse,
     RegisterRequest,
     RegisterResponse,
-    WaitlistJoinRequest,
     WaitlistJoinResponse,
     WithdrawResponse,
 )
@@ -52,11 +51,12 @@ def register(
 @events_router.post("/{event_id}/waitlist", status_code=201)
 def join_waitlist(
     event_id: uuid.UUID,
-    body: WaitlistJoinRequest,
+    attendee: Attendee = Depends(get_current_attendee),
     db: Session = Depends(get_db),
     now: datetime = Depends(get_now),
 ) -> WaitlistJoinResponse:
-    return registration_service.join_waitlist(db, event_id, body.email, now)
+    # SCRUM-136: the logged-in attendee joins, like register; there's no body (D3, D7).
+    return registration_service.join_waitlist(db, event_id, attendee, now)
 
 
 @router.post("/{registration_id}/withdraw")

@@ -20,7 +20,8 @@ export const DEV_USER_IDS: Record<DevRole, string | undefined> = {
 // by X-Attendee-Id instead (§3). One seeded attendee for now; Supabase Auth replaces both stubs.
 export const DEV_ATTENDEE_ID: string | undefined = import.meta.env.VITE_DEV_ATTENDEE_ID;
 
-// "none": no identity header, for routes that take none (joining a waitlist by email, D7).
+// "none": no identity header, for a route that takes none. Unused since SCRUM-136 made joining a
+// waitlist an attendee route.
 export type Identity = "user" | "attendee" | "none";
 
 interface RequestOptions extends RequestInit {

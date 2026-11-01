@@ -3,6 +3,7 @@ import { formatEventDate } from "../registration/datetime";
 import { equipmentApi, equipmentErrorMessage, eventLabel, lineStatusLabel, toLineBody } from "./equipmentApi";
 import { LineForm } from "./LineForm";
 import { RemoveLineDialog } from "./RemoveLineDialog";
+import { TechSupportStaff } from "./TechSupportStaff";
 import type { EquipmentEvent, EquipmentLine, EquipmentType, LineFormValues } from "./types";
 import "../eventRequest/eventRequests.css";
 import "../venue/venues.css";
@@ -257,6 +258,9 @@ export function EventEquipment() {
                   resetOnSuccess
                 />
               </section>
+
+              {/* US14 (SCRUM-135): beside the event's equipment, as the acting PO decided on 31 Oct. */}
+              <TechSupportStaff key={eventId} eventId={eventId} />
             </>
           )}
         </>

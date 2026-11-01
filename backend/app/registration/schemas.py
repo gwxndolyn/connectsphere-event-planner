@@ -29,10 +29,6 @@ class RegisterResponse(BaseModel):
     event: EventConfirmationOut
 
 
-class WaitlistJoinRequest(BaseModel):
-    email: str
-
-
 class WaitlistJoinResponse(BaseModel):
     registration_id: uuid.UUID
     status: RegistrationStatus

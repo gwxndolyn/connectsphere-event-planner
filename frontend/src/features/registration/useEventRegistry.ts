@@ -64,8 +64,8 @@ export function useEventRegistry(enabled = true) {
     return confirmation;
   }
 
-  async function joinWaitlist(eventId: string, email: string): Promise<WaitlistConfirmation> {
-    const confirmation = await registrationApi.joinWaitlist(eventId, email);
+  async function joinWaitlist(eventId: string): Promise<WaitlistConfirmation> {
+    const confirmation = await registrationApi.joinWaitlist(eventId);
     await refresh();
     return confirmation;
   }
