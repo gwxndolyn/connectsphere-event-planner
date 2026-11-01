@@ -73,7 +73,7 @@ Venue Booking Demo, with a venue requested but not yet approved by Venue staff. 
 
 The API refuses the same event (`POST /api/v1/event-requests/{id}/confirmation`), naming what is outstanding:
 
-```
+```text
 409 {"code": "EVENT_NOT_READY", "outstanding": [
   {"kind": "venue", "name": "Li Ka Shing Library Seminar Room 3-4, Main hall", ...},
   {"kind": "safety", "name": "Safety check", ...}]}
@@ -95,7 +95,7 @@ With registration enabled for the event, an attendee finds Confirmation Demo on 
 
 ### AC 4: the organiser is told
 
-```
+```text
 INFO app.notification.service: event confirmed: event.organiser@smu.edu.sg, no reference yet (Confirmation Demo) from 2026-11-11T06:00:00+00:00 to 2026-11-11T08:00:00+00:00 at Li Ka Shing Library Seminar Room 3-4
 ```
 
@@ -105,7 +105,7 @@ Equipment Request Demo is already Confirmed: the panel offers no Confirm event, 
 
 ![Already confirmed event with no Confirm button](screenshots/US18-confirm-event/06-already-confirmed.png)
 
-```
+```text
 409 {"code": "CONFIRMATION_NOT_ALLOWED", "status": "confirmed"}
 ```
 
