@@ -4,6 +4,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.agenda.router import requests_router as agenda_requests_router
+from app.agenda.router import router as agenda_router
 from app.core.config import settings
 from app.core.exceptions import DomainError, domain_error_handler
 from app.equipment.router import events_router as equipment_events_router
@@ -68,6 +70,8 @@ app.include_router(venue_booking_router)
 app.include_router(venue_booking_events_router)
 app.include_router(safety_router)
 app.include_router(safety_requests_router)
+app.include_router(agenda_requests_router)
+app.include_router(agenda_router)
 app.include_router(equipment_types_router)
 app.include_router(equipment_router)
 app.include_router(equipment_events_router)

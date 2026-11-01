@@ -313,6 +313,11 @@ ROUTES = [
     ("GET", "/api/v1/event-requests/{request_id}/cancellations", {ORGANISER, COORDINATOR, LEAD}),
     ("POST", "/api/v1/event-cancellations/{cancellation_id}/approve", {COORDINATOR}),
     ("POST", "/api/v1/event-cancellations/{cancellation_id}/reject", {COORDINATOR}),
+    # SCRUM-139 (US15): anyone who can read the request lists its agenda (D93); only its organiser changes it.
+    ("GET", "/api/v1/event-requests/{request_id}/sessions", {ORGANISER, COORDINATOR, LEAD}),
+    ("POST", "/api/v1/event-requests/{request_id}/sessions", {ORGANISER}),
+    ("PATCH", "/api/v1/event-sessions/{session_id}", {ORGANISER}),
+    ("DELETE", "/api/v1/event-sessions/{session_id}", {ORGANISER}),
 ]
 # Every other route, by who may call it, so that a new route fails the test below until someone decides
 # which list it belongs in (PR #88 review).
