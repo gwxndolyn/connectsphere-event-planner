@@ -307,6 +307,12 @@ ROUTES = [
     # SCRUM-97 (US29a): the organiser asks for a change to their own event and follows it.
     ("POST", "/api/v1/event-requests/{request_id}/change-requests", {ORGANISER}),
     ("GET", "/api/v1/me/change-requests", {ORGANISER}),
+    # SCRUM-12 (US9): the organiser asks to cancel; the assigned coordinator decides, or cancels directly.
+    ("POST", "/api/v1/event-requests/{request_id}/cancellation-requests", {ORGANISER}),
+    ("POST", "/api/v1/event-requests/{request_id}/cancel", {COORDINATOR}),
+    ("GET", "/api/v1/event-requests/{request_id}/cancellations", {ORGANISER, COORDINATOR, LEAD}),
+    ("POST", "/api/v1/event-cancellations/{cancellation_id}/approve", {COORDINATOR}),
+    ("POST", "/api/v1/event-cancellations/{cancellation_id}/reject", {COORDINATOR}),
     # SCRUM-139 (US15): anyone who can read the request lists its agenda (D93); only its organiser changes it.
     ("GET", "/api/v1/event-requests/{request_id}/sessions", {ORGANISER, COORDINATOR, LEAD}),
     ("POST", "/api/v1/event-requests/{request_id}/sessions", {ORGANISER}),
@@ -574,6 +580,18 @@ async def request_by_its_coordinator(client: AsyncClient, db: Session) -> tuple[
     return both, request_id, {"reason": "Not for us."}
 
 
+async def cancellation_by_its_coordinator(client: AsyncClient, db: Session) -> tuple[User, uuid.UUID, dict]:
+    both = make_user(db, UserRole.ORGANISER, UserRole.COORDINATOR)
+    # As above: an event assigned to its creator before D51, asked to be cancelled by them as its organiser.
+    event = make_event(db, status=EventStatus.PLANNING, coordinator_id=both.id)
+    event.created_by_user_id = both.id
+    db.flush()
+    asked = await client.post(
+        f"/api/v1/event-requests/{event.id}/cancellation-requests", headers=auth(both), json={"reason": "Clash."}
+    )
+    return both, uuid.UUID(asked.json()["id"]), {"reason": "Not for us."}
+
+
 DECISIONS = {
     ("POST", "/api/v1/venue-bookings/{booking_id}/approve"): booking_by_its_decider,
     ("POST", "/api/v1/venue-bookings/{booking_id}/reject"): booking_by_its_decider,
@@ -582,6 +600,8 @@ DECISIONS = {
     ("POST", "/api/v1/event-requests/{request_id}/reassignment"): assigned_request_by_its_lead,
     ("POST", "/api/v1/event-requests/{request_id}/approve"): request_by_its_coordinator,
     ("POST", "/api/v1/event-requests/{request_id}/reject"): request_by_its_coordinator,
+    ("POST", "/api/v1/event-cancellations/{cancellation_id}/approve"): cancellation_by_its_coordinator,
+    ("POST", "/api/v1/event-cancellations/{cancellation_id}/reject"): cancellation_by_its_coordinator,
 }
 
 
