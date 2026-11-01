@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import DomainError
@@ -14,7 +14,7 @@ from app.event.models import CancellationStatus, Event, EventCancellation, Event
 from app.event.request_schemas import CoordinatorOut
 from app.event.self_decision import refuse_self_decision
 from app.notification.service import CancellationRecipient, Notifier
-from app.registration.models import ACTIVE_STATUSES, Registration
+from app.registration.models import ACTIVE_STATUSES, Registration, RegistrationStatus
 from app.user.models import User, UserRole
 from app.venue.models import LIVE_BOOKING_STATUSES, VenueBooking, VenueBookingStatus
 
@@ -28,14 +28,18 @@ REASON_MAX_LENGTH = 1000  # as US17's rejection reason and US29a's change reques
 EVENT_TIMEZONE = ZoneInfo("Asia/Singapore")
 
 
-def _starts_at(event: Event) -> datetime | None:
-    """When the event starts: its own start once planned; for an Approved request without one, its earliest preferred
-    date at its preferred start time, Singapore time (D9). None if it has neither."""
+def _starts_at(event: Event, first_booking: datetime | None) -> datetime | None:
+    """When the event starts, for AC 7. Its own start once planned. An Approved request has none (D86), so:
+    DECISION-PENDING: D95 — its earliest live venue booking, which places it; with no booking, its last preferred
+    date at its preferred start time, Singapore time (D9), by when it has started whichever date it's on. None if
+    it has neither."""
     if event.start_at is not None:
         return event.start_at
+    if first_booking is not None:
+        return first_booking
     if not event.preferred_dates or event.preferred_start_time is None:
         return None
-    return datetime.combine(min(event.preferred_dates), event.preferred_start_time, tzinfo=EVENT_TIMEZONE)
+    return datetime.combine(max(event.preferred_dates), event.preferred_start_time, tzinfo=EVENT_TIMEZONE)
 
 
 def _reason(body: CancellationWrite) -> str:
@@ -97,7 +101,7 @@ class CancellationService:
         # Someone else's event is 404 (§1a), and so is a draft: it's still the organiser's to edit or delete.
         if event is None or event.created_by_user_id != organiser.id or event.status == EventStatus.DRAFT:
             raise DomainError(404, "NOT_FOUND")
-        self._check_cancellable(event, now)
+        self._check_cancellable(db, event, now)
         reason = _reason(body)
         self._refuse_if_pending(db, event)
 
@@ -117,8 +121,8 @@ class CancellationService:
         notifier: Notifier,
     ) -> CancellationOut:
         """AC 3: the assigned coordinator cancels the event themselves, with a reason."""
-        event = self._lock_coordinated(db, event_id, coordinator)
-        self._check_cancellable(event, now)
+        event = self._lock_coordinated(db, event_id, coordinator, bookings=True)
+        self._check_cancellable(db, event, now)
         reason = _reason(body)
         # The organiser's waiting request is the coordinator's to decide: approving it cancels the event and keeps
         # who asked (AC 8), where a second, direct cancellation would leave it open (event_cancellations_one_open).
@@ -140,10 +144,10 @@ class CancellationService:
         self, db: Session, coordinator: User, cancellation_id: uuid.UUID, now: datetime, notifier: Notifier
     ) -> CancellationOut:
         """AC 2: approving the organiser's request cancels the event."""
-        event, row = self._lock_request(db, cancellation_id, coordinator)
+        event, row = self._lock_request(db, cancellation_id, coordinator, bookings=True)
         self._check_pending(row)
         # AC 7: an event that has started or is over is refused, and the request stays pending for a rejection.
-        self._check_cancellable(event, now)
+        self._check_cancellable(db, event, now)
         row.status = CancellationStatus.APPROVED
         row.decided_by_user_id = coordinator.id
         row.decided_at = now
@@ -203,7 +207,11 @@ class CancellationService:
         # FOR UPDATE: a cancellation and a decision, a confirmation or an edit can't both land.
         return db.scalars(select(Event).where(Event.id == event_id).with_for_update()).one_or_none()
 
-    def _lock_coordinated(self, db: Session, event_id: uuid.UUID, coordinator: User) -> Event:
+    def _lock_coordinated(self, db: Session, event_id: uuid.UUID, coordinator: User, bookings: bool = False) -> Event:
+        if bookings:
+            # The event's live bookings before the event itself, the order Venue staff's approve takes them in
+            # (booking, then event), so a cancel and an approve wait for each other instead of deadlocking.
+            db.scalars(self._live_bookings(event_id).with_for_update()).all()
         event = self._lock(db, event_id)
         # D48: only the event's assigned coordinator. Anyone else's, an unassigned event or a draft is 404 (§1a).
         if event is None or event.status == EventStatus.DRAFT or event.coordinator_id != coordinator.id:
@@ -211,12 +219,12 @@ class CancellationService:
         return event
 
     def _lock_request(
-        self, db: Session, cancellation_id: uuid.UUID, coordinator: User
+        self, db: Session, cancellation_id: uuid.UUID, coordinator: User, bookings: bool = False
     ) -> tuple[Event, EventCancellation]:
         found = db.get(EventCancellation, cancellation_id)
         if found is None:
             raise DomainError(404, "NOT_FOUND")
-        event = self._lock_coordinated(db, found.event_id, coordinator)
+        event = self._lock_coordinated(db, found.event_id, coordinator, bookings)
         row = db.scalars(
             select(EventCancellation)
             .where(EventCancellation.id == cancellation_id)
@@ -227,10 +235,22 @@ class CancellationService:
         refuse_self_decision(coordinator, created_by_user_id=row.requested_by_user_id)
         return event, row
 
-    def _check_cancellable(self, event: Event, now: datetime) -> None:
+    def _live_bookings(self, event_id: uuid.UUID):
+        return (
+            select(VenueBooking)
+            .where(VenueBooking.event_id == event_id, VenueBooking.status.in_(LIVE_BOOKING_STATUSES))
+            .order_by(VenueBooking.id)
+        )
+
+    def _check_cancellable(self, db: Session, event: Event, now: datetime) -> None:
         if event.status not in CANCELLABLE_STATUSES:
             raise DomainError(409, "CANCELLATION_NOT_ALLOWED", status=event.status.value)
-        starts_at = _starts_at(event)
+        first_booking = db.scalar(
+            select(func.min(VenueBooking.starts_at)).where(
+                VenueBooking.event_id == event.id, VenueBooking.status.in_(LIVE_BOOKING_STATUSES)
+            )
+        )
+        starts_at = _starts_at(event, first_booking)
         # AC 7: once the event is on, cancelling it is refused.
         if starts_at is not None and now >= starts_at:
             raise DomainError(409, "EVENT_STARTED", starts_at=starts_at.isoformat())
@@ -253,11 +273,11 @@ class CancellationService:
     ) -> CancellationOut:
         """AC 4, 5: in one transaction the event is Cancelled and its venues and equipment are free again."""
         event.status = EventStatus.CANCELLED
+        # Again under the event's lock: a booking requested before it was taken is here now (create locks the event).
         bookings = db.scalars(
-            select(VenueBooking)
-            .where(VenueBooking.event_id == event.id, VenueBooking.status.in_(LIVE_BOOKING_STATUSES))
-            .with_for_update()
+            self._live_bookings(event.id).with_for_update().execution_options(populate_existing=True)
         ).all()
+        released_approved = any(booking.status == VenueBookingStatus.APPROVED for booking in bookings)
         # D60, D69: every live booking, of every venue, is withdrawn; an approved one keeps its decision (D77).
         for booking in bookings:
             booking.status = VenueBookingStatus.WITHDRAWN
@@ -270,21 +290,23 @@ class CancellationService:
         db.flush()
         db.refresh(row, ["requested_by", "decided_by"])
         result = _out(row, event)
-        notice = self._recipients(db, event, row, had_bookings=bool(bookings))
+        notice = self._recipients(db, event, row, now, released_approved=released_approved)
         db.commit()
 
         self._send(notifier, notice)
         return result
 
-    def _recipients(self, db: Session, event: Event, row: EventCancellation, *, had_bookings: bool) -> _Notice:
+    def _recipients(
+        self, db: Session, event: Event, row: EventCancellation, now: datetime, *, released_approved: bool
+    ) -> _Notice:
         """AC 6: the Organiser, Venue staff, Tech support staff and every registered and wait-listed attendee."""
         recipients: list[tuple[str, CancellationRecipient]] = []
         organiser = db.get(User, event.created_by_user_id) if event.created_by_user_id else None
         if organiser is not None:
             recipients.append((organiser.email, "organiser"))
-        if had_bookings:
+        if released_approved:
             # DECISION-PENDING: D94 — Venue staff aren't assigned to an event, so every active Venue staff member
-            # hears, as when an approved booking is withdrawn (D69).
+            # hears when an approved venue is released, as when an approved booking is withdrawn (D69).
             staff = db.scalars(
                 select(User)
                 .where(User.roles.any(UserRole.VENUE_STAFF), User.is_active.is_(True))
@@ -294,14 +316,27 @@ class CancellationService:
         tech = db.scalars(
             select(User)
             .join(TechStaffAssignment, TechStaffAssignment.staff_user_id == User.id)
-            .where(TechStaffAssignment.event_id == event.id, TechStaffAssignment.unassigned_at.is_(None))
+            .where(
+                TechStaffAssignment.event_id == event.id,
+                TechStaffAssignment.unassigned_at.is_(None),
+                User.is_active.is_(True),
+            )
             .order_by(User.email)
         ).all()
         recipients += [(user.email, "tech_support") for user in tech]
-        # Registered, offered a place and wait-listed; not those who withdrew, declined or let an offer lapse.
+        # Registered, offered a place and wait-listed; not those who withdrew, declined or let an offer lapse, even an
+        # offer no read has swept yet (D2): sweeping now would hand the place on just before the cancel.
         attendees = db.scalars(
             select(Registration.attendee_email)
-            .where(Registration.event_id == event.id, Registration.status.in_(ACTIVE_STATUSES))
+            .where(
+                Registration.event_id == event.id,
+                Registration.status.in_(ACTIVE_STATUSES),
+                or_(
+                    Registration.status != RegistrationStatus.OFFERED,
+                    Registration.offer_expires_at.is_(None),
+                    Registration.offer_expires_at > now,
+                ),
+            )
             .order_by(Registration.attendee_email)
         ).all()
         recipients += [(email, "attendee") for email in attendees]
