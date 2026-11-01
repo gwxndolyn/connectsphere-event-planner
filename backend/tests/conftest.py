@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.engine import make_url
@@ -20,6 +21,16 @@ from app.user.auth import auth_dev_headers_enabled
 from tests.factories import NOW
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
+
+
+def assert_one_head_including(revision: str) -> None:
+    """A story's migration test: there is one Alembic head and the chain includes `revision`. Never assert that it
+    *is* the head; the next story's migration would break the test (US5, US29a, PR #115 review)."""
+    config = Config(str(BACKEND_DIR / "alembic.ini"))
+    config.set_main_option("script_location", str(BACKEND_DIR / "migrations"))
+    script = ScriptDirectory.from_config(config)
+    assert len(script.get_heads()) == 1
+    assert revision in {item.revision for item in script.walk_revisions()}
 
 # Deliberately NOT settings.database_url: a developer's .env may point at the shared Supabase database.
 TEST_DATABASE_URL = os.environ.get(

@@ -705,26 +705,32 @@ create table event_cancellations (              -- AC 8: who asked, why, when; w
   id uuid primary key default gen_random_uuid(),
   event_id uuid not null references events(id),
   requested_by_user_id uuid not null references users(id),
-  reason text not null,                         -- AC 1, 3: required, not blank
+  reason text not null,                         -- AC 1, 3: required, not blank, at most 1,000 characters
   status cancellation_status not null default 'pending',
   requested_at timestamptz not null default now(),
   decided_by_user_id uuid references users(id),
   decided_at timestamptz,
   rejection_reason text,                        -- the coordinator's, when rejecting; required then and only then
-  constraint event_cancellations_reason_not_blank check (btrim(reason) <> ''),
+  direct boolean not null default false,        -- AC 3: the coordinator cancelled it themselves
+  constraint event_cancellations_reason_not_blank check (btrim(reason) <> '' and char_length(reason) <= 1000),
   constraint event_cancellations_decided_consistent
     check ((status = 'pending') = (decided_at is null) and (decided_at is null) = (decided_by_user_id is null)
            and (decided_at is null or decided_at >= requested_at)),
   constraint event_cancellations_rejection_reason_only_when_rejected
     check ((status = 'rejected') = (rejection_reason is not null)
-           and (rejection_reason is null or btrim(rejection_reason) <> ''))
+           and (rejection_reason is null or (btrim(rejection_reason) <> '' and char_length(rejection_reason) <= 1000))),
+  constraint event_cancellations_direct_consistent
+    check ((not direct or status = 'approved')
+           and (decided_by_user_id is null or direct = (decided_by_user_id = requested_by_user_id)))
 );
 create unique index event_cancellations_one_open on event_cancellations (event_id)
   where status in ('pending', 'approved');     -- one waiting request, or the cancellation itself
 -- indexed on event_id; RLS on
 ```
 
-- An organiser's request is `pending` until the assigned coordinator approves or rejects it (AC 1, 2). A coordinator's direct cancel (AC 3) is one `approved` row with the coordinator as requester and decider, at the same instant.
+- An organiser's request is `pending` until the assigned coordinator approves or rejects it (AC 1, 2). A coordinator's direct cancel (AC 3) is one `approved`, `direct` row with the coordinator as requester and decider, at the same instant. `direct` is true exactly when the decider is the requester, so a request decided by someone else (D51) is never direct.
+- `requested_at` defaults to the database clock for hand-written rows; the service always sets it from the same injected clock as `decided_at`, so `decided_at >= requested_at` holds under a frozen test clock.
+- **Consistency:** nothing in the schema ties an `approved` row to `events.status = 'cancelled'`; the service changes both in one transaction (PR 2), and PR 2's tests check every cancelled event has exactly one approved row. The seed has no cancelled events.
 - **One open row per event:** no second request while one waits, none after the event is cancelled (AC 4), and cancelling must decide a waiting request rather than leave it open beside the cancellation.
 - The same migration lets a `cancelled` event go without its date, capacity and delivery mode, but not its name (`events_final_fields_required`), because an Approved event can be cancelled before it has them (D93). The coordinator's Events list and the managed-events list (US12, US28) leave such an event out, and opening it there is `404`: it never reached Planning.
 - Downgrade refuses while any row exists, or while a cancelled event lacks its final fields.
