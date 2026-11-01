@@ -110,6 +110,7 @@ class FakeNotifier:
         self.cancellations: list[dict[str, object]] = []
         self.confirmations: list[dict[str, object]] = []
         self.safety_reviews: list[dict[str, object]] = []
+        self.safety_changes: list[dict[str, object]] = []
         self.fail = False
 
     def waitlist_offer(
@@ -311,6 +312,11 @@ class FakeNotifier:
         if self.fail:
             raise RuntimeError("mail server unavailable")
         self.safety_reviews.append(call)
+
+    def safety_changes_requested(self, **call: object) -> None:
+        if self.fail:
+            raise RuntimeError("mail server unavailable")
+        self.safety_changes.append(call)
 
     def cancellation_requested(self, **call: object) -> None:
         if self.fail:
