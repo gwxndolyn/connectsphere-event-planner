@@ -54,7 +54,8 @@ def upgrade() -> None:
         ),
         sa.CheckConstraint("btrim(reason) <> ''", name="event_cancellations_reason_not_blank"),
         sa.CheckConstraint(
-            "(status = 'pending') = (decided_at IS NULL) AND (decided_at IS NULL) = (decided_by_user_id IS NULL)",
+            "(status = 'pending') = (decided_at IS NULL) AND (decided_at IS NULL) = (decided_by_user_id IS NULL) "
+            "AND (decided_at IS NULL OR decided_at >= requested_at)",
             name="event_cancellations_decided_consistent",
         ),
         sa.CheckConstraint(
@@ -64,30 +65,24 @@ def upgrade() -> None:
         ),
     )
     op.create_index("ix_event_cancellations_event_id", "event_cancellations", ["event_id"])
-    # One open request per event, and (AC 4: it can't be undone) one approved cancellation.
+    # At most one open row per event: a pending request or, once cancelled (AC 4: it can't be undone), the approved
+    # one. So no second request while one waits, none after a cancel, and a cancel must decide the pending request.
     op.create_index(
-        "event_cancellations_one_pending",
+        "event_cancellations_one_open",
         "event_cancellations",
         ["event_id"],
         unique=True,
-        postgresql_where=sa.text("status = 'pending'"),
-    )
-    op.create_index(
-        "event_cancellations_one_approved",
-        "event_cancellations",
-        ["event_id"],
-        unique=True,
-        postgresql_where=sa.text("status = 'approved'"),
+        postgresql_where=sa.text("status IN ('pending', 'approved')"),
     )
     op.execute("ALTER TABLE event_cancellations ENABLE ROW LEVEL SECURITY")
 
     # DECISION-PENDING: D93 — an Approved event can be cancelled (AC 1) but may have no date or capacity yet
-    # (US18 takes them from its bookings), so a cancelled event no longer needs its final fields.
+    # (US18 takes them from its bookings), so a cancelled event needs only its name (AC 6's notices name it).
     op.drop_constraint("events_final_fields_required", "events", type_="check")
     op.create_check_constraint(
         "events_final_fields_required",
         "events",
-        f"status::text IN ({REQUEST_STAGE}, 'cancelled') OR {FINAL_FIELDS}",
+        f"status::text IN ({REQUEST_STAGE}) OR (status::text = 'cancelled' AND name IS NOT NULL) OR {FINAL_FIELDS}",
     )
 
 
@@ -103,8 +98,7 @@ def downgrade() -> None:
         "events",
         f"status::text IN ({REQUEST_STAGE}) OR {FINAL_FIELDS}",
     )
-    op.drop_index("event_cancellations_one_approved", table_name="event_cancellations")
-    op.drop_index("event_cancellations_one_pending", table_name="event_cancellations")
+    op.drop_index("event_cancellations_one_open", table_name="event_cancellations")
     op.drop_index("ix_event_cancellations_event_id", table_name="event_cancellations")
     op.drop_table("event_cancellations")
     op.execute("DROP TYPE cancellation_status")

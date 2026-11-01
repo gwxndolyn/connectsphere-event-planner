@@ -98,8 +98,8 @@ class Event(Base):
         ),
         # DECISION-PENDING: D93 — US9 (SCRUM-12): an Approved event may be cancelled before it has a date or capacity.
         CheckConstraint(
-            "status::text IN ('draft', 'submitted', 'under_review', 'awaiting_clarification', 'approved', 'rejected', "
-            "'cancelled') OR (name IS NOT NULL AND start_at IS NOT NULL AND end_at IS NOT NULL "
+            "status::text IN ('draft', 'submitted', 'under_review', 'awaiting_clarification', 'approved', 'rejected') "
+            "OR (status::text = 'cancelled' AND name IS NOT NULL) OR (name IS NOT NULL AND start_at IS NOT NULL AND end_at IS NOT NULL "
             "AND capacity IS NOT NULL AND delivery_mode IS NOT NULL)",
             name="events_final_fields_required",
         ),
@@ -272,13 +272,14 @@ class EventCancellation(Base):
     """US9 (SCRUM-12) AC 8: a cancellation with who asked, why and when, and who decided and when. An organiser's
     request is pending until the assigned coordinator approves or rejects it (AC 1, 2); a coordinator's direct
     cancel (AC 3) is one approved row, requested and decided by them at the same moment. The table's CHECKs and
-    partial unique indexes (one pending and one approved per event) are the source of truth."""
+    partial unique index (one pending or approved row per event) are the source of truth."""
 
     __tablename__ = "event_cancellations"
     __table_args__ = (
         CheckConstraint("btrim(reason) <> ''", name="event_cancellations_reason_not_blank"),
         CheckConstraint(
-            "(status = 'pending') = (decided_at IS NULL) AND (decided_at IS NULL) = (decided_by_user_id IS NULL)",
+            "(status = 'pending') = (decided_at IS NULL) AND (decided_at IS NULL) = (decided_by_user_id IS NULL) "
+            "AND (decided_at IS NULL OR decided_at >= requested_at)",
             name="event_cancellations_decided_consistent",
         ),
         CheckConstraint(
@@ -286,9 +287,11 @@ class EventCancellation(Base):
             "AND (rejection_reason IS NULL OR btrim(rejection_reason) <> '')",
             name="event_cancellations_rejection_reason_only_when_rejected",
         ),
-        Index("event_cancellations_one_pending", "event_id", unique=True, postgresql_where=text("status = 'pending'")),
         Index(
-            "event_cancellations_one_approved", "event_id", unique=True, postgresql_where=text("status = 'approved'")
+            "event_cancellations_one_open",
+            "event_id",
+            unique=True,
+            postgresql_where=text("status IN ('pending', 'approved')"),
         ),
     )
 
