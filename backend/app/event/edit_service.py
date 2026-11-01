@@ -273,6 +273,7 @@ class EventEditService:
                 created_at=entry.created_at,
                 change_request_id=entry.change_request_id,
                 change_request_status=entry.change_request.status if entry.change_request else None,
+                action=entry.action,
             )
             for entry in entries
         ]

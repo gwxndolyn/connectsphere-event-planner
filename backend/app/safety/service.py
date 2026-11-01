@@ -9,6 +9,7 @@ from app.core.exceptions import DomainError
 from app.equipment.models import EquipmentLineStatus, EquipmentRequestLine, EquipmentType
 from app.event.assignment_service import MISSING_NAME, MISSING_REFERENCE
 from app.event.confirmation_service import confirmation_service
+from app.event.review_flag_service import open_flags
 from app.event.models import Event, EventStatus
 from app.event.request_service import event_request_service
 from app.event.self_decision import refuse_self_decision
@@ -61,6 +62,9 @@ class SafetyService:
                 continue
             ready, approved = self._arrangements(db, event, lock=False)
             if not ready:
+                continue
+            # US29b (SCRUM-142) DECISION-PENDING: D106 — back in the queue once a significant change's flags are reviewed.
+            if open_flags(db, event.id):
                 continue
             rows.append(
                 SafetyQueueRowOut(
@@ -236,6 +240,9 @@ class SafetyService:
             raise DomainError(
                 409, "SAFETY_REVIEW_NOT_ALLOWED", reason="arrangements_incomplete", status=event.status.value
             )
+        # US29b (SCRUM-142) D106: not while a significant change's flags are still to be reviewed, as the queue.
+        if open_flags(db, event.id):
+            raise DomainError(409, "SAFETY_REVIEW_NOT_ALLOWED", reason="review_flags_open", status=event.status.value)
 
     def _validated(
         self, body: SafetyReviewWrite

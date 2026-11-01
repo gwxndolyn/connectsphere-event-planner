@@ -98,3 +98,12 @@ After merging `origin/main` (421ff52, SCRUM-99 row level security for `safety_re
 - #117 clash fixed: cancelling decides the change requests it rejects (`decided_at`, the canceller, "The event was cancelled."); the migration backfills older ones from the approved cancellation; `event_change_requests_decider_not_requester` covers approvals only; backend 1557 passed.
 - Merged origin/main (#118): deviations 67 and 68; backend 1585.
 - Merged origin/main (#119): deviations 68 and 69; backend 1587.
+
+SCRUM-142 (PR 2), 1 Nov 2026, branch `feat(SCRUM-142)Change-Request-Decision-API`, local Postgres 16:
+
+- TC-US29B-08 to 25 written first in `tests/event/test_change_request_decisions.py` and `test_review_flags.py`; both failed to collect (no `app.event.change_decision_service`).
+- Races 16 and 17 run on two committed connections held at a barrier before the event lock, as TC-US27-11.
+- Backend: `pytest`: 1625 passed (1587, plus 30 new tests and 8 role-matrix cases for the six routes).
+- Local check: approving Change Request Demo's seeded request moved it to Planning, flagged its booking and projector, cleared its safety approval (state `pending`, review kept), and left readiness waiting on the safety check and the flags; the demo was reseeded afterwards.
+
+Calvin's #125 review, note 1, 1 Nov 2026: who decides and who clears are checked again on the locked event. Three tests on two committed connections, reassigning the event just before the lock, failed first (the old coordinator's approve, reject and clear all succeeded) and pass now: `pytest`: 1628 passed.

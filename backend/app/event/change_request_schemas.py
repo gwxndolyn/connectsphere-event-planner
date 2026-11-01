@@ -28,6 +28,9 @@ class OrganiserChangeRequestOut(BaseModel):
     reason: str | None
     changes: list[FieldChangeOut]
     created_at: datetime
+    # US29b (SCRUM-142) AC 4: when it was decided, and why a rejection.
+    decided_at: datetime | None = None
+    rejection_reason: str | None = None
 
 
 class OrganiserChangeRequestsOut(BaseModel):
