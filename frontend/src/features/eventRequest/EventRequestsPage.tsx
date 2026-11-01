@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { ApiError, apiClient } from "../../api/client";
+import { EventAgenda } from "../agenda/EventAgenda";
 import { EventChangeRequests } from "../changeRequest/EventChangeRequests";
 import { CANCELLATION_VISIBLE } from "../cancellation/cancellationApi";
 import { EventCancellation } from "../cancellation/EventCancellation";
@@ -513,6 +514,8 @@ export function EventRequestsPage() {
           </div>
         </form>
       )}
+      {/* US15 (SCRUM-140, D97): a saved draft's agenda, below its details. */}
+      {screen === "form" && activeRequest && <EventAgenda key={activeRequest.id} event={activeRequest} />}
 
       {screen === "respond" && activeRequest && (
         <form className="request-form" noValidate onSubmit={(event) => void sendResponse(event)}>
@@ -566,6 +569,7 @@ export function EventRequestsPage() {
       )}
       {/* US29a (SCRUM-97): an awaiting-clarification request opens here, so its change requests show here too. */}
       {screen === "respond" && activeRequest && <EventChangeRequests event={activeRequest} />}
+      {screen === "respond" && activeRequest && <EventAgenda key={activeRequest.id} event={activeRequest} />}
 
       {screen === "responded" && activeRequest && responded && (
         <section className="request-confirmation" aria-labelledby="response-sent-title">
@@ -594,6 +598,7 @@ export function EventRequestsPage() {
           <DecisionOutcome request={activeRequest} />
           {VENUES_VISIBLE.includes(activeRequest.status) && <EventVenuesOverview event={activeRequest} />}
           <EventChangeRequests event={activeRequest} />
+          <EventAgenda key={activeRequest.id} event={activeRequest} />
           <SafetyOutcome request={activeRequest} />
           {/* US9 (SCRUM-12): ask to cancel from approval on, and the cancellation record afterwards. */}
           {CANCELLATION_VISIBLE.includes(activeRequest.status) && (
