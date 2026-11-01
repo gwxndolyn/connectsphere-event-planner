@@ -77,7 +77,7 @@ def test_tc_us10a_04_seed_adds_two_active_leads_and_leaves_events_unassigned(db:
     # Demo, US28's Intro to Supabase, US24's Multi-Venue Conference Demo, US12's Event Planning Demo, US18's
     # Confirmation Demo, US30a's Safety Review Demo and US29b's Change Request Demo: only the assigned
     # coordinator may book a venue, add equipment (D20), view registrations (D52), edit an event (US12) or
-    # decide a change request (D98), so the seed assigns the dev coordinator to all eight for their screens
+    # decide a change request (D99), so the seed assigns the dev coordinator to all eight for their screens
     # and E2E.
     assigned = db.scalars(select(Event.id).where(Event.coordinator_id.is_not(None))).all()
     assert sorted(assigned) == sorted(

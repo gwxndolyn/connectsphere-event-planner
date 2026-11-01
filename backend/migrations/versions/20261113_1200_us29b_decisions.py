@@ -1,7 +1,7 @@
 """record a change request's decision, say what each history entry is, and flag arrangements for review
 
-Revision ID: 20261112_1200_us29b_decisions
-Revises: 20261111_1200_us15_sessions
+Revision ID: 20261113_1200_us29b_decisions
+Revises: 20261112_1200_us9_cancellations
 Create Date: 2026-11-01
 
 """
@@ -12,8 +12,8 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 
-revision: str = "20261112_1200_us29b_decisions"
-down_revision: Union[str, None] = "20261111_1200_us15_sessions"
+revision: str = "20261113_1200_us29b_decisions"
+down_revision: Union[str, None] = "20261112_1200_us9_cancellations"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -22,9 +22,9 @@ AUDIT_ACTIONS = (
     "requested",  # a critical save held in a change request (US12 AC 3, D89)
     "applied",  # a field an approved change request changed (US29b AC 2)
     "decided",  # the approval or rejection itself (US29b AC 5)
-    "status_changed",  # a significant change moved the event back to Planning (D101)
-    "confirmation_cleared",  # ...and so it is no longer confirmed (D101)
-    "safety_approval_cleared",  # ...and needs a new safety review (US29b AC 6, D102)
+    "status_changed",  # a significant change moved the event back to Planning (D102)
+    "confirmation_cleared",  # ...and so it is no longer confirmed (D102)
+    "safety_approval_cleared",  # ...and needs a new safety review (US29b AC 6, D103)
 )
 
 
@@ -53,7 +53,7 @@ def upgrade() -> None:
         "event_change_requests",
         "rejection_reason IS NULL OR btrim(rejection_reason) <> ''",
     )
-    # D51: no one decides a request they made. A coordinator's own US12 edit goes to a Lead (D98).
+    # D51: no one decides a request they made. A coordinator's own US12 edit goes to a Lead (D99).
     op.create_check_constraint(
         "event_change_requests_decider_not_requester",
         "event_change_requests",
@@ -77,7 +77,7 @@ def upgrade() -> None:
     known = ", ".join(f"'{action}'" for action in AUDIT_ACTIONS)
     op.create_check_constraint("event_audit_entries_action_known", "event_audit_entries", f"action IN ({known})")
 
-    # AC 3 (D100): an approved significant change flags each affected arrangement for the coordinator to
+    # AC 3 (D101): an approved significant change flags each affected arrangement for the coordinator to
     # review, and changes nothing on it. An equipment flag points at the line, not its reservation,
     # because releasing a reservation deletes it (D74).
     op.create_table(
@@ -113,7 +113,7 @@ def upgrade() -> None:
         ),
     )
     op.create_index("ix_event_review_flags_event_id", "event_review_flags", ["event_id"])
-    # One open flag per item: a later change adds its fields to the open one (D100).
+    # One open flag per item: a later change adds its fields to the open one (D101).
     op.create_index(
         "event_review_flags_one_open_per_booking",
         "event_review_flags",

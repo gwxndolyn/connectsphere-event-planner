@@ -48,9 +48,17 @@ class AssignmentKind(enum.StrEnum):
 
 class ChangeRequestStatus(enum.StrEnum):
     """A change request's state (US12, SCRUM-15; US29a, SCRUM-97). It's `pending_approval` until decided;
-    who decides is D89, settled by US29b's D98 (SCRUM-98)."""
+    who decides is D89, settled by US29b's D99 (SCRUM-98)."""
 
     PENDING_APPROVAL = "pending_approval"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+class CancellationStatus(enum.StrEnum):
+    """US9 (SCRUM-12): an organiser's cancellation request waits for the coordinator; a direct cancel is approved."""
+
+    PENDING = "pending"
     APPROVED = "approved"
     REJECTED = "rejected"
 
@@ -88,9 +96,10 @@ class Event(Base):
             "expected_attendees IS NULL OR expected_attendees >= 1",
             name="events_expected_attendees_positive",
         ),
+        # DECISION-PENDING: D98 — US9 (SCRUM-12): an Approved event may be cancelled before it has a date or capacity.
         CheckConstraint(
             "status::text IN ('draft', 'submitted', 'under_review', 'awaiting_clarification', 'approved', 'rejected') "
-            "OR (name IS NOT NULL AND start_at IS NOT NULL AND end_at IS NOT NULL "
+            "OR (status::text = 'cancelled' AND name IS NOT NULL) OR (name IS NOT NULL AND start_at IS NOT NULL AND end_at IS NOT NULL "
             "AND capacity IS NOT NULL AND delivery_mode IS NOT NULL)",
             name="events_final_fields_required",
         ),
@@ -259,7 +268,7 @@ class EventChangeRequest(Base):
             "rejection_reason IS NULL OR btrim(rejection_reason) <> ''",
             name="event_change_requests_rejection_reason_not_blank",
         ),
-        # DECISION-PENDING: D98 — no one decides a request they made (D51), so a coordinator's own US12 edit
+        # DECISION-PENDING: D99 — no one decides a request they made (D51), so a coordinator's own US12 edit
         # goes to a Coordinator Lead.
         CheckConstraint(
             "decided_by_user_id IS NULL OR decided_by_user_id <> requested_by_user_id",
@@ -294,9 +303,61 @@ class AuditAction(enum.StrEnum):
     REQUESTED = "requested"  # a critical save held in a change request (US12 AC 3, D89)
     APPLIED = "applied"  # a field an approved change request changed
     DECIDED = "decided"  # the approval or rejection itself
-    STATUS_CHANGED = "status_changed"  # a significant change moved the event back to Planning (D101)
-    CONFIRMATION_CLEARED = "confirmation_cleared"  # ...so it's no longer confirmed (D101)
-    SAFETY_APPROVAL_CLEARED = "safety_approval_cleared"  # ...and needs a new safety review (AC 6, D102)
+    STATUS_CHANGED = "status_changed"  # a significant change moved the event back to Planning (D102)
+    CONFIRMATION_CLEARED = "confirmation_cleared"  # ...so it's no longer confirmed (D102)
+    SAFETY_APPROVAL_CLEARED = "safety_approval_cleared"  # ...and needs a new safety review (AC 6, D103)
+
+
+class EventCancellation(Base):
+    """US9 (SCRUM-12) AC 8: a cancellation with who asked, why and when, and who decided and when. An organiser's
+    request is pending until the assigned coordinator approves or rejects it (AC 1, 2); a coordinator's direct
+    cancel (AC 3) is one approved, `direct` row, requested and decided by them at the same moment. The table's CHECKs and
+    partial unique index (one pending or approved row per event) are the source of truth."""
+
+    __tablename__ = "event_cancellations"
+    __table_args__ = (
+        CheckConstraint(
+            "btrim(reason) <> '' AND char_length(reason) <= 1000", name="event_cancellations_reason_not_blank"
+        ),
+        CheckConstraint(
+            "(status = 'pending') = (decided_at IS NULL) AND (decided_at IS NULL) = (decided_by_user_id IS NULL) "
+            "AND (decided_at IS NULL OR decided_at >= requested_at)",
+            name="event_cancellations_decided_consistent",
+        ),
+        CheckConstraint(
+            "(status = 'rejected') = (rejection_reason IS NOT NULL) "
+            "AND (rejection_reason IS NULL OR (btrim(rejection_reason) <> '' AND char_length(rejection_reason) <= 1000))",
+            name="event_cancellations_rejection_reason_only_when_rejected",
+        ),
+        CheckConstraint(
+            "(NOT direct OR status = 'approved') "
+            "AND (decided_by_user_id IS NULL OR direct = (decided_by_user_id = requested_by_user_id))",
+            name="event_cancellations_direct_consistent",
+        ),
+        Index(
+            "event_cancellations_one_open",
+            "event_id",
+            unique=True,
+            postgresql_where=text("status IN ('pending', 'approved')"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, server_default=text("gen_random_uuid()"))
+    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id"), index=True)
+    requested_by_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    reason: Mapped[str] = mapped_column(Text)
+    status: Mapped[CancellationStatus] = mapped_column(
+        pg_enum(CancellationStatus, "cancellation_status"), server_default=CancellationStatus.PENDING.value
+    )
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    decided_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    rejection_reason: Mapped[str | None] = mapped_column(Text)
+    # AC 3: the coordinator cancelled it themselves. True exactly when the decider is the requester.
+    direct: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+
+    requested_by: Mapped["User"] = relationship(foreign_keys=[requested_by_user_id])
+    decided_by: Mapped["User | None"] = relationship(foreign_keys=[decided_by_user_id])
 
 
 class EventAuditEntry(Base):
@@ -339,7 +400,7 @@ class ReviewFlagKind(enum.StrEnum):
 class EventReviewFlag(Base):
     """An arrangement an approved significant change may have overtaken (US29b AC 3, SCRUM-98), for the
     event's coordinator to review. Nothing on the booking, reservation or registrations changes.
-    DECISION-PENDING: D100 — one row per affected item, one open flag per item (a later change adds its
+    DECISION-PENDING: D101 — one row per affected item, one open flag per item (a later change adds its
     fields to it), cleared by the coordinator with an optional note. An equipment flag points at the line,
     not its reservation, because releasing a reservation deletes it (D74)."""
 

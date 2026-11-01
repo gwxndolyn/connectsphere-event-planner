@@ -526,7 +526,7 @@ SAFETY_REVIEW_IN_DAYS = 12
 # US29b (SCRUM-141): the dev coordinator reviews the seeded organiser's change to it (TC-US29B-33). It's
 # Confirmed and safety-approved, with an approved venue booking, a reserved projector and Terry Ong
 # assigned, so approving the seeded time change moves it back to Planning, flags its booking and
-# reservation, and needs a new safety review (D99 to D102). A reseed puts it back, request pending.
+# reservation, and needs a new safety review (D100 to D103). A reseed puts it back, request pending.
 CHANGE_REQUEST_EVENT = BookableEventSpec(slug="change-request-demo", name="Change Request Demo", expected_attendees=20)
 CHANGE_REQUEST_IN_DAYS = 16
 CHANGE_REQUEST_EQUIPMENT = "Projector"
