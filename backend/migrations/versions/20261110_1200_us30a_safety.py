@@ -1,8 +1,8 @@
 """record each safety review of an event and when a rejected one is sent back
 
-Revision ID: 20261109_1200_us30a_safety
-Revises: 20261108_1200_us18_confirm
-Create Date: 2026-11-09
+Revision ID: 20261110_1200_us30a_safety
+Revises: 20261109_1200_us18_confirm
+Create Date: 2026-11-10
 
 """
 from typing import Sequence, Union
@@ -12,8 +12,8 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 
-revision: str = "20261109_1200_us30a_safety"
-down_revision: Union[str, None] = "20261108_1200_us18_confirm"
+revision: str = "20261110_1200_us30a_safety"
+down_revision: Union[str, None] = "20261110_1200_us29a_change_reqs"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
