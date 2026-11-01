@@ -396,20 +396,27 @@ async def test_tc_us9_19_everyone_involved_hears_once(
 ) -> None:
     venue_staff = make_user(db, UserRole.VENUE_STAFF)
     make_user(db, UserRole.VENUE_STAFF, active=False)
-    make_venue_booking(db, event=event, venue=make_venue(db), user=coordinator)
+    make_venue_booking(
+        db, event=event, venue=make_venue(db), user=coordinator, status=VenueBookingStatus.APPROVED,
+        decided_by_user_id=venue_staff.id,
+    )
     tech = make_user(db, UserRole.TECH_SUPPORT)
     gone = make_user(db, UserRole.TECH_SUPPORT)
+    deactivated = make_user(db, UserRole.TECH_SUPPORT, active=False)
     db.add(TechStaffAssignment(event_id=event.id, staff_user_id=tech.id, assigned_by_user_id=coordinator.id))
+    db.add(TechStaffAssignment(event_id=event.id, staff_user_id=deactivated.id, assigned_by_user_id=coordinator.id))
     db.add(
         TechStaffAssignment(
             event_id=event.id, staff_user_id=gone.id, assigned_by_user_id=coordinator.id,
             unassigned_by_user_id=coordinator.id, unassigned_at=NOW - timedelta(days=1),
         )
     )
-    registered, waiting, offered, withdrawn = (make_attendee(db) for _ in range(4))
+    registered, waiting, offered, lapsed, withdrawn = (make_attendee(db) for _ in range(5))
     make_registration(db, event, registered)
     make_registration(db, event, waiting, status=RegistrationStatus.WAITLISTED, waitlist_joined_at=NOW)
     make_registration(db, event, offered, status=RegistrationStatus.OFFERED, offer_expires_at=NOW + timedelta(hours=1))
+    # Past its window, but no read has swept it yet (D2): it holds no place, so isn't told.
+    make_registration(db, event, lapsed, status=RegistrationStatus.OFFERED, offer_expires_at=NOW - timedelta(hours=1))
     make_registration(db, event, withdrawn, status=RegistrationStatus.WITHDRAWN)
 
     await cancel(client, event, coordinator)
@@ -429,10 +436,12 @@ async def test_tc_us9_19_everyone_involved_hears_once(
     }
 
 
-async def test_tc_us9_19_venue_staff_hear_only_when_a_venue_was_released(
+async def test_tc_us9_19_venue_staff_hear_only_when_an_approved_venue_was_released(
     client: AsyncClient, db: Session, coordinator: User, event: Event, notifier: FakeNotifier
 ) -> None:
     make_user(db, UserRole.VENUE_STAFF)
+    # A request they hadn't decided yet just leaves their queue, as a withdrawn one does (D69).
+    make_venue_booking(db, event=event, venue=make_venue(db), user=coordinator)
 
     await cancel(client, event, coordinator)
 
@@ -485,23 +494,37 @@ async def test_tc_us9_20_a_request_cant_be_approved_once_the_event_starts(
     assert row.status == CancellationStatus.PENDING  # left for the coordinator to reject
 
 
-async def test_tc_us9_20_an_approved_request_starts_at_its_first_preferred_date(
+def approved_request(db: Session, organiser: User, coordinator: User, *dates: date) -> Event:
+    event = owned_event(db, organiser, coordinator, EventStatus.APPROVED)
+    event.preferred_dates = list(dates)
+    event.preferred_start_time = time(9, 0)
+    db.flush()
+    return event
+
+
+async def test_tc_us9_20_an_approved_request_starts_by_its_last_preferred_date(
     client: AsyncClient, db: Session, organiser: User, coordinator: User
 ) -> None:
-    approved = owned_event(db, organiser, coordinator, EventStatus.APPROVED)
-    approved.preferred_dates = [date(2026, 1, 1), NOW.date() + timedelta(days=30)]
-    approved.preferred_start_time = time(9, 0)
-    db.flush()
-    upcoming = owned_event(db, organiser, coordinator, EventStatus.APPROVED)
-    upcoming.preferred_dates = [NOW.date() + timedelta(days=30)]
-    upcoming.preferred_start_time = time(9, 0)
-    db.flush()
+    past, future = date(2026, 1, 1), NOW.date() + timedelta(days=30)
+    still_possible = approved_request(db, organiser, coordinator, past, future)
+    all_passed = approved_request(db, organiser, coordinator, past, date(2026, 2, 1))
 
-    passed = await ask(client, approved, organiser)
-    ahead = await ask(client, upcoming, organiser)
+    ahead = await ask(client, still_possible, organiser)
+    passed = await ask(client, all_passed, organiser)
 
+    assert ahead.status_code == 201  # it may be on the later date (D95)
     assert (passed.status_code, passed.json()["code"]) == (409, "EVENT_STARTED")
-    assert ahead.status_code == 201
+
+
+async def test_tc_us9_20_an_approved_request_with_a_venue_starts_at_its_booking(
+    client: AsyncClient, db: Session, organiser: User, coordinator: User
+) -> None:
+    booked = approved_request(db, organiser, coordinator, NOW.date() + timedelta(days=30))
+    make_venue_booking(db, event=booked, venue=make_venue(db), user=coordinator, starts_at=NOW - timedelta(hours=1))
+
+    response = await ask(client, booked, organiser)
+
+    assert (response.status_code, response.json()["code"]) == (409, "EVENT_STARTED")
 
 
 # --- AC 8: the record ---
