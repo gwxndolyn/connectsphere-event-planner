@@ -26,8 +26,8 @@
 
 ## Decisions
 
-- **D87: the safety state is derived, not a status.** From `safety_reviews`, `events.safety_approved_at` and `events.safety_review_requested_at`; an approval can't carry an item marked `issue` and is final. See `claude_instructions.md`
-- **Deviation 60:** US30b (request changes) and a change log of attendance, venue, access and equipment edits are not built; the Safety Officer sees the earlier reviews as the history
+- **D92: the safety state is derived, not a status.** From `safety_reviews`, `events.safety_approved_at` and `events.safety_review_requested_at`; an approval can't carry an item marked `issue` and is final. See `claude_instructions.md`
+- **Deviation 62:** US30b (request changes) and a change log of attendance, venue, access and equipment edits are not built; the Safety Officer sees the earlier reviews as the history
 - **D51:** a Safety Officer who created or coordinates the event can't review it (`403 SELF_DECISION_NOT_ALLOWED`)
 
 ## Test cases
@@ -117,6 +117,6 @@ The coordinator's notice (log-only) is TC-US30A-24 and 25, and the Preparation g
 
 | Date | Where | Result |
 |---|---|---|
-| 1 Nov 2026 | Backend, `pytest`, rebased onto `main` at #111 | 1395 passed |
-| 1 Nov 2026 | Frontend, Vitest, lint, build | 446 passed; lint and build clean |
-| 1 Nov 2026 | E2E, the full suite against a fresh local database | 49 passed, 10 skipped (the Supabase login and sign-up cases, which need credentials), 0 failed |
+| 1 Nov 2026 | Backend, `pytest`, rebased onto `main` at 742f6d4 | 1432 passed |
+| 1 Nov 2026 | Frontend, Vitest, lint, build | 452 passed; lint and build clean |
+| 1 Nov 2026 | E2E, the full suite against a fresh local database | 50 passed, 10 skipped (the Supabase login and sign-up cases, which need credentials), 0 failed |

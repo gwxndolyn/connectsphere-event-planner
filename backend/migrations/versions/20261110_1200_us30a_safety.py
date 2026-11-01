@@ -1,7 +1,7 @@
 """record each safety review of an event and when a rejected one is sent back
 
 Revision ID: 20261110_1200_us30a_safety
-Revises: 20261109_1200_us18_confirm
+Revises: 20261110_1200_us29a_change_reqs
 Create Date: 2026-11-10
 
 """
