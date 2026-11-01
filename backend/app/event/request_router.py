@@ -14,6 +14,8 @@ from app.event.clarification_schemas import (
     ClarificationThreadOut,
 )
 from app.event.clarification_service import clarification_service
+from app.event.cancellation_schemas import CancellationOut, CancellationsOut, CancellationWrite
+from app.event.cancellation_service import cancellation_service
 from app.event.change_request_schemas import ChangeRequestWrite, OrganiserChangeRequestOut, OrganiserChangeRequestsOut
 from app.event.change_request_service import change_request_service
 from app.event.confirmation_service import confirmation_service
@@ -42,6 +44,8 @@ from app.user.models import User, UserRole
 router = APIRouter(prefix="/api/v1/event-requests", tags=["event-requests"])
 me_router = APIRouter(prefix="/api/v1/me", tags=["event-requests"])
 coordinators_router = APIRouter(prefix="/api/v1/coordinators", tags=["event-requests"])
+# US9 (SCRUM-12): a cancellation request is decided by its own id, as venue bookings are.
+cancellations_router = APIRouter(prefix="/api/v1/event-cancellations", tags=["event-requests"])
 
 Organiser = Annotated[User, Depends(require_user_roles(UserRole.ORGANISER))]
 Coordinator = Annotated[User, Depends(require_user_roles(UserRole.COORDINATOR))]
@@ -287,3 +291,61 @@ def my_change_requests(
     db: Session = Depends(get_db),
 ) -> OrganiserChangeRequestsOut:
     return OrganiserChangeRequestsOut(change_requests=change_request_service.list_mine(db, organiser, event_id))
+
+
+# US9 (SCRUM-12): the organiser asks to cancel their event (AC 1); the assigned coordinator approves or rejects the
+# request (AC 2), or cancels the event directly (AC 3). Both read the event's cancellations (AC 8).
+@router.post("/{request_id}/cancellation-requests", status_code=201, response_model=CancellationOut)
+def request_cancellation(
+    request_id: uuid.UUID,
+    body: CancellationWrite,
+    organiser: Organiser,
+    db: Session = Depends(get_db),
+    now: datetime = Depends(get_now),
+    notifier: Notifier = Depends(get_notifier),
+) -> CancellationOut:
+    return cancellation_service.request(db, organiser, request_id, body, now, notifier)
+
+
+@router.post("/{request_id}/cancel", response_model=CancellationOut)
+def cancel_event(
+    request_id: uuid.UUID,
+    body: CancellationWrite,
+    coordinator: Coordinator,
+    db: Session = Depends(get_db),
+    now: datetime = Depends(get_now),
+    notifier: Notifier = Depends(get_notifier),
+) -> CancellationOut:
+    return cancellation_service.cancel(db, coordinator, request_id, body, now, notifier)
+
+
+@router.get("/{request_id}/cancellations", response_model=CancellationsOut)
+def list_cancellations(
+    request_id: uuid.UUID,
+    reader: Reader,
+    db: Session = Depends(get_db),
+) -> CancellationsOut:
+    return CancellationsOut(cancellations=cancellation_service.list_for_event(db, reader, request_id))
+
+
+@cancellations_router.post("/{cancellation_id}/approve", response_model=CancellationOut)
+def approve_cancellation(
+    cancellation_id: uuid.UUID,
+    coordinator: Coordinator,
+    db: Session = Depends(get_db),
+    now: datetime = Depends(get_now),
+    notifier: Notifier = Depends(get_notifier),
+) -> CancellationOut:
+    return cancellation_service.approve(db, coordinator, cancellation_id, now, notifier)
+
+
+@cancellations_router.post("/{cancellation_id}/reject", response_model=CancellationOut)
+def reject_cancellation(
+    cancellation_id: uuid.UUID,
+    body: CancellationWrite,
+    coordinator: Coordinator,
+    db: Session = Depends(get_db),
+    now: datetime = Depends(get_now),
+    notifier: Notifier = Depends(get_notifier),
+) -> CancellationOut:
+    return cancellation_service.reject(db, coordinator, cancellation_id, body, now, notifier)

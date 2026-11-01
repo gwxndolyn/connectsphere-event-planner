@@ -112,7 +112,8 @@ class RegistrationService:
     ) -> Registration | None:
         """Hand a free seat to the head of the waitlist (SCRUM-36). The offer holds the seat
         until it expires, so seats_remaining does not rise (TC-US7-07, TC-US7-09)."""
-        if self.seats_remaining(db, event, now) <= 0:
+        # US9 (SCRUM-12): a cancelled event's places go to no one; its queue is told it's cancelled instead.
+        if event.status == EventStatus.CANCELLED or self.seats_remaining(db, event, now) <= 0:
             return None
         # DECISION-PENDING: D17 — not gated on waitlist_enabled. US6a only governs joining, so
         # people already queued keep their place if the event's waitlist is switched off later.
@@ -333,6 +334,9 @@ class RegistrationService:
         self._refuse_lapsed_offer(registration, now)
         if registration.status != RegistrationStatus.OFFERED:
             raise DomainError(409, "NO_ACTIVE_OFFER")
+        # US9 (SCRUM-12): an offer made before the event was cancelled can't be taken up.
+        if event.status == EventStatus.CANCELLED:
+            raise DomainError(409, "EVENT_CANCELLED")
         if now >= event.start_at:
             raise DomainError(403, "EVENT_STARTED")
 

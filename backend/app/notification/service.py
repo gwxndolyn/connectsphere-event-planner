@@ -15,6 +15,8 @@ BookingDecision = Literal["approved", "rejected"]
 RequestDecision = Literal["approved", "rejected"]
 # What the Safety Officer decided on an event's arrangements (SCRUM-99).
 SafetyOutcome = Literal["approved", "rejected"]
+# Who a cancellation notice is for (US9, SCRUM-12, AC 6).
+CancellationRecipient = Literal["organiser", "venue_staff", "tech_support", "attendee"]
 
 
 class Notifier(Protocol):
@@ -195,6 +197,24 @@ class Notifier(Protocol):
         fields: list[str],
         reason: str,
         to_lead: bool,
+    ) -> None: ...
+
+    def cancellation_requested(
+        self, *, email: str, event_id: uuid.UUID, event_name: str, organiser_name: str, reason: str
+    ) -> None: ...
+
+    def cancellation_rejected(
+        self, *, email: str, event_id: uuid.UUID, event_name: str, reason: str, rejection_reason: str
+    ) -> None: ...
+
+    def event_cancelled(
+        self,
+        *,
+        email: str,
+        event_id: uuid.UUID,
+        event_name: str,
+        reason: str,
+        recipient: CancellationRecipient,
     ) -> None: ...
 
 class LoggingNotifier:
@@ -540,6 +560,33 @@ class LoggingNotifier:
             ", ".join(fields),
             reason,
         )
+
+    def cancellation_requested(
+        self, *, email: str, event_id: uuid.UUID, event_name: str, organiser_name: str, reason: str
+    ) -> None:
+        # US9 (SCRUM-12) AC 2: the event's coordinator hears the organiser asked to cancel it.
+        logger.info("cancellation requested: %s, %r (%s) by %s; reason: %s", email, event_name, event_id,
+                    organiser_name, reason)
+
+    def cancellation_rejected(
+        self, *, email: str, event_id: uuid.UUID, event_name: str, reason: str, rejection_reason: str
+    ) -> None:
+        # US9 AC 2: the organiser hears their request was rejected, and why; the event goes ahead.
+        logger.info("cancellation rejected: %s, %r (%s); asked: %s; rejected: %s", email, event_name, event_id,
+                    reason, rejection_reason)
+
+    def event_cancelled(
+        self,
+        *,
+        email: str,
+        event_id: uuid.UUID,
+        event_name: str,
+        reason: str,
+        recipient: CancellationRecipient,
+    ) -> None:
+        # US9 AC 2, 6: everyone involved hears the event is cancelled, with its name and the reason.
+        logger.info("event cancelled: %s (%s), %r (%s); reason: %s", email, recipient, event_name, event_id, reason)
+
 
 notifier = LoggingNotifier()
 
