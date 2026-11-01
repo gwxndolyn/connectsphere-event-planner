@@ -220,7 +220,8 @@ class CoordinatorAssignment(Base):
 
 
 class EventChangeRequest(Base):
-    """A coordinator's edit to an event's critical fields, held for approval (US12 AC 3, SCRUM-15). The event
+    """A change to an event held for approval: a coordinator's critical-field edit (US12 AC 3, SCRUM-15) or an
+    organiser's request with a reason (US29a, SCRUM-97). The event
     keeps its values meanwhile. `changes` lists each changed field with its old and new value, in the
     API's JSON form: `[{"field": ..., "old_value": ..., "new_value": ...}]`."""
 
@@ -230,6 +231,7 @@ class EventChangeRequest(Base):
             "jsonb_typeof(changes) = 'array' AND jsonb_array_length(changes) >= 1",
             name="event_change_requests_changes_not_empty",
         ),
+        CheckConstraint("reason IS NULL OR btrim(reason) <> ''", name="event_change_requests_reason_not_blank"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, server_default=text("gen_random_uuid()"))
@@ -239,6 +241,8 @@ class EventChangeRequest(Base):
         pg_enum(ChangeRequestStatus, "change_request_status"), server_default=ChangeRequestStatus.PENDING_APPROVAL.value
     )
     changes: Mapped[list[dict]] = mapped_column(JSONB)
+    # US29a (SCRUM-97): an organiser's request carries their reason (AC 3); a coordinator's US12 edit has none.
+    reason: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     requested_by: Mapped["User"] = relationship(foreign_keys=[requested_by_user_id])
