@@ -96,7 +96,7 @@ class Event(Base):
             "expected_attendees IS NULL OR expected_attendees >= 1",
             name="events_expected_attendees_positive",
         ),
-        # DECISION-PENDING: D93 — US9 (SCRUM-12): an Approved event may be cancelled before it has a date or capacity.
+        # DECISION-PENDING: D98 — US9 (SCRUM-12): an Approved event may be cancelled before it has a date or capacity.
         CheckConstraint(
             "status::text IN ('draft', 'submitted', 'under_review', 'awaiting_clarification', 'approved', 'rejected') "
             "OR (status::text = 'cancelled' AND name IS NOT NULL) OR (name IS NOT NULL AND start_at IS NOT NULL AND end_at IS NOT NULL "

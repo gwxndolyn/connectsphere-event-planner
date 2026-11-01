@@ -14,7 +14,8 @@ reservations and its Tech support staff assignments, so E2E reruns start clean (
 SCRUM-133); other events' lines are untouched.
 Likewise it deletes every venue booking on Multi-Venue Conference Demo that the seed didn't make, such as
 the Breakout C each E2E run of TC-US24-26 adds and withdraws (SCRUM-129); other events' bookings are
-untouched.
+untouched. And it deletes Agenda Demo's sessions (SCRUM-138), so TC-US15-15 reruns start with an empty
+agenda.
 """
 
 import sys
@@ -28,6 +29,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.agenda.models import EventSession
 from app.core.database import SessionLocal
 from app.equipment.models import EquipmentRequestLine, EquipmentReservation, EquipmentType, TechStaffAssignment
 from app.event.models import DeliveryMode, Event, EventAuditEntry, EventChangeRequest, EventStatus
@@ -520,8 +522,16 @@ EQUIPMENT_EVENT = EventSpec(
     venue_slug="scis-seminar-2-1",
 )
 
+# US15 (SCRUM-138): the planning event the Organiser builds an agenda for, locally and in TC-US15-15. The
+# seeded organiser owns it, and it runs 09:00 to 17:00 Singapore time on a fixed day ahead, so the E2E can
+# place sessions at known times. Registration is off, so it stays off the attendees' events board.
+AGENDA_EVENT_SLUG = "agenda-demo"
+AGENDA_EVENT_NAME = "Agenda Demo"
+AGENDA_DAY_IN_DAYS = 21
+
 # US12 (SCRUM-15): the dev coordinator edits it (Events, TC-US12-20 to 23). Planning is the only status that
-# takes edits, and no other seeded event is in it. Registration is off, so it stays off the events board.
+# takes edits, and it's the only seeded planning event assigned to the coordinator (US15's Agenda Demo has
+# none). Registration is off, so it stays off the events board.
 PLANNING_EVENT = EventSpec(
     slug="planning-edit-demo",
     name="Event Planning Demo",
@@ -853,6 +863,38 @@ def upsert_equipment_event(
     return event
 
 
+def upsert_agenda_event(db: Session, organiser: User, now: datetime) -> Event:
+    """Agenda Demo, in planning (US15, SCRUM-138). Its sessions are made through the app, and a reseed
+    removes them all, so E2E reruns (TC-US15-15) start with an empty agenda."""
+    day = now.astimezone(SEED_TIMEZONE).date() + timedelta(days=AGENDA_DAY_IN_DAYS)
+    start_at = datetime.combine(day, time(9, 0), tzinfo=SEED_TIMEZONE)
+    event_id = seed_id("event", AGENDA_EVENT_SLUG)
+    values = {
+        "name": AGENDA_EVENT_NAME,
+        "status": EventStatus.PLANNING,
+        "event_category": "Conference",
+        "purpose": "Seeded for building an agenda (US15)",
+        "expected_attendees": 80,
+        "registration_enabled": False,
+        "start_at": start_at,
+        "end_at": start_at + timedelta(hours=8),
+        "capacity": 80,
+        "delivery_mode": DeliveryMode.IN_PERSON,
+        "venue_name": "SMU SCIS Building",
+        "room_number": "Seminar Room 2-1",
+        "created_by_user_id": organiser.id,
+    }
+    event = db.get(Event, event_id)
+    if event is None:
+        event = Event(id=event_id, **values)
+        db.add(event)
+    else:
+        for key, value in values.items():
+            setattr(event, key, value)
+    db.execute(delete(EventSession).where(EventSession.event_id == event_id))
+    return event
+
+
 def upsert_planning_event(
     db: Session, spec: EventSpec, organiser: User, coordinator: User, now: datetime
 ) -> Event:
@@ -1150,6 +1192,7 @@ def seed(db: Session, now: datetime | None = None) -> None:
     upsert_primary_booking(db, EQUIPMENT_EVENT, equipment_event, coordinator, now)
     upsert_multi_venue_event(db, MULTI_VENUE_EVENT, organiser, coordinator, now)
     upsert_planning_event(db, PLANNING_EVENT, organiser, coordinator, now)
+    upsert_agenda_event(db, organiser, now)
     for name, stock in EQUIPMENT_STOCK.items():
         upsert_equipment_type(db, name, stock)
     db.flush()
@@ -1218,8 +1261,9 @@ def admin_from_settings() -> SupabaseAdmin | None:
 # PR #78 review: on a shared database these could be someone's real requests.
 REMOTE_RESEED_WARNING = (
     "Reseeding also deletes every equipment line on Equipment Request Demo, approved ones included, "
-    "and every venue booking on Multi-Venue Conference Demo that the seed didn't make. "
-    "Other events' lines and bookings are untouched."
+    "every venue booking on Multi-Venue Conference Demo that the seed didn't make, "
+    "and every session on Agenda Demo's agenda. "
+    "Other events' lines, bookings and sessions are untouched."
 )
 
 

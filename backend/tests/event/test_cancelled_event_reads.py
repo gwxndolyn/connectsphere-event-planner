@@ -1,4 +1,4 @@
-"""US9 (SCRUM-12): D93 lets an event cancelled while Approved have no date, capacity or delivery mode. Every read
+"""US9 (SCRUM-12): D98 lets an event cancelled while Approved have no date, capacity or delivery mode. Every read
 route must cope, for every role that could reach it (Matt's review of #115). See docs/testing/US9-cancel-event.md."""
 
 import re

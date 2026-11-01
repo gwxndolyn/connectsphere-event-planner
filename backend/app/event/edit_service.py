@@ -176,7 +176,7 @@ class EventEditService:
     def list_mine(self, db: Session, coordinator: User) -> list[CoordinatedEventOut]:
         events = db.scalars(
             select(Event)
-            # D93: an event cancelled before it was planned has no date and never reached this screen.
+            # D98: an event cancelled before it was planned has no date and never reached this screen.
             .where(
                 Event.coordinator_id == coordinator.id,
                 Event.status.in_(COORDINATED_STATUSES),
@@ -281,7 +281,7 @@ class EventEditService:
         if (
             event is None
             or event.status not in COORDINATED_STATUSES
-            or event.start_at is None  # D93: cancelled before it was planned
+            or event.start_at is None  # D98: cancelled before it was planned
             or not is_assigned_coordinator(event, coordinator)
         ):
             raise DomainError(404, "NOT_FOUND")

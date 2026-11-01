@@ -254,7 +254,7 @@ def test_tc_us9_01_migrations_have_one_head() -> None:
 
 @pytest.fixture
 def dateless_cancelled(db: Session, organiser: User, coordinator: User) -> Event:
-    """Cancelled while Approved, before it had a date or capacity (D93)."""
+    """Cancelled while Approved, before it had a date or capacity (D98)."""
     event = make_event(db, status=EventStatus.APPROVED, coordinator_id=coordinator.id)
     event.created_by_user_id = organiser.id
     event.capacity = None
