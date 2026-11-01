@@ -23,7 +23,7 @@ from app.event.self_decision import refuse_self_decision
 from app.notification.service import CancellationRecipient, Notifier
 from app.registration.models import ACTIVE_STATUSES, Registration, RegistrationStatus
 from app.user.models import User, UserRole
-from app.venue.models import LIVE_BOOKING_STATUSES, VenueBooking, VenueBookingStatus
+from app.venue.models import BLOCKING_STATUSES, VenueBooking, VenueBookingStatus
 
 logger = logging.getLogger(__name__)
 
@@ -248,7 +248,8 @@ class CancellationService:
     def _live_bookings(self, event_id: uuid.UUID):
         return (
             select(VenueBooking)
-            .where(VenueBooking.event_id == event_id, VenueBooking.status.in_(LIVE_BOOKING_STATUSES))
+            # US25 (SCRUM-93) AC 7: its holds are released with its bookings.
+            .where(VenueBooking.event_id == event_id, VenueBooking.status.in_(BLOCKING_STATUSES))
             .order_by(VenueBooking.id)
         )
 
@@ -307,7 +308,6 @@ class CancellationService:
             )
             .values(status=ChangeRequestStatus.REJECTED)
         )
-        # TODO(US25): release the event's tentative venue holds here (SCRUM-93 AC 7).
         # Tech support assignments stay (the story owner's choice): D81 already frees the staff of a cancelled event.
         db.flush()
         db.refresh(row, ["requested_by", "decided_by"])
