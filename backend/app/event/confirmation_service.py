@@ -2,11 +2,16 @@ import logging
 import uuid
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import DomainError
-from app.equipment.models import EquipmentLineStatus, EquipmentRequestLine
+from app.equipment.models import (
+    EquipmentLineStatus,
+    EquipmentRequestLine,
+    EquipmentReservation,
+    TechStaffAssignment,
+)
 from app.event.assignment_service import MISSING_NAME, MISSING_REFERENCE
 from app.event.models import DeliveryMode, Event, EventStatus
 from app.event.request_schemas import EventRequestOut, ReadinessItemOut, ReadinessOut
@@ -17,7 +22,7 @@ from app.venue.models import LIVE_BOOKING_STATUSES, Venue, VenueBooking, VenueBo
 logger = logging.getLogger(__name__)
 
 # US18 AC 5: only an event still being arranged can be confirmed. Cancelled, Rejected and an
-# already Confirmed event are refused, and so is anything not yet approved. DECISION-PENDING: D56 —
+# already Confirmed event are refused, and so is anything not yet approved. DECISION-PENDING: D84 —
 # Approved counts as well as Planning, because nothing moves an approved request on to Planning (D53).
 CONFIRMABLE_STATUSES = (EventStatus.APPROVED, EventStatus.PLANNING)
 # The statuses an event's coordinator works it in, so the readiness list shows in each (widens D11).
@@ -51,10 +56,14 @@ class ConfirmationService:
                 items=[item.model_dump() for item in readiness.items],
             )
 
-        starts_at = min(booking.starts_at for booking, _ in approved)
-        ends_at = max(booking.ends_at for booking, _ in approved)
-        venues = list(dict.fromkeys(venue.name for _, venue in approved))
-        self._fill_final_fields(event, approved, starts_at, ends_at, venues)
+        # An online event has no booking to take its dates from: it already has them.
+        starts_at = min((booking.starts_at for booking, _ in approved), default=event.start_at)
+        ends_at = max((booking.ends_at for booking, _ in approved), default=event.end_at)
+        # The primary venue first, as attendees see it (US24 D70), then the others by when they start.
+        venues = list(
+            dict.fromkeys(venue.name for booking, venue in sorted(approved, key=lambda pair: not pair[0].is_primary))
+        )
+        self._fill_final_fields(event, approved, starts_at, ends_at)
         event.status = EventStatus.CONFIRMED
         event.confirmed_at = now
         event.confirmed_by_user_id = coordinator.id
@@ -92,9 +101,9 @@ class ConfirmationService:
     def _readiness(
         self, db: Session, event: Event, *, lock: bool
     ) -> tuple[ReadinessOut, list[tuple[VenueBooking, Venue]]]:
-        """AC 1, 2: each live venue booking approved, the equipment lines approved, the safety check
-        approved. Rejected and withdrawn bookings and rejected lines are not required. Also returns the
-        approved bookings, which confirming turns into the event's date, time and venues."""
+        """AC 1, 2: the venues arranged (US24's rule, D72), the equipment approved and reserved, technical
+        support assigned and the safety check approved. Also returns the approved bookings, which
+        confirming turns into the event's date, time and venues."""
         bookings_query = (
             select(VenueBooking, Venue)
             .join(Venue, Venue.id == VenueBooking.venue_id)
@@ -105,13 +114,39 @@ class ConfirmationService:
             bookings_query = bookings_query.with_for_update(of=VenueBooking)
         bookings = [(booking, venue) for booking, venue in db.execute(bookings_query).all()]
 
-        items: list[ReadinessItemOut] = []
+        items = self._venue_items(event, bookings)
+        equipment_item, approved_lines = self._equipment_item(db, event, lock)
+        items.append(equipment_item)
+        items.append(self._technical_support_item(db, approved_lines))
+        safety_done = event.safety_approved_at is not None
+        items.append(
+            ReadinessItemOut(
+                kind="safety",
+                name="Safety check",
+                complete=safety_done,
+                detail="Approved by the Safety Officer." if safety_done else self._safety_wait(db, event),
+            )
+        )
+        approved_bookings = [(b, v) for b, v in bookings if b.status == VenueBookingStatus.APPROVED]
+        return ReadinessOut(ready=all(item.complete for item in items), items=items), approved_bookings
+
+    def _venue_items(self, event: Event, bookings: list[tuple[VenueBooking, Venue]]) -> list[ReadinessItemOut]:
+        """One item per live booking, then what US24's `venues_arranged` (D72) also asks of the set: one
+        primary, and allocations that hold the expected attendance (D67). Rejected and withdrawn bookings
+        aren't required. An online event needs no venue."""
+        if event.delivery_mode == DeliveryMode.ONLINE:
+            return [
+                ReadinessItemOut(kind="venue", name="Venue", complete=True, detail="This is an online event, so no venue is needed.")
+            ]
+        if not bookings:
+            return [ReadinessItemOut(kind="venue", name="Venue", complete=False, detail="No venue has been requested yet.")]
+        items = []
         for booking, venue in bookings:
             approved = booking.status == VenueBookingStatus.APPROVED
             items.append(
                 ReadinessItemOut(
                     kind="venue",
-                    name=venue.name,
+                    name=f"{venue.name}, {booking.purpose}",
                     complete=approved,
                     detail=(
                         f"Booking {booking.reference} is approved."
@@ -120,60 +155,119 @@ class ConfirmationService:
                     ),
                 )
             )
-        if not bookings:
-            # DECISION-PENDING: D56 — a request has no delivery mode yet, so every event needs a venue.
+        primaries = sum(booking.is_primary for booking, _ in bookings)
+        if primaries != 1:
             items.append(
-                ReadinessItemOut(kind="venue", name="Venue", complete=False, detail="No venue has been requested yet.")
+                ReadinessItemOut(
+                    kind="venue",
+                    name="Primary venue",
+                    complete=False,
+                    detail="Choose which venue attendees see as the primary one."
+                    if primaries == 0
+                    else "More than one venue is marked primary.",
+                )
             )
-
-        items.append(self._equipment_item(db, event, lock))
-        safety_done = event.safety_approved_at is not None
-        items.append(
-            ReadinessItemOut(
-                kind="safety",
-                name="Safety check",
-                complete=safety_done,
-                detail="Approved by the Safety Officer." if safety_done else "Waiting for the Safety Officer's approval.",
+        allocated = sum(booking.expected_attendees for booking, _ in bookings)
+        if event.expected_attendees is not None and allocated < event.expected_attendees:
+            items.append(
+                ReadinessItemOut(
+                    kind="venue",
+                    name="Attendance allocated",
+                    complete=False,
+                    detail=f"The venues hold {allocated} of the {event.expected_attendees} expected attendees.",
+                )
             )
-        )
-        approved_bookings = [(b, v) for b, v in bookings if b.status == VenueBookingStatus.APPROVED]
-        return ReadinessOut(ready=all(item.complete for item in items), items=items), approved_bookings
+        return items
 
-    def _equipment_item(self, db: Session, event: Event, lock: bool) -> ReadinessItemOut:
+    def _equipment_item(
+        self, db: Session, event: Event, lock: bool
+    ) -> tuple[ReadinessItemOut, list[EquipmentRequestLine]]:
+        """Any requested equipment reserved (AC 1): every line that isn't rejected approved by Tech support
+        (US26) and reserved (US27). Also returns the approved lines, which technical support follows."""
         query = select(EquipmentRequestLine).where(
             EquipmentRequestLine.event_id == event.id, EquipmentRequestLine.status != EquipmentLineStatus.REJECTED
         )
-        lines = db.scalars(query.with_for_update() if lock else query).all()
-        pending = sum(1 for line in lines if line.status == EquipmentLineStatus.PENDING)
+        lines = list(db.scalars(query.with_for_update() if lock else query).all())
         if not lines:
-            return ReadinessItemOut(kind="equipment", name="Equipment", complete=True, detail="No equipment was requested.")
-        if pending:
-            return ReadinessItemOut(
-                kind="equipment",
-                name="Equipment",
-                complete=False,
-                detail=f"{pending} of {len(lines)} equipment {'line is' if len(lines) == 1 else 'lines are'}"
-                " waiting for Tech support to approve.",
+            return (
+                ReadinessItemOut(kind="equipment", name="Equipment", complete=True, detail="No equipment was requested."),
+                [],
             )
-        return ReadinessItemOut(kind="equipment", name="Equipment", complete=True, detail="Every equipment line is approved.")
+        approved = [line for line in lines if line.status == EquipmentLineStatus.APPROVED]
+        reserved = set(
+            db.scalars(
+                select(EquipmentReservation.request_line_id).where(
+                    EquipmentReservation.request_line_id.in_([line.id for line in approved])
+                )
+            )
+        )
+        pending = len(lines) - len(approved)
+        unreserved = sum(1 for line in approved if line.id not in reserved)
+        noun = "line" if len(lines) == 1 else "lines"
+        if pending:
+            detail = f"{pending} of {len(lines)} equipment {noun} {'is' if pending == 1 else 'are'} waiting for Tech support to approve."
+        elif unreserved:
+            detail = f"{unreserved} of {len(lines)} approved equipment {noun} {'is' if unreserved == 1 else 'are'} not reserved yet."
+        else:
+            return (
+                ReadinessItemOut(kind="equipment", name="Equipment", complete=True, detail="Every equipment line is approved and reserved."),
+                approved,
+            )
+        return ReadinessItemOut(kind="equipment", name="Equipment", complete=False, detail=detail), approved
+
+    def _technical_support_item(self, db: Session, approved_lines: list[EquipmentRequestLine]) -> ReadinessItemOut:
+        """Technical support arranged (AC 1): once the event has an approved technical support request, at
+        least one Tech support staff member is assigned (US14, D80). Without one nobody is needed."""
+        if not approved_lines:
+            return ReadinessItemOut(
+                kind="technical_support",
+                name="Technical support",
+                complete=True,
+                detail="No technical support was requested.",
+            )
+        assigned = db.scalar(
+            select(func.count())
+            .select_from(TechStaffAssignment)
+            .where(
+                TechStaffAssignment.event_id == approved_lines[0].event_id,
+                TechStaffAssignment.unassigned_at.is_(None),
+            )
+        )
+        if assigned:
+            return ReadinessItemOut(
+                kind="technical_support",
+                name="Technical support",
+                complete=True,
+                detail=f"{assigned} Tech support staff {'member is' if assigned == 1 else 'members are'} assigned.",
+            )
+        return ReadinessItemOut(
+            kind="technical_support",
+            name="Technical support",
+            complete=False,
+            detail="No Tech support staff member is assigned yet.",
+        )
+
+    def _safety_wait(self, db: Session, event: Event) -> str:
+        """What the coordinator still has to do about the safety check (US30a AC 4): after a rejection,
+        read the comments, revise the arrangement and send it back."""
+        return "Waiting for the Safety Officer's approval."
 
     def _fill_final_fields(
         self,
         event: Event,
         approved: list[tuple[VenueBooking, Venue]],
-        starts_at: datetime,
-        ends_at: datetime,
-        venues: list[str],
+        starts_at: datetime | None,
+        ends_at: datetime | None,
     ) -> None:
         """A request has no date, capacity or delivery mode of its own (events_final_fields_required), so
-        a confirmed event takes them from what was arranged: its approved bookings' span and venue(s),
-        its expected attendance. Anything the event already holds is kept."""
+        a confirmed event takes them from what was arranged: its approved bookings' span and its expected
+        attendance. Anything the event already holds is kept. The venue is read from the bookings (D70),
+        so `venue_name` isn't written."""
         event.start_at = event.start_at or starts_at
         event.end_at = event.end_at or ends_at
         if event.capacity is None:
-            event.capacity = event.expected_attendees or max(booking.expected_attendees for booking, _ in approved)
+            event.capacity = event.expected_attendees or max((b.expected_attendees for b, _ in approved), default=0)
         event.delivery_mode = event.delivery_mode or DeliveryMode.IN_PERSON
-        event.venue_name = event.venue_name or ", ".join(venues)
 
     def _notify(
         self,

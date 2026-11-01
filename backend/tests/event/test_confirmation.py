@@ -6,18 +6,20 @@ from datetime import timedelta
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.equipment.models import EquipmentLineStatus
+from app.equipment.models import EquipmentLineStatus, EquipmentReservation, TechStaffAssignment
 from app.event.models import DeliveryMode, Event, EventStatus
 from app.user.models import User, UserRole
-from app.venue.models import Venue, VenueBookingStatus
+from app.venue.models import LIVE_BOOKING_STATUSES, Venue, VenueBooking, VenueBookingStatus
 from tests.conftest import FakeNotifier
 from tests.equipment.test_equipment_api import make_line
 from tests.equipment.test_equipment_schema import make_type
 from tests.event.test_event_request_clarification_api import make_request, make_user
 from tests.event.test_event_requests import auth
+from app.venue.booking_service import venues_arranged
 from tests.factories import NOW, make_attendee, make_event, make_venue, make_venue_booking
 
 pytestmark = pytest.mark.anyio
@@ -68,8 +70,40 @@ def event(db: Session, organiser: User, casey: User) -> Event:
 
 
 def book(db: Session, event: Event, venue: Venue, coordinator: User, venue_staff: User, status=VenueBookingStatus.APPROVED, **overrides):
+    """A booking for the event's expected attendance. The first live one is the primary (US24, D68)."""
     extra = {"decided_by_user_id": venue_staff.id} if status in (VenueBookingStatus.APPROVED, VenueBookingStatus.REJECTED) else {}
-    return make_venue_booking(db, event=event, venue=venue, user=coordinator, status=status, **(extra | overrides))
+    live = status in (VenueBookingStatus.REQUESTED, VenueBookingStatus.APPROVED)
+    has_primary = db.scalar(
+        select(func.count()).select_from(VenueBooking).where(
+            VenueBooking.event_id == event.id, VenueBooking.is_primary.is_(True), VenueBooking.status.in_(LIVE_BOOKING_STATUSES)
+        )
+    )
+    defaults = {"expected_attendees": event.expected_attendees or 30, "is_primary": live and not has_primary}
+    return make_venue_booking(db, event=event, venue=venue, user=coordinator, status=status, **(defaults | extra | overrides))
+
+
+def reserve(db: Session, line, reserver: User) -> EquipmentReservation:
+    """US27: the units of an approved line committed to its event."""
+    reservation = EquipmentReservation(
+        request_line_id=line.id,
+        event_id=line.event_id,
+        equipment_type_id=line.equipment_type_id,
+        quantity=line.quantity,
+        reserved_by_user_id=reserver.id,
+    )
+    db.add(reservation)
+    db.flush()
+    return reservation
+
+
+def assign_staff(db: Session, event: Event, assigner: User) -> TechStaffAssignment:
+    """US14: a Tech support staff member assigned to the event."""
+    assignment = TechStaffAssignment(
+        event_id=event.id, staff_user_id=make_user(db, UserRole.TECH_SUPPORT).id, assigned_by_user_id=assigner.id
+    )
+    db.add(assignment)
+    db.flush()
+    return assignment
 
 
 def approve_safety(db: Session, event: Event, officer: User) -> None:
@@ -125,7 +159,7 @@ async def test_tc_us18_02_confirming_gives_the_event_its_date_capacity_and_venue
     assert ready.end_at == STARTS + timedelta(days=1, hours=3)
     assert ready.capacity == 35  # the request's expected attendance
     assert ready.delivery_mode == DeliveryMode.IN_PERSON
-    assert ready.venue_name == "SCIS Seminar Room 2-1, Auditorium"
+    assert ready.venue_name is None  # attendees' venue comes from the primary booking (D70)
 
 
 async def test_tc_us18_03_a_date_the_event_already_holds_is_kept(
@@ -162,7 +196,7 @@ async def test_tc_us18_05_a_pending_venue_booking_blocks_and_is_named(
     assert response.status_code == 409
     body = response.json()
     assert body["code"] == "EVENT_NOT_READY"
-    assert [(item["name"], item["kind"]) for item in body["outstanding"]] == [("Auditorium", "venue")]
+    assert [(item["name"], item["kind"]) for item in body["outstanding"]] == [("Auditorium, Main venue", "venue")]
     db.refresh(ready)
     assert ready.status == EventStatus.APPROVED and ready.confirmed_at is None
 
@@ -185,23 +219,30 @@ async def test_tc_us18_07_rejected_and_withdrawn_bookings_are_not_required(
     assert (await confirm(client, casey, ready)).status_code == 200
 
 
-async def test_tc_us18_08_a_pending_equipment_line_blocks_and_an_approved_one_does_not(
+async def test_tc_us18_08_equipment_must_be_approved_and_reserved(
     client: AsyncClient, db: Session, ready: Event, casey: User
 ) -> None:
-    make_line(db, event=ready, equipment_type=make_type(db), requested_by=casey, status=EquipmentLineStatus.APPROVED)
+    approved = make_line(db, event=ready, equipment_type=make_type(db), requested_by=casey, status=EquipmentLineStatus.APPROVED)
     pending = make_line(db, event=ready, equipment_type=make_type(db), requested_by=casey)
 
     blocked = await confirm(client, casey, ready)
 
     assert blocked.status_code == 409
-    assert outstanding(blocked.json()) == ["equipment"]
+    assert outstanding(blocked.json()) == ["equipment", "technical_support"]
     assert "1 of 2 equipment lines" in blocked.json()["outstanding"][0]["detail"]
 
+    # A rejected line is no longer required; the approved one still needs reserving (US27) and, since it
+    # is an approved technical support request, staff (US14).
     reviewer = make_user(db, UserRole.TECH_SUPPORT)
     pending.status = EquipmentLineStatus.REJECTED
     pending.reviewed_by_user_id = reviewer.id
     pending.reviewed_at = NOW
     db.flush()
+    still = await confirm(client, casey, ready)
+    assert "1 of 1 approved equipment line is not reserved yet" in still.json()["outstanding"][0]["detail"]
+
+    reserve(db, approved, reviewer)
+    assign_staff(db, ready, casey)
     assert (await confirm(client, casey, ready)).status_code == 200
 
 
@@ -234,7 +275,7 @@ async def test_tc_us18_11_every_outstanding_arrangement_is_listed_at_once(
     body = (await confirm(client, casey, event)).json()
 
     assert [item["kind"] for item in body["outstanding"]] == ["venue", "equipment", "safety"]
-    assert len(body["items"]) == 3  # complete ones come too, so the screen needn't ask again
+    assert len(body["items"]) == 4  # complete ones come too (technical support), so the screen needn't ask again
 
 
 async def test_tc_us18_12_the_readiness_list_shows_complete_and_outstanding_per_venue(
@@ -248,9 +289,10 @@ async def test_tc_us18_12_the_readiness_list_shows_complete_and_outstanding_per_
     body = response.json()
     assert body["ready"] is False
     assert [(item["kind"], item["name"], item["complete"]) for item in body["items"]] == [
-        ("venue", "SCIS Seminar Room 2-1", True),
-        ("venue", "Auditorium", False),
+        ("venue", "SCIS Seminar Room 2-1, Main venue", True),
+        ("venue", "Auditorium, Main venue", False),
         ("equipment", "Equipment", True),
+        ("technical_support", "Technical support", True),
         ("safety", "Safety check", True),
     ]
 
@@ -493,3 +535,98 @@ async def test_tc_us18_29_the_seeded_demo_confirms_and_a_reseed_resets_it(client
     db.refresh(demo)
     assert (demo.status, demo.start_at, demo.confirmed_at) == (EventStatus.APPROVED, None, None)
     assert (await confirm(client, coordinator, demo)).status_code == 200
+
+
+# --- the arrangements main's other stories built (US24, US27, US14) ---
+
+
+async def test_tc_us18_38_an_online_event_needs_no_venue(client: AsyncClient, db: Session, event: Event, casey: User, safety_officer: User) -> None:
+    event.delivery_mode = DeliveryMode.ONLINE
+    event.start_at, event.end_at, event.capacity = STARTS, STARTS + timedelta(hours=1), 35
+    approve_safety(db, event, safety_officer)
+
+    readiness_body = (await readiness(client, casey, event)).json()
+    response = await confirm(client, casey, event)
+
+    assert readiness_body["items"][0] == {"kind": "venue", "name": "Venue", "complete": True, "detail": "This is an online event, so no venue is needed."}
+    assert response.status_code == 200
+    db.refresh(event)
+    assert (event.start_at, event.delivery_mode) == (STARTS, DeliveryMode.ONLINE)
+
+
+async def test_tc_us18_39_one_primary_venue_is_required(
+    client: AsyncClient, db: Session, ready: Event, casey: User, venue_staff: User, venue: Venue
+) -> None:
+    for booking in db.scalars(select(VenueBooking).where(VenueBooking.event_id == ready.id)):
+        booking.is_primary = False
+    db.flush()
+
+    blocked = await confirm(client, casey, ready)
+
+    assert [(i["name"], i["detail"]) for i in blocked.json()["outstanding"]] == [
+        ("Primary venue", "Choose which venue attendees see as the primary one.")
+    ]
+
+
+async def test_tc_us18_40_the_venues_must_hold_the_expected_attendance(
+    client: AsyncClient, db: Session, ready: Event, casey: User
+) -> None:
+    ready.expected_attendees = 80  # the one booking holds 35
+
+    blocked = await confirm(client, casey, ready)
+
+    assert [(i["name"], i["detail"]) for i in blocked.json()["outstanding"]] == [
+        ("Attendance allocated", "The venues hold 35 of the 80 expected attendees.")
+    ]
+
+
+async def test_tc_us18_41_technical_support_must_be_assigned_once_equipment_is_approved(
+    client: AsyncClient, db: Session, ready: Event, casey: User
+) -> None:
+    reviewer = make_user(db, UserRole.TECH_SUPPORT)
+    line = make_line(db, event=ready, equipment_type=make_type(db), requested_by=casey, status=EquipmentLineStatus.APPROVED, reviewer=reviewer)
+    reserve(db, line, reviewer)
+
+    blocked = await confirm(client, casey, ready)
+
+    assert [(i["kind"], i["detail"]) for i in blocked.json()["outstanding"]] == [
+        ("technical_support", "No Tech support staff member is assigned yet.")
+    ]
+    assignment = assign_staff(db, ready, casey)
+    assert (await confirm(client, casey, ready)).status_code == 200
+    assert next(i for i in (await readiness(client, casey, ready)).json()["items"] if i["kind"] == "technical_support")["detail"] == "1 Tech support staff member is assigned."
+    assert assignment.unassigned_at is None
+
+
+async def test_tc_us18_42_an_unassigned_staff_member_no_longer_counts(
+    client: AsyncClient, db: Session, ready: Event, casey: User
+) -> None:
+    reviewer = make_user(db, UserRole.TECH_SUPPORT)
+    line = make_line(db, event=ready, equipment_type=make_type(db), requested_by=casey, status=EquipmentLineStatus.APPROVED, reviewer=reviewer)
+    reserve(db, line, reviewer)
+    assignment = assign_staff(db, ready, casey)
+    assignment.unassigned_at, assignment.unassigned_by_user_id = NOW, casey.id
+    db.flush()
+
+    assert (await confirm(client, casey, ready)).status_code == 409
+
+
+@pytest.mark.parametrize("scenario", ["approved", "requested", "none", "no_primary", "short", "online"])
+async def test_tc_us18_43_the_venue_items_agree_with_venues_arranged(
+    client: AsyncClient, db: Session, event: Event, casey: User, venue_staff: User, scenario: str
+) -> None:
+    """US24's `venues_arranged` (D72) and this list say the same thing, whatever the booking set."""
+    db.query(VenueBooking).filter(VenueBooking.event_id == event.id).delete()
+    if scenario == "online":
+        event.delivery_mode = DeliveryMode.ONLINE
+    elif scenario != "none":
+        booking = book(db, event, make_venue(db), casey, venue_staff, status=VenueBookingStatus.REQUESTED if scenario == "requested" else VenueBookingStatus.APPROVED, starts_at=STARTS)
+        if scenario == "no_primary":
+            booking.is_primary = False
+        if scenario == "short":
+            event.expected_attendees = 99
+    db.flush()
+
+    items = (await readiness(client, casey, event)).json()["items"]
+
+    assert all(i["complete"] for i in items if i["kind"] == "venue") == venues_arranged(db, event)

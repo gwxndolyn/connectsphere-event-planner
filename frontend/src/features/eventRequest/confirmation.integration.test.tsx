@@ -12,6 +12,8 @@ import {
   seedEquipmentLine,
   seedEquipmentType,
   seedRequest,
+  seedTechStaff,
+  seedTechStaffAssignment,
   seedVenue,
   server,
   startMockBackend,
@@ -42,7 +44,7 @@ function seedReadyEvent(overrides = {}) {
     safety_approved_at: "2026-10-02T03:00:00Z",
     ...overrides,
   });
-  seedBooking(request, seedVenue({ name: "SCIS Seminar Room 2-1" }), { status: "approved" });
+  seedBooking(request, seedVenue({ name: "SCIS Seminar Room 2-1" }), { status: "approved", expected_attendees: 40 });
   return request;
 }
 
@@ -57,8 +59,8 @@ describe("coordinator confirms an event (US18)", () => {
     await openRequest(user, "Alumni night");
 
     await screen.findByRole("list", { name: "Readiness" });
-    expect(readinessList().getAllByText("Complete")).toHaveLength(3);
-    expect(readinessList().getByText("SCIS Seminar Room 2-1")).toBeInTheDocument();
+    expect(readinessList().getAllByText("Complete")).toHaveLength(4);
+    expect(readinessList().getByText("SCIS Seminar Room 2-1, Main venue")).toBeInTheDocument();
     expect(readinessList().getByText("No equipment was requested.")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Confirm event" }));
@@ -72,7 +74,7 @@ describe("coordinator confirms an event (US18)", () => {
 
   it("names what is outstanding and keeps Confirm disabled, with no way round it (AC 1, 2, 5)", async () => {
     const request = seedRequest({ name: "Alumni night", status: "approved", coordinator: CASEY });
-    seedBooking(request, seedVenue({ name: "Auditorium" }), { status: "requested" });
+    seedBooking(request, seedVenue({ name: "Auditorium" }), { status: "requested", expected_attendees: 40 });
     const type = seedEquipmentType("Projector");
     seedEquipmentLine(seedEquipmentEvent({ id: request.id, name: "Alumni night" }), type, { status: "pending" });
     const user = userEvent.setup();
@@ -118,6 +120,24 @@ describe("coordinator confirms an event (US18)", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Some arrangements are still outstanding");
     expect(callsTo("GET", /\/readiness$/)).toHaveLength(2);
+  });
+
+  it("keeps Confirm disabled until Tech support staff are assigned to approved equipment (AC 1)", async () => {
+    const request = seedReadyEvent();
+    const event = seedEquipmentEvent({ id: request.id, name: "Alumni night" });
+    const line = seedEquipmentLine(event, seedEquipmentType("Projector"), { status: "approved" });
+    line.reservation = { quantity: 2, reserved_by_user_id: "tech-support-id", reserved_at: "2026-10-02T03:00:00Z", released_because_event_cancelled: false };
+    const user = userEvent.setup();
+    await openRequest(user, "Alumni night");
+
+    await screen.findByRole("list", { name: "Readiness" });
+    expect(readinessList().getByText("No Tech support staff member is assigned yet.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirm event" })).toBeDisabled();
+
+    seedTechStaffAssignment(event, seedTechStaff("Terry Tech"));
+    await user.click(screen.getByRole("button", { name: "Check again" }));
+
+    expect(await screen.findByRole("button", { name: "Confirm event" })).toBeEnabled();
   });
 
   it("moves a confirmed event to Preparation (AC 6)", async () => {

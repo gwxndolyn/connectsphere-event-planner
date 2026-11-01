@@ -53,9 +53,9 @@ export interface EventRequest extends EventRequestWrite {
   confirmed_at: string | null;
 }
 
-// One line of the readiness list (US18 AC 2): a venue booking, the equipment, or the safety check.
+// One line of the readiness list (US18 AC 2): a venue booking, the equipment, technical support or the safety check.
 export interface ReadinessItem {
-  kind: "venue" | "equipment" | "safety";
+  kind: "venue" | "equipment" | "technical_support" | "safety";
   name: string;
   complete: boolean;
   detail: string;

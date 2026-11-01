@@ -16,7 +16,7 @@ test("TC-US18-30: the coordinator confirms a ready event, then starts Preparatio
 
   const readiness = page.getByRole("list", { name: "Readiness" });
   await expect(readiness).toBeVisible();
-  await expect(readiness.getByText("Complete")).toHaveCount(3);
+  await expect(readiness.getByText("Complete")).toHaveCount(4);
   await expect(readiness).toContainText("Li Ka Shing Library Seminar Room 3-4");
 
   await page.getByRole("button", { name: "Confirm event" }).click();

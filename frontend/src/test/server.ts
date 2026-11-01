@@ -723,13 +723,13 @@ function confirmableBy(request: Request, id: string): EventRequest | Response {
 
 // US18 AC 1, 2: each live booking approved, the equipment lines approved, the safety check approved.
 function readinessOf(event: EventRequest) {
-  const items: { kind: "venue" | "equipment" | "safety"; name: string; complete: boolean; detail: string }[] = [];
+  const items: { kind: "venue" | "equipment" | "technical_support" | "safety"; name: string; complete: boolean; detail: string }[] = [];
   const live = db.bookings.filter((b) => b.event.id === event.id && (b.status === "requested" || b.status === "approved"));
   for (const booking of live) {
     const approved = booking.status === "approved";
     items.push({
       kind: "venue",
-      name: booking.venue.name,
+      name: `${booking.venue.name}, ${booking.purpose ?? "Main venue"}`,
       complete: approved,
       detail: approved
         ? `Booking ${booking.reference} is approved.`
@@ -737,18 +737,53 @@ function readinessOf(event: EventRequest) {
     });
   }
   if (live.length === 0) items.push({ kind: "venue", name: "Venue", complete: false, detail: "No venue has been requested yet." });
+  const primaries = live.filter((b) => b.is_primary).length;
+  if (live.length > 0 && primaries !== 1) {
+    items.push({
+      kind: "venue",
+      name: "Primary venue",
+      complete: false,
+      detail: primaries === 0 ? "Choose which venue attendees see as the primary one." : "More than one venue is marked primary.",
+    });
+  }
+  const allocated = live.reduce((sum, b) => sum + b.expected_attendees, 0);
+  if (live.length > 0 && event.expected_attendees !== null && allocated < event.expected_attendees) {
+    items.push({
+      kind: "venue",
+      name: "Attendance allocated",
+      complete: false,
+      detail: `The venues hold ${allocated} of the ${event.expected_attendees} expected attendees.`,
+    });
+  }
   const lines = db.equipmentLines.filter((l) => l.event.id === event.id && l.status !== "rejected");
-  const pending = lines.filter((l) => l.status === "pending").length;
+  const approvedLines = lines.filter((l) => l.status === "approved");
+  const pending = lines.length - approvedLines.length;
+  const unreserved = approvedLines.filter((l) => !l.reservation).length;
+  const noun = lines.length === 1 ? "line" : "lines";
   items.push({
     kind: "equipment",
     name: "Equipment",
-    complete: pending === 0,
+    complete: pending === 0 && unreserved === 0,
     detail:
       lines.length === 0
         ? "No equipment was requested."
         : pending > 0
-          ? `${pending} of ${lines.length} equipment ${lines.length === 1 ? "line is" : "lines are"} waiting for Tech support to approve.`
-          : "Every equipment line is approved.",
+          ? `${pending} of ${lines.length} equipment ${noun} ${pending === 1 ? "is" : "are"} waiting for Tech support to approve.`
+          : unreserved > 0
+            ? `${unreserved} of ${lines.length} approved equipment ${noun} ${unreserved === 1 ? "is" : "are"} not reserved yet.`
+            : "Every equipment line is approved and reserved.",
+  });
+  const staff = db.techStaffRows.filter((row) => row.event_id === event.id && row.unassigned_at === null).length;
+  items.push({
+    kind: "technical_support",
+    name: "Technical support",
+    complete: approvedLines.length === 0 || staff > 0,
+    detail:
+      approvedLines.length === 0
+        ? "No technical support was requested."
+        : staff > 0
+          ? `${staff} Tech support staff ${staff === 1 ? "member is" : "members are"} assigned.`
+          : "No Tech support staff member is assigned yet.",
   });
   const safe = event.safety_approved_at !== null;
   items.push({
