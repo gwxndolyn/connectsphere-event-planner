@@ -106,6 +106,8 @@ SCRUM-142 (PR 2), 1 Nov 2026, branch `feat(SCRUM-142)Change-Request-Decision-API
 - Backend: `pytest`: 1625 passed (1587, plus 30 new tests and 8 role-matrix cases for the six routes).
 - Local check: approving Change Request Demo's seeded request moved it to Planning, flagged its booking and projector, cleared its safety approval (state `pending`, review kept), and left readiness waiting on the safety check and the flags; the demo was reseeded afterwards.
 
+Calvin's #125 review, note 1, 1 Nov 2026: who decides and who clears are checked again on the locked event. Three tests on two committed connections, reassigning the event just before the lock, failed first (the old coordinator's approve, reject and clear all succeeded) and pass now: `pytest`: 1628 passed.
+
 SCRUM-143 (PR 3), 1 Nov 2026, branch `feat(SCRUM-143)Change-Request-Review-Screen` (from SCRUM-142's), local Postgres 16:
 
 - TC-US29B-26 to 32 written first in `frontend/src/features/changeRequest/changeRequestReview.integration.test.tsx` (12 failed: no fake routes, no screens), and TC-US29B-33 in `e2e/tests/change-request-review.spec.ts` (failed: no Change requests to review on the coordinator's screen).

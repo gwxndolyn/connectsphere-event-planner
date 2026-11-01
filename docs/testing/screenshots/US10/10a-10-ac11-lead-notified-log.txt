@@ -1,0 +1,2 @@
+2026-11-01 21:03:33,637 INFO app.notification.service: request queued: lead.one@smu.edu.sg, ER-2026-000001 (Hackathon Kick-off) from Olivia Organiser, preferred dates 2026-12-01
+2026-11-01 21:03:33,637 INFO app.notification.service: request queued: lead.two@smu.edu.sg, ER-2026-000001 (Hackathon Kick-off) from Olivia Organiser, preferred dates 2026-12-01

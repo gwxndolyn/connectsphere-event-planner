@@ -18,10 +18,12 @@ import app.event.change_decision_service as decision_module
 from app.agenda.models import EventSession
 from app.core.exceptions import DomainError
 from app.equipment.models import EquipmentLineStatus
+from app.event.assignment_service import assignment_service
 from app.event.change_decision_service import change_decision_service
 from app.event.change_request_service import _json
 from app.event.models import (
     ChangeRequestStatus,
+    CoordinatorAssignment,
     DeliveryMode,
     Event,
     EventAuditEntry,
@@ -474,6 +476,8 @@ def committed(engine: Engine) -> Generator[Committed, None, None]:
     with Session(engine) as setup:
         organiser = make_user(setup, UserRole.ORGANISER)
         coordinator = make_user(setup, UserRole.COORDINATOR)
+        lead = make_user(setup, UserRole.COORDINATOR_LEAD)
+        successor = make_user(setup, UserRole.COORDINATOR)
         event = confirmed_event(setup, organiser, coordinator)
         event.expected_attendees = 50
         setup.flush()
@@ -481,9 +485,14 @@ def committed(engine: Engine) -> Generator[Committed, None, None]:
             pending(setup, event, organiser, [change(event, "expected_attendees", 60)]),
             pending(setup, event, organiser, [change(event, "expected_attendees", 70)]),
         ]
+        flag = EventReviewFlag(
+            event_id=event.id, change_request_id=requests[0].id, kind="registrations", fields=["start_at"], raised_at=NOW
+        )
+        setup.add(flag)
         setup.commit()
         rows = Committed({
-            "coordinator": [coordinator.id], "users": [organiser.id, coordinator.id], "event": [event.id],
+            "coordinator": [coordinator.id], "lead": [lead.id], "successor": [successor.id], "flag": [flag.id],
+            "users": [organiser.id, coordinator.id, lead.id, successor.id], "event": [event.id],
             "requests": [r.id for r in requests],
         })
     try:
@@ -494,6 +503,7 @@ def committed(engine: Engine) -> Generator[Committed, None, None]:
             cleanup.execute(delete(EventReviewFlag).where(EventReviewFlag.event_id == event_id))
             cleanup.execute(delete(EventAuditEntry).where(EventAuditEntry.event_id == event_id))
             cleanup.execute(delete(EventChangeRequest).where(EventChangeRequest.event_id == event_id))
+            cleanup.execute(delete(CoordinatorAssignment).where(CoordinatorAssignment.event_id == event_id))
             cleanup.execute(delete(Event).where(Event.id == event_id))
             cleanup.execute(delete(User).where(User.id.in_(rows.ids["users"])))
             cleanup.commit()
@@ -560,6 +570,42 @@ def test_tc_us29b_17_two_requests_on_one_field_approved_at_once_the_second_is_st
         statuses = {check.get(EventChangeRequest, r).status for r in (first, second)}
         assert statuses == {ChangeRequestStatus.APPROVED, ChangeRequestStatus.PENDING_APPROVAL}
         assert check.get(Event, committed.ids["event"][0]).expected_attendees in (60, 70)
+
+
+def reassign_from(engine: Engine, committed: Committed) -> None:
+    """A Lead moves the event to another coordinator on a connection of its own, and commits."""
+    with Session(engine) as other:
+        assignment_service.reassign(
+            other, committed.ids["event"][0], other.get(User, committed.ids["lead"][0]),
+            committed.ids["successor"][0], "Workload.", FakeNotifier(),
+        )
+
+
+@pytest.mark.parametrize("decision", ["approve", "reject"])
+def test_tc_us29b_16_a_reassignment_just_before_the_lock_refuses_the_old_coordinator(
+    engine: Engine, committed: Committed, monkeypatch: pytest.MonkeyPatch, decision: str
+) -> None:
+    """Calvin's #125 review, note 1: who decides (D102) is checked again on the locked event, so a reassignment
+    committed after the first check and before the lock leaves the old coordinator nothing to decide."""
+    original = decision_module._lock_event
+
+    def reassign_then_lock(db: Session, event_id: uuid.UUID) -> Event:
+        reassign_from(engine, committed)
+        return original(db, event_id)
+
+    monkeypatch.setattr(decision_module, "_lock_event", reassign_then_lock)
+    request_id = committed.ids["requests"][0]
+
+    assert committed.decide(engine, decision, request_id) == (404, "NOT_FOUND")
+    with Session(engine) as check:
+        assert check.get(EventChangeRequest, request_id).status == ChangeRequestStatus.PENDING_APPROVAL
+        assert check.scalar(select(func.count()).where(EventAuditEntry.change_request_id == request_id)) == 0
+        assert check.scalar(select(func.count()).where(
+            EventReviewFlag.event_id == committed.ids["event"][0], EventReviewFlag.change_request_id == request_id,
+            EventReviewFlag.kind != "registrations",
+        )) == 0
+        event = check.get(Event, committed.ids["event"][0])
+        assert (event.coordinator_id, event.expected_attendees) == (committed.ids["successor"][0], 50)
 
 
 # --- TC-US29B-18 the event changed since the request (D107) ---

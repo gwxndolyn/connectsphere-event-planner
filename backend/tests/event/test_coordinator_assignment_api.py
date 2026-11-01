@@ -287,3 +287,29 @@ async def test_tc_us10a_20_events_assigned_before_this_change_keep_their_coordin
     assert mine.json()["event_requests"][0]["coordinator"]["id"] == str(coordinator.id)  # AC 9
     assert queue.json()["event_requests"] == []
 
+
+
+@pytest.mark.parametrize(
+    ("method", "action"),
+    [
+        ("POST", "approve"),
+        ("POST", "reject"),
+        ("POST", "confirmation"),
+        ("GET", "readiness"),
+        ("POST", "preparation"),
+    ],
+)
+async def test_tc_us10a_32_a_lead_cannot_approve_reject_or_confirm(
+    client: AsyncClient, db: Session, organiser: User, lead: User, method: str, action: str
+) -> None:
+    """AC 7 (13 Oct): the Lead is not a coordinator, so every decision on an event is refused, even on a request the
+    Lead could read in the queue. A user holding both roles acts as a coordinator on their own events (D46)."""
+    event = make_request(db, organiser, EventStatus.UNDER_REVIEW)
+
+    response = await client.request(
+        method, f"/api/v1/event-requests/{event.id}/{action}", headers=auth(lead), json={"reason": "No"} if action == "reject" else None
+    )
+
+    assert (response.status_code, response.json()) == (403, {"code": "FORBIDDEN"})
+    db.refresh(event)
+    assert event.status == EventStatus.UNDER_REVIEW
