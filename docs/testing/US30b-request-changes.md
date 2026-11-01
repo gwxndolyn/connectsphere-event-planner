@@ -99,6 +99,6 @@ The Safety Officer reviews it again and approves:
 
 | Date | Where | Result |
 |---|---|---|
-| 1 Nov 2026 | Backend, `pytest`, three runs in a row | 1456 passed |
+| 1 Nov 2026 | Backend, `pytest`, rebased onto `main` at SCRUM-138 | 1468 passed |
 | 1 Nov 2026 | Frontend, Vitest, lint, build | 458 passed; lint and build clean |
 | 1 Nov 2026 | E2E, the full suite against a fresh local database | 50 passed, 10 skipped (the Supabase login and sign-up cases, which need credentials), 0 failed |
