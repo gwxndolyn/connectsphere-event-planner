@@ -32,7 +32,7 @@ from app.core.config import settings
 from app.agenda.models import EventSession
 from app.core.database import SessionLocal
 from app.equipment.models import EquipmentRequestLine, EquipmentReservation, EquipmentType, TechStaffAssignment
-from app.event.models import DeliveryMode, Event, EventAuditEntry, EventChangeRequest, EventStatus
+from app.event.models import DeliveryMode, Event, EventAuditEntry, EventCancellation, EventChangeRequest, EventStatus
 from app.safety.models import SafetyReview
 from app.registration.models import ACTIVE_STATUSES, Registration, RegistrationStatus
 from app.user.models import Attendee, User, UserRole
@@ -542,6 +542,17 @@ PLANNING_EVENT = EventSpec(
     capacity=80,
 )
 
+# US9 (SCRUM-12): the event the cancellation E2E cancels; only that spec uses it, and a reseed puts it back.
+CANCELLATION_EVENT = EventSpec(
+    slug="cancellation-demo",
+    name="Cancellation Demo",
+    note="planning, assigned to the seeded coordinator, registration off; a reseed undoes its cancellation (US9)",
+    status=EventStatus.PLANNING,
+    registration_enabled=False,
+    starts_in=timedelta(days=28),
+    capacity=50,
+)
+
 VENUE_BLOCKS = [
     VenueBlockSpec(
         slug="connexion-maintenance",
@@ -913,6 +924,20 @@ def upsert_planning_event(
     return event
 
 
+def upsert_cancellation_event(
+    db: Session, spec: EventSpec, organiser: User, coordinator: User, now: datetime
+) -> Event:
+    """The event the cancellation E2E asks to cancel and cancels (TC-US9-32), assigned to `coordinator`. A reseed
+    puts it back in Planning and removes its cancellation record, so a rerun starts from the same event."""
+    db.execute(delete(EventCancellation).where(EventCancellation.event_id == seed_id("event", spec.slug)))
+    event = upsert_event(db, spec, now, organiser)
+    event.coordinator_id = coordinator.id
+    event.event_category = "Talk"
+    event.purpose = "Seeded for cancelling an event (US9)"
+    event.expected_attendees = 40
+    return event
+
+
 def upsert_venue_booking(
     db: Session, spec: VenueBookingSpec, event: Event, coordinator: User, now: datetime
 ) -> VenueBooking:
@@ -1192,6 +1217,7 @@ def seed(db: Session, now: datetime | None = None) -> None:
     upsert_primary_booking(db, EQUIPMENT_EVENT, equipment_event, coordinator, now)
     upsert_multi_venue_event(db, MULTI_VENUE_EVENT, organiser, coordinator, now)
     upsert_planning_event(db, PLANNING_EVENT, organiser, coordinator, now)
+    upsert_cancellation_event(db, CANCELLATION_EVENT, organiser, coordinator, now)
     upsert_agenda_event(db, organiser, now)
     for name, stock in EQUIPMENT_STOCK.items():
         upsert_equipment_type(db, name, stock)

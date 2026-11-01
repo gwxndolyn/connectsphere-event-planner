@@ -636,3 +636,33 @@ async def test_tc_us9_25_every_cancelled_event_has_exactly_one_approved_cancella
     assert set(approved.values()) == {1}
     flags = db.scalars(select(EventCancellation.direct).where(EventCancellation.event_id.in_(ids))).all()
     assert sorted(flags) == [False, False, True]  # the approved request, the rejected one, the direct cancel
+
+
+# --- The seeded event the E2E cancels ---
+
+
+def test_tc_us9_32_the_seed_puts_the_cancellation_demo_back(db: Session) -> None:
+    from app.seed import CANCELLATION_EVENT, seed, seed_id
+
+    seed(db, now=NOW)
+    event = db.get(Event, seed_id("event", CANCELLATION_EVENT.slug))
+    assert (event.name, event.status, event.coordinator_id) == (
+        "Cancellation Demo",
+        EventStatus.PLANNING,
+        seed_id("user", "event-coordinator"),
+    )
+    coordinator = db.get(User, event.coordinator_id)
+    event.status = EventStatus.CANCELLED
+    db.add(
+        EventCancellation(
+            event_id=event.id, requested_by_user_id=coordinator.id, reason="E2E run", requested_at=NOW,
+            status=CancellationStatus.APPROVED, decided_by_user_id=coordinator.id, decided_at=NOW, direct=True,
+        )
+    )
+    db.flush()
+
+    seed(db, now=NOW)
+
+    db.refresh(event)
+    assert event.status == EventStatus.PLANNING
+    assert rows(db, event) == 0
