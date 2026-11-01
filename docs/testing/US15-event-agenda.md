@@ -55,3 +55,4 @@ Decided by the acting PO, Matthew, on 1 Nov (team channel).
 | Date | Subtask | What ran | Result |
 | --- | --- | --- | --- |
 | 1 Nov | SCRUM-138 | `pytest` (local Postgres): `tests/agenda/test_event_sessions_schema.py`, then the full backend suite; `alembic downgrade -1` and `upgrade head`; the seed | Tests written first: they failed on collection (no `app.agenda`). After the change: 12 items for TC-US15-01 to 04 pass. Whole backend suite 1249 passed; the migration round-trips and the seed runs |
+| 1 Nov | SCRUM-138 | After merging `main` (#107, #110): the full backend suite; `alembic heads`, `downgrade -1` and `upgrade head`; the seed | The migration now chains after `20261108_1200_us12_event_edits` (US12, #107), one head. Whole backend suite 1291 passed; the migration round-trips and the seed runs, with both planning demo events (US12's Event Planning Demo and Agenda Demo) |
