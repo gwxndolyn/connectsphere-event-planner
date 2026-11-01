@@ -847,7 +847,8 @@ function safetyStateOf(event: EventRequest): "pending" | "approved" | "rejected"
 }
 
 function arrangementsReady(event: EventRequest): boolean {
-  return readinessOf(event).items.every((item) => item.kind === "safety" || item.complete);
+  // AC 1: the venues and the equipment; technical support and the safety check aren't part of it.
+  return readinessOf(event).items.every((item) => (item.kind !== "venue" && item.kind !== "equipment") || item.complete);
 }
 
 // What the Coordinator and Organiser read: a review without the Safety Officer's internal notes.

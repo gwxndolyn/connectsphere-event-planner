@@ -210,10 +210,11 @@ class SafetyService:
     def _arrangements(
         self, db: Session, event: Event, *, lock: bool
     ) -> tuple[bool, list[tuple[VenueBooking, Venue]]]:
-        """AC 1: every live venue booking approved (and at least one), no equipment line pending. The
-        safety item itself is the thing being decided, so it isn't part of this."""
+        """AC 1: the venues arranged (US24's rule, D72) and the requested equipment approved and reserved.
+        Technical support is the coordinator's to arrange for confirming, and the safety item is the thing
+        being decided, so neither is part of this."""
         readiness, approved = confirmation_service._readiness(db, event, lock=lock)
-        return all(item.complete for item in readiness.items if item.kind != "safety"), approved
+        return all(item.complete for item in readiness.items if item.kind in ("venue", "equipment")), approved
 
     def _check_reviewable(self, db: Session, event: Event) -> None:
         if event.status not in REVIEWABLE_STATUSES:

@@ -87,6 +87,5 @@ def test_tc_us10a_04_seed_adds_two_active_leads_and_leaves_events_unassigned(db:
             seed_id("event", "supabase-live-coding"),
             seed_id("event", PLANNING_EVENT.slug),
             seed_id("event", MULTI_VENUE_EVENT.slug),
-            seed_id("event", SAFETY_REVIEW_EVENT.slug),
         ]
     )

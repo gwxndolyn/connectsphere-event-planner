@@ -45,7 +45,7 @@ function seedReadyEvent(overrides = {}) {
     accessibility_needs: "Step-free access",
     ...overrides,
   });
-  seedBooking(request, seedVenue({ name: "SCIS Seminar Room 2-1" }), { status: "approved" });
+  seedBooking(request, seedVenue({ name: "SCIS Seminar Room 2-1" }), { status: "approved", expected_attendees: 40 });
   return request;
 }
 
@@ -74,7 +74,7 @@ describe("Safety Officer's queue (US30a AC 1)", () => {
     seedReadyEvent();
     seedRequest({ name: "No venue yet", status: "approved", coordinator: CASEY });
     const waiting = seedRequest({ name: "Equipment pending", status: "approved", coordinator: CASEY });
-    seedBooking(waiting, seedVenue({ name: "Auditorium" }), { status: "approved" });
+    seedBooking(waiting, seedVenue({ name: "Auditorium" }), { status: "approved", expected_attendees: 40 });
     seedEquipmentLine(seedEquipmentEvent({ id: waiting.id }), seedEquipmentType("Projector"), { status: "pending" });
     seedReadyEvent({ name: "Already approved", safety_approved_at: "2026-10-02T03:00:00Z" });
     const user = userEvent.setup();
@@ -99,7 +99,8 @@ describe("Safety Officer's queue (US30a AC 1)", () => {
 describe("Safety Officer reviews an event (US30a AC 2, 9)", () => {
   it("shows the event's details, venues and equipment, and the seven checklist items", async () => {
     const request = seedReadyEvent();
-    seedEquipmentLine(seedEquipmentEvent({ id: request.id }), seedEquipmentType("Projector"), { status: "approved", quantity: 2 });
+    const line = seedEquipmentLine(seedEquipmentEvent({ id: request.id }), seedEquipmentType("Projector"), { status: "approved", quantity: 2 });
+    line.reservation = { quantity: 2, reserved_by_user_id: "tech-support-id", reserved_at: "2026-10-02T03:00:00Z", released_because_event_cancelled: false };
     const user = userEvent.setup();
 
     await openEvent(user);

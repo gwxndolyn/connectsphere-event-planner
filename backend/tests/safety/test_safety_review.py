@@ -19,7 +19,7 @@ from app.venue.models import Venue, VenueBookingStatus
 from tests.conftest import FakeNotifier
 from tests.equipment.test_equipment_api import make_line
 from tests.equipment.test_equipment_schema import make_type
-from tests.event.test_confirmation import book
+from tests.event.test_confirmation import book, reserve
 from tests.event.test_event_request_clarification_api import make_request
 from tests.event.test_event_requests import auth
 from tests.factories import NOW, make_user, make_venue
@@ -150,12 +150,17 @@ async def test_tc_us30a_02_the_queue_leaves_out_what_is_not_ready_or_already_dec
     assert no_venue.id not in [row["event_id"] for row in await queue(client, officer)]
 
 
-async def test_tc_us30a_03_an_approved_equipment_line_does_not_keep_an_event_out(
+async def test_tc_us30a_03_requested_equipment_must_be_reserved_before_an_event_is_queued(
     client: AsyncClient, db: Session, event: Event, casey: User, officer: User
 ) -> None:
-    make_line(db, event=event, equipment_type=make_type(db), requested_by=casey, status=EquipmentLineStatus.APPROVED)
+    line = make_line(db, event=event, equipment_type=make_type(db), requested_by=casey, status=EquipmentLineStatus.APPROVED)
 
+    assert await queue(client, officer) == []  # approved, but not reserved yet (US27)
+
+    reserve(db, line, line.reviewed_by_user_id and db.get(User, line.reviewed_by_user_id))
     assert [row["event_id"] for row in await queue(client, officer)] == [str(event.id)]
+    # Technical support is the coordinator's to arrange for confirming; it doesn't hold up the review.
+    assert (await review(client, officer, event)).status_code == 201
 
 
 async def test_tc_us30a_04_a_planning_event_is_in_the_queue_too(
@@ -174,7 +179,8 @@ async def test_tc_us30a_04_a_planning_event_is_in_the_queue_too(
 async def test_tc_us30a_05_the_review_shows_only_what_a_safety_review_needs(
     client: AsyncClient, db: Session, event: Event, casey: User, officer: User
 ) -> None:
-    make_line(db, event=event, equipment_type=make_type(db, "Projector"), requested_by=casey, status=EquipmentLineStatus.APPROVED, quantity=2)
+    line = make_line(db, event=event, equipment_type=make_type(db, "Projector"), requested_by=casey, status=EquipmentLineStatus.APPROVED, quantity=2)
+    reserve(db, line, db.get(User, line.reviewed_by_user_id))
 
     response = await client.get(f"{QUEUE}/{event.id}", headers=auth(officer))
 
