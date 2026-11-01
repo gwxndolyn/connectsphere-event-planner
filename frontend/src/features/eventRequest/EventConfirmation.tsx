@@ -82,7 +82,7 @@ export function EventConfirmation({ request, onChanged }: EventConfirmationProps
     return (
       <section className="request-confirm" aria-labelledby="request-confirm-title">
         <h2 id="request-confirm-title">Preparation</h2>
-        <p role="status">This event is in Preparation. Venue staff and Technical support preparation updates are open.</p>
+        <p role="status">This event is in Preparation.</p>
       </section>
     );
   }
@@ -93,8 +93,8 @@ export function EventConfirmation({ request, onChanged }: EventConfirmationProps
         <h2 id="request-confirm-title">Confirmed</h2>
         {error && <div className="request-alert" role="alert">{error}</div>}
         <p role="status">
-          This event is confirmed{request.confirmed_at ? ` (${formatInstantDateTime(request.confirmed_at)})` : ""}. The
-          organiser has been told its date, time and venue.
+          This event is confirmed
+          {request.confirmed_at ? ` (${formatInstantDateTime(request.confirmed_at)}). The organiser has been told its date, time and venue.` : "."}
         </p>
         <div className="request-form__actions">
           <button className="request-button request-button--primary" type="button" disabled={busy} onClick={() => void act("preparation")}>
