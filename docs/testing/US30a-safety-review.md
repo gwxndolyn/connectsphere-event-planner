@@ -121,3 +121,4 @@ The coordinator's notice (log-only) is TC-US30A-24 and 25, and the Preparation g
 | 1 Nov 2026 | Backend, `pytest`, rebased onto `main` at 742f6d4 | 1433 passed |
 | 1 Nov 2026 | Frontend, Vitest, lint, build | 452 passed; lint and build clean |
 | 1 Nov 2026 | E2E, the full suite against a fresh local database | 50 passed, 10 skipped (the Supabase login and sign-up cases, which need credentials), 0 failed |
+| 1 Nov 2026 | Fix: `20261114_1200_us30a_rls` turns on RLS for `safety_reviews`, which `20261110_1200_us30a_safety` left off (found on Supabase after applying it). Backend, `pytest`: TC-SEC-05 (every `public` table has RLS) failed first, naming `safety_reviews`; then the whole suite | 1496 passed, after #116; the migration round-trips |
