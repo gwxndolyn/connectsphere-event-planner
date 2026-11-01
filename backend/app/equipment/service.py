@@ -341,7 +341,9 @@ class EquipmentService:
             raise DomainError(404, "NOT_FOUND")
         if line.status != EquipmentLineStatus.APPROVED:
             raise DomainError(409, "LINE_NOT_APPROVED", status=line.status.value)
-        event = db.get(Event, line.event_id)
+        # FOR SHARE: a cancel (US9, SCRUM-12) deletes the event's reservations under the event's lock, so this waits
+        # for it and then sees the event Cancelled, rather than adding a reservation just after the delete.
+        event = db.scalars(select(Event).where(Event.id == line.event_id).with_for_update(read=True)).one()
         # D76 (approved 31 Oct): as for adding US26's lines.
         if event.status not in ELIGIBLE_STATUSES:
             raise DomainError(409, "EVENT_NOT_ELIGIBLE", status=event.status.value)
