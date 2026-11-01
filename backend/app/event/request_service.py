@@ -28,7 +28,7 @@ SUBMITTED_REQUEST_STATUSES = (
 # SCRUM-85 (widens D11): past the request stage an event's assigned coordinator still works it, so they
 # can open it and see its readiness list and Request venue. Nobody else reads it through these routes.
 # US9 (SCRUM-12, widens it again): and a cancelled one, to see its cancellation record (AC 8), as a rejected one is
-# kept; an event cancelled before it had a date can be reached no other way (D93).
+# kept; an event cancelled before it had a date can be reached no other way (D98).
 COORDINATOR_EVENT_STATUSES = (
     EventStatus.PLANNING,
     EventStatus.CONFIRMED,

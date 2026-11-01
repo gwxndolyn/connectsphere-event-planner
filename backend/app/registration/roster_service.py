@@ -65,7 +65,7 @@ class RegistrationRosterService:
             managed.append(Event.coordinator_id == user.id)
         events = db.scalars(
             select(Event)
-            # D93: an event cancelled before it was planned has no date and never took registrations.
+            # D98: an event cancelled before it was planned has no date and never took registrations.
             .where(Event.status.in_(MANAGED_EVENT_STATUSES), Event.start_at.is_not(None), or_(false(), *managed))
             .order_by(Event.start_at, Event.id)
         ).all()
@@ -87,7 +87,7 @@ class RegistrationRosterService:
         if (
             event is None
             or event.status not in MANAGED_EVENT_STATUSES
-            or event.start_at is None  # D93: cancelled before it was planned
+            or event.start_at is None  # D98: cancelled before it was planned
             or not self._manages(event, user)
         ):
             raise DomainError(404, "NOT_FOUND")

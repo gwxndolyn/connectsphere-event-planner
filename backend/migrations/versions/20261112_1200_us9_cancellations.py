@@ -1,7 +1,7 @@
 """add event cancellations: an organiser's request, the coordinator's decision, or a direct cancel
 
 Revision ID: 20261112_1200_us9_cancellations
-Revises: 20261110_1200_us30a_safety
+Revises: 20261111_1200_us15_sessions
 Create Date: 2026-11-12
 
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 revision: str = "20261112_1200_us9_cancellations"
-down_revision: Union[str, None] = "20261110_1200_us30a_safety"
+down_revision: Union[str, None] = "20261111_1200_us15_sessions"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -87,7 +87,7 @@ def upgrade() -> None:
     )
     op.execute("ALTER TABLE event_cancellations ENABLE ROW LEVEL SECURITY")
 
-    # DECISION-PENDING: D93 — an Approved event can be cancelled (AC 1) but may have no date or capacity yet
+    # DECISION-PENDING: D98 — an Approved event can be cancelled (AC 1) but may have no date or capacity yet
     # (US18 takes them from its bookings), so a cancelled event needs only its name (AC 6's notices name it).
     op.drop_constraint("events_final_fields_required", "events", type_="check")
     op.create_check_constraint(

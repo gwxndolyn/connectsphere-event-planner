@@ -30,7 +30,7 @@ EVENT_TIMEZONE = ZoneInfo("Asia/Singapore")
 
 def _starts_at(event: Event, first_booking: datetime | None) -> datetime | None:
     """When the event starts, for AC 7. Its own start once planned. An Approved request has none (D86), so:
-    DECISION-PENDING: D95 — its earliest live venue booking, which places it; with no booking, its last preferred
+    DECISION-PENDING: D100 — its earliest live venue booking, which places it; with no booking, its last preferred
     date at its preferred start time, Singapore time (D9), by when it has started whichever date it's on. None if
     it has neither."""
     if event.start_at is not None:
@@ -306,7 +306,7 @@ class CancellationService:
         if organiser is not None:
             recipients.append((organiser.email, "organiser"))
         if released_approved:
-            # DECISION-PENDING: D94 — Venue staff aren't assigned to an event, so every active Venue staff member
+            # DECISION-PENDING: D99 — Venue staff aren't assigned to an event, so every active Venue staff member
             # hears when an approved venue is released, as when an approved booking is withdrawn (D69).
             staff = db.scalars(
                 select(User)

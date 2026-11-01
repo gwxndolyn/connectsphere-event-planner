@@ -512,7 +512,7 @@ async def test_tc_us9_20_an_approved_request_starts_by_its_last_preferred_date(
     ahead = await ask(client, still_possible, organiser)
     passed = await ask(client, all_passed, organiser)
 
-    assert ahead.status_code == 201  # it may be on the later date (D95)
+    assert ahead.status_code == 201  # it may be on the later date (D100)
     assert (passed.status_code, passed.json()["code"]) == (409, "EVENT_STARTED")
 
 
