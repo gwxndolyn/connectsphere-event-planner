@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.event.models import Event, EventStatus
 from app.user.models import User, UserRole
+from app.venue.availability import evaluate_window
 from app.venue.models import BLOCKING_STATUSES, LIVE_BOOKING_STATUSES, Venue, VenueBookingStatus
 from tests.conftest import assert_one_head_including
 from tests.factories import NOW, make_event, make_user, make_venue, make_venue_booking
@@ -85,7 +86,7 @@ def test_tc_us25_02_a_hold_blocks_an_overlapping_request(
 def test_tc_us25_02_an_expired_hold_blocks_nothing(
     db: Session, event: Event, venue: Venue, staff: User, coordinator: User
 ) -> None:
-    hold(db, event, venue, staff, status=VenueBookingStatus.EXPIRED, expired_at=NOW)
+    hold(db, event, venue, staff, status=VenueBookingStatus.EXPIRED, expired_at=NOW + timedelta(days=3))
 
     make_venue_booking(db, event=event, venue=venue, user=coordinator, starts_at=START)
 
@@ -117,6 +118,29 @@ def test_tc_us25_03_expired_at_is_set_exactly_when_expired(
     refused(db, "venue_bookings_expired_consistent", event=event, venue=venue, staff=staff, **overrides)
 
 
+def test_tc_us25_03_a_hold_is_warned_before_its_expiry(db: Session, event: Event, venue: Venue, staff: User) -> None:
+    refused(
+        db, "venue_bookings_hold_consistent", event=event, venue=venue, staff=staff,
+        hold_warned_at=NOW + timedelta(days=3),
+    )
+
+
+def test_tc_us25_03_a_hold_is_requested_by_whoever_placed_it(
+    db: Session, event: Event, venue: Venue, staff: User, coordinator: User
+) -> None:
+    refused(
+        db, "venue_bookings_hold_consistent", event=event, venue=venue, staff=staff,
+        requested_by_user_id=coordinator.id,
+    )
+
+
+def test_tc_us25_03_a_hold_lapses_at_its_expiry_not_before(db: Session, event: Event, venue: Venue, staff: User) -> None:
+    refused(
+        db, "venue_bookings_expired_consistent", event=event, venue=venue, staff=staff,
+        status=VenueBookingStatus.EXPIRED, expired_at=NOW + timedelta(days=2),
+    )
+
+
 def test_tc_us25_04_a_hold_is_never_the_primary_venue(db: Session, event: Event, venue: Venue, staff: User) -> None:
     refused(db, "venue_bookings_hold_not_primary", event=event, venue=venue, staff=staff, is_primary=True)
 
@@ -136,5 +160,20 @@ def test_tc_us25_05_a_confirmed_hold_keeps_its_expiry_and_who_held_it(
     booking.status = VenueBookingStatus.REQUESTED
     booking.requested_by_user_id = coordinator.id
     db.flush()
+    db.refresh(booking)
 
     assert (booking.hold_expires_at, booking.held_by_user_id) == (NOW + timedelta(days=3), staff.id)
+
+
+def test_tc_us25_06_the_availability_check_reports_a_hold_as_the_guard_refuses_it(
+    db: Session, event: Event, venue: Venue, staff: User
+) -> None:
+    """The app's copy of the guard's rule (BLOCKING_STATUSES), so a refused request names the hold (US13 AC 4)."""
+    held = hold(db, event, venue, staff)
+
+    evaluation = evaluate_window(db, venue, START + timedelta(minutes=30), START + timedelta(hours=1))
+    expired = hold(db, event, make_venue(db), staff, status=VenueBookingStatus.EXPIRED, expired_at=NOW + timedelta(days=3))
+    free = evaluate_window(db, db.get(Venue, expired.venue_id), START, START + timedelta(hours=1))
+
+    assert [conflict.reference for conflict in evaluation.conflicts] == [held.reference]
+    assert free.conflicts == []
