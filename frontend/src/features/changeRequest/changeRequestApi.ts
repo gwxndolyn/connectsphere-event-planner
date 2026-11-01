@@ -115,6 +115,9 @@ const LABELS: Record<string, string> = {
   room_layout_preference: "Room layout preference",
   accessibility_needs: "Accessibility needs",
   equipment_needs: "Equipment needs",
+  // A coordinator's US12 critical edit (D87) can also hold these (SCRUM-144).
+  capacity: "Capacity",
+  delivery_mode: "Delivery mode",
 };
 
 export function changeLabel(field: string): string {

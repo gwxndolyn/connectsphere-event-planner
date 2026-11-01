@@ -13,10 +13,13 @@ import type {
   UnassignedRequestsResponse,
 } from "./types";
 import { LeadRequestDetail } from "./LeadRequestDetail";
+import { ChangeRequestReview } from "../changeRequest/ChangeRequestReview";
+import { CoordinatorChangeRequests } from "../changeRequest/CoordinatorChangeRequests";
 import "./eventRequests.css";
 import "./assignments.css";
 
-type Screen = "queue" | "assign" | "done" | "history" | "detail";
+// SCRUM-144: "change" is a coordinator's own edit opened for the Lead to decide (D102).
+type Screen = "queue" | "assign" | "done" | "history" | "detail" | "change";
 type Tab = "unassigned" | "assigned";
 
 // SCRUM-86 AC 3: the statuses an assigned, still-active event can be in.
@@ -92,6 +95,9 @@ export function AssignmentQueuePage() {
   const [filterOptions, setFilterOptions] = useState<{ id: string; name: string }[]>([]);
   // SCRUM-69: the history of the request being viewed.
   const [history, setHistory] = useState<AssignmentRecord[]>([]);
+  // SCRUM-144: the coordinator edit being decided, and a count that reloads the list after each decision.
+  const [changeId, setChangeId] = useState<string | null>(null);
+  const [changesVersion, setChangesVersion] = useState(0);
 
   useEffect(() => {
     let current = true;
@@ -143,6 +149,18 @@ export function AssignmentQueuePage() {
     setError(null);
     setActive(request as UnassignedRequest);
     setScreen("detail");
+  }
+
+  async function openChange(eventId: string, requestId: string) {
+    setError(null);
+    try {
+      const event = await apiClient.get<EventRequest>(`/api/v1/event-requests/${eventId}`);
+      setActive(event as UnassignedRequest);
+      setChangeId(requestId);
+      setScreen("change");
+    } catch (reason) {
+      setError(errorMessage(reason));
+    }
   }
 
   async function openHistory(request: EventRequest) {
@@ -218,6 +236,7 @@ export function AssignmentQueuePage() {
     setActive(null);
     setAssignedTo(null);
     setReassigning(false);
+    setChangeId(null);
     setError(null);
   }
 
@@ -237,12 +256,14 @@ export function AssignmentQueuePage() {
                   ? "Assignment history"
                   : screen === "detail"
                     ? "Request details"
+                    : screen === "change"
+                      ? "Coordinator edit"
                     : reassigning
                       ? "Reassignment complete"
                       : "Assignment complete"}
           </h1>
         </div>
-        {(screen === "assign" || screen === "history" || screen === "detail") && (
+        {(screen === "assign" || screen === "history" || screen === "detail" || screen === "change") && (
           <button className="request-button request-button--quiet" type="button" onClick={backToQueue}>
             Back to queue
           </button>
@@ -250,6 +271,15 @@ export function AssignmentQueuePage() {
       </div>
 
       {error && <div className="request-alert" role="alert">{error}</div>}
+
+      {screen === "queue" && (
+        <CoordinatorChangeRequests
+          heading="Coordinator edits to approve"
+          source="coordinator"
+          reloadKey={changesVersion}
+          onReview={(eventId, requestId) => void openChange(eventId, requestId)}
+        />
+      )}
 
       {screen === "queue" && (
         <div className="assign-tabs" role="tablist" aria-label="Lead views">
@@ -380,6 +410,26 @@ export function AssignmentQueuePage() {
           onReassign={() => void startAssigning(active, true)}
           onHistory={() => void openHistory(active)}
         />
+      )}
+
+      {screen === "change" && active && (
+        <>
+          <LeadRequestDetail
+            request={active}
+            onAssign={() => void startAssigning(active)}
+            onReassign={() => void startAssigning(active, true)}
+            onHistory={() => void openHistory(active)}
+          />
+          <ChangeRequestReview
+            event={active}
+            focusId={changeId}
+            onDecided={(decided) => {
+              setActive(decided as UnassignedRequest);
+              setChangesVersion((count) => count + 1);
+              setAssignedVersion((count) => count + 1);
+            }}
+          />
+        </>
       )}
 
       {screen === "history" && active && (
