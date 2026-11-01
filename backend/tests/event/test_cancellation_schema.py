@@ -4,15 +4,13 @@ from datetime import timedelta
 
 import pytest
 from httpx import AsyncClient
-from alembic.config import Config
-from alembic.script import ScriptDirectory
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.event.models import CancellationStatus, Event, EventCancellation, EventStatus
 from app.user.models import User, UserRole
-from tests.conftest import BACKEND_DIR
+from tests.conftest import assert_one_head_including
 from tests.event.test_event_request_clarification_api import auth
 from tests.factories import NOW, make_event, make_user
 
@@ -51,6 +49,7 @@ def approved(event: Event, coordinator: User, **overrides: object) -> EventCance
         "status": CancellationStatus.APPROVED,
         "decided_by_user_id": coordinator.id,
         "decided_at": NOW,
+        "direct": True,
     }
     values.update(overrides)
     return request(event, coordinator, **values)
@@ -139,6 +138,41 @@ def test_tc_us9_04_reason_cant_be_blank(db: Session, event: Event, organiser: Us
     refused(db, request(event, organiser, reason="   "), "event_cancellations_reason_not_blank")
 
 
+def test_tc_us9_04_reasons_are_at_most_1000_characters(
+    db: Session, event: Event, organiser: User, coordinator: User
+) -> None:
+    db.add(request(event, organiser, reason="x" * 1000))
+    db.flush()
+    db.rollback()
+    refused(db, request(event, organiser, reason="x" * 1001), "event_cancellations_reason_not_blank")
+    rejected = request(
+        event, organiser, status=CancellationStatus.REJECTED, decided_by_user_id=coordinator.id, decided_at=NOW,
+        rejection_reason="x" * 1001,
+    )
+    refused(db, rejected, "event_cancellations_rejection_reason_only_when_rejected")
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"direct": True},  # direct, but still pending
+        {"direct": True, "status": CancellationStatus.REJECTED, "rejection_reason": "No", "decided_at": NOW},
+        {"direct": False, "status": CancellationStatus.APPROVED, "decided_at": NOW},  # self-approved, not marked
+    ],
+)
+def test_tc_us9_05_direct_means_asked_and_approved_by_the_same_person(
+    db: Session, event: Event, coordinator: User, fields: dict[str, object]
+) -> None:
+    decider = {"decided_by_user_id": coordinator.id} if "decided_at" in fields else {}
+    refused(db, request(event, coordinator, **fields, **decider), "event_cancellations_direct_consistent")
+
+
+def test_tc_us9_05_an_organisers_request_decided_by_the_coordinator_isnt_direct(
+    db: Session, event: Event, organiser: User, coordinator: User
+) -> None:
+    refused(db, approved(event, coordinator, requested_by_user_id=organiser.id), "event_cancellations_direct_consistent")
+
+
 @pytest.mark.parametrize(
     ("overrides", "with_decider"),
     [
@@ -215,12 +249,7 @@ def test_tc_us9_07_a_planned_event_still_needs_its_final_fields(db: Session, eve
 
 
 def test_tc_us9_01_migrations_have_one_head() -> None:
-    config = Config(str(BACKEND_DIR / "alembic.ini"))
-    config.set_main_option("script_location", str(BACKEND_DIR / "migrations"))
-    script = ScriptDirectory.from_config(config)
-
-    assert len(script.get_heads()) == 1
-    assert REVISION in {revision.revision for revision in script.walk_revisions()}
+    assert_one_head_including(REVISION)
 
 
 @pytest.fixture
