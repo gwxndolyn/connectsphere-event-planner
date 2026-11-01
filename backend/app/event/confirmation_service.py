@@ -16,6 +16,7 @@ from app.event.assignment_service import MISSING_NAME, MISSING_REFERENCE
 from app.event.models import DeliveryMode, Event, EventStatus
 from app.event.request_schemas import EventRequestOut, ReadinessItemOut, ReadinessOut
 from app.notification.service import Notifier
+from app.safety.models import CHANGE_AREAS
 from app.safety.state import latest_review, safety_state
 from app.user.models import User
 from app.venue.models import LIVE_BOOKING_STATUSES, Venue, VenueBooking, VenueBookingStatus
@@ -261,6 +262,13 @@ class ConfirmationService:
             return (
                 f"Rejected by the Safety Officer: {latest.comments} "
                 "Revise the arrangement, then send it for another review."
+            )
+        if state == "changes_requested" and latest is not None:
+            # US30b AC 2: the areas are marked for review; nothing else is reset, the coordinator decides.
+            areas = ", ".join(label for key, label in CHANGE_AREAS if key in (latest.areas or []))
+            return (
+                f"The Safety Officer asked for changes to {areas}: {latest.comments} "
+                "Make the changes, then mark them done."
             )
         if latest is not None:
             return "Sent for another safety review."

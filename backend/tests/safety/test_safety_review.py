@@ -1,5 +1,5 @@
 """US30a (SCRUM-99): the Safety Officer reviews an event's arrangements, and the coordinator and organiser
-see the outcome."""
+see the outcome. US30b (SCRUM-100): or asks for changes, which the coordinator marks done."""
 
 import logging
 import uuid
@@ -11,8 +11,10 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.clock import get_now
 from app.equipment.models import EquipmentLineStatus
 from app.event.models import DeliveryMode, Event, EventStatus
+from app.main import app
 from app.safety.models import CHECKLIST_KEYS, SafetyReview
 from app.user.models import User, UserRole
 from app.venue.models import Venue, VenueBookingStatus
@@ -201,7 +203,8 @@ async def test_tc_us30a_05_the_review_shows_only_what_a_safety_review_needs(
 
     assert response.status_code == 200
     body = response.json()
-    assert set(body) == {"event", "state", "venues", "equipment", "checklist", "history"}
+    assert set(body) == {"event", "state", "venues", "equipment", "checklist", "change_areas", "history"}
+    assert [area["key"] for area in body["change_areas"]] == ["venue", "layout", "equipment", "accessibility", "other"]
     assert set(body["event"]) == {
         "id", "name", "request_reference", "status", "expected_attendees",
         "room_layout_preference", "accessibility_needs", "equipment_needs",
@@ -599,3 +602,320 @@ async def test_tc_us30a_31_the_seeded_demo_is_in_the_queue_and_a_reseed_resets_i
     assert demo.safety_approved_at is None and reviews(db, demo) == []
     assert str(demo.id) in [row["event_id"] for row in await queue(client, officer)]
     assert EVENT_COORDINATOR_EMAIL
+
+
+# --- US30b (SCRUM-100): request changes ---
+
+DONE = "/api/v1/event-requests/{}/safety-review-request"
+
+
+def changes(**overrides: object) -> dict:
+    return {
+        "outcome": "changes_requested",
+        "checklist": ok(layout={"result": "issue", "comment": "Aisles too narrow"}),
+        "comments": "Widen the aisles and move the stage back.",
+        "internal_notes": "Second time this layout has come up.",
+        "areas": ["layout", "venue"],
+    } | overrides
+
+
+async def safety_item(client: AsyncClient, coordinator: User, event: Event) -> dict:
+    readiness = (await client.get(f"/api/v1/event-requests/{event.id}/readiness", headers=auth(coordinator))).json()
+    return next(item for item in readiness["items"] if item["kind"] == "safety")
+
+
+async def test_tc_us30b_01_requesting_changes_records_the_areas_and_leaves_the_event_where_it_is(
+    client: AsyncClient, db: Session, event: Event, casey: User, officer: User
+) -> None:
+    response = await review(client, officer, event, changes())
+
+    assert response.status_code == 201
+    body = response.json()
+    assert (body["outcome"], body["areas"], body["internal_notes"]) == (
+        "changes_requested", ["venue", "layout"], "Second time this layout has come up.",
+    )
+    [row] = reviews(db, event)
+    assert (row.outcome, row.areas, row.reviewer_id) == ("changes_requested", ["venue", "layout"], officer.id)
+    assert (event.status, event.safety_approved_at) == (EventStatus.APPROVED, None)
+    item = await safety_item(client, casey, event)
+    assert not item["complete"]
+    assert item["detail"] == (
+        "The Safety Officer asked for changes to Venue, Layout: Widen the aisles and move the stage back. "
+        "Make the changes, then mark them done."
+    )
+    confirm = await client.post(f"/api/v1/event-requests/{event.id}/confirmation", headers=auth(casey))
+    assert (confirm.status_code, confirm.json()["code"]) == (409, "EVENT_NOT_READY")
+
+
+async def test_tc_us30b_02_a_planning_event_stays_in_planning(
+    client: AsyncClient, db: Session, event: Event, officer: User
+) -> None:
+    event.status = EventStatus.PLANNING
+    event.start_at, event.end_at, event.capacity, event.delivery_mode = STARTS, STARTS + timedelta(hours=2), 35, DeliveryMode.IN_PERSON
+    db.flush()
+
+    assert (await review(client, officer, event, changes())).status_code == 201
+    db.refresh(event)
+
+    assert event.status == EventStatus.PLANNING
+
+
+async def test_tc_us30b_03_comments_and_at_least_one_area_are_required(
+    client: AsyncClient, db: Session, event: Event, officer: User
+) -> None:
+    cases = [
+        (changes(areas=None), ["areas"]),
+        (changes(areas=[]), ["areas"]),
+        (changes(comments=None), ["comments"]),
+        (changes(comments="   "), ["comments"]),
+        (changes(comments=None, areas=[]), ["comments", "areas"]),
+    ]
+    for body, fields in cases:
+        response = await review(client, officer, event, body)
+        assert (response.status_code, response.json()) == (422, {"code": "MISSING_REQUIRED_FIELD", "fields": fields})
+
+    assert reviews(db, event) == []
+
+
+async def test_tc_us30b_04_an_unknown_area_is_refused_and_areas_belong_to_a_request_for_changes_only(
+    client: AsyncClient, db: Session, event: Event, officer: User
+) -> None:
+    unknown = await review(client, officer, event, changes(areas=["venue", "catering"]))
+    on_approval = await review(client, officer, event, approval(areas=["venue"]))
+    on_rejection = await review(client, officer, event, rejection(areas=["layout"]))
+
+    assert [(r.status_code, r.json()["code"], r.json()["fields"]) for r in (unknown, on_approval, on_rejection)] == [
+        (422, "INVALID_SAFETY_REVIEW", ["areas"]),
+    ] * 3
+    assert unknown.json()["items"] == ["catering"]
+    assert reviews(db, event) == []
+
+
+async def test_tc_us30b_05_a_duplicate_area_is_kept_once_in_the_forms_order(
+    client: AsyncClient, event: Event, officer: User
+) -> None:
+    response = await review(client, officer, event, changes(areas=["other", "venue", "other", "equipment"]))
+
+    assert response.json()["areas"] == ["venue", "equipment", "other"]
+
+
+async def test_tc_us30b_06_the_checklist_is_still_answered_and_may_carry_issues_or_none(
+    client: AsyncClient, db: Session, event: Event, officer: User
+) -> None:
+    missing = await review(client, officer, event, changes(checklist={}))
+    assert (missing.status_code, missing.json()["code"]) == (422, "MISSING_REQUIRED_FIELD")
+    assert reviews(db, event) == []
+
+    clean = await review(client, officer, event, changes(checklist=ok()))
+    assert clean.status_code == 201
+
+
+async def test_tc_us30b_07_the_database_refuses_a_request_for_changes_without_comments_or_areas(
+    db: Session, event: Event, officer: User
+) -> None:
+    for comments, areas in ((None, ["venue"]), ("  ", ["venue"]), ("Fix it", None), ("Fix it", [])):
+        with pytest.raises(IntegrityError):
+            with db.begin_nested():
+                db.add(SafetyReview(
+                    event_id=event.id, reviewer_id=officer.id, outcome="changes_requested", checklist=ok(),
+                    comments=comments, areas=areas, created_at=NOW,
+                ))
+                db.flush()
+
+
+async def test_tc_us30b_08_nothing_is_reset_the_venue_booking_and_equipment_stay_as_they_were(
+    client: AsyncClient, db: Session, event: Event, casey: User, officer: User
+) -> None:
+    line = make_line(db, event=event, equipment_type=make_type(db, "Projector"), requested_by=casey, status=EquipmentLineStatus.APPROVED, quantity=1)
+    reserve(db, line, db.get(User, line.reviewed_by_user_id))
+    before = [(b.status, b.is_primary) for b in event.venue_bookings] if hasattr(event, "venue_bookings") else None
+
+    await review(client, officer, event, changes(areas=["venue", "equipment"]))
+    db.refresh(line)
+    db.expire_all()
+
+    assert line.status == EquipmentLineStatus.APPROVED
+    assert db.scalars(select(Event.safety_approved_at).where(Event.id == event.id)).one() is None
+    readiness = (await client.get(f"/api/v1/event-requests/{event.id}/readiness", headers=auth(casey))).json()
+    complete = {item["kind"]: item["complete"] for item in readiness["items"]}
+    assert (complete["venue"], complete["equipment"]) == (True, True)
+    assert before is None or before == [(b.status, b.is_primary) for b in event.venue_bookings]
+
+
+async def test_tc_us30b_09_the_coordinator_hears_the_comments_and_the_areas(
+    client: AsyncClient, event: Event, officer: User, notifier: FakeNotifier
+) -> None:
+    await review(client, officer, event, changes())
+
+    assert notifier.safety_reviews == []
+    assert notifier.safety_changes == [
+        {
+            "email": "casey.tan@smu.edu.sg",
+            "request_reference": "ER-2026-000099",
+            "event_name": "Community design workshop",
+            "comments": "Widen the aisles and move the stage back.",
+            "areas": ["Venue", "Layout"],
+            "issues": ["Room layout"],
+        }
+    ]
+
+
+async def test_tc_us30b_10_a_refused_request_tells_no_one_and_a_failing_notifier_does_not_undo_one(
+    client: AsyncClient, db: Session, event: Event, officer: User, notifier: FakeNotifier, caplog: pytest.LogCaptureFixture
+) -> None:
+    await review(client, officer, event, changes(areas=[]))
+    assert notifier.safety_changes == []
+
+    notifier.fail = True
+    with caplog.at_level(logging.ERROR):
+        response = await review(client, officer, event, changes())
+
+    assert response.status_code == 201
+    assert len(reviews(db, event)) == 1
+    assert "could not send the safety review notice" in caplog.text
+
+
+async def test_tc_us30b_11_the_event_leaves_the_queue_and_waits_for_the_coordinator(
+    client: AsyncClient, event: Event, officer: User
+) -> None:
+    await review(client, officer, event, changes())
+
+    again = await review(client, officer, event)
+
+    assert await queue(client, officer) == []
+    assert (again.status_code, again.json()["reason"]) == (409, "awaiting_revision")
+
+
+async def test_tc_us30b_12_marking_the_changes_done_brings_it_back_to_the_queue_for_another_review(
+    client: AsyncClient, db: Session, event: Event, casey: User, officer: User
+) -> None:
+    await review(client, officer, event, changes())
+
+    done = await client.post(DONE.format(event.id), headers=auth(casey))
+
+    assert done.status_code == 200
+    assert done.json()["state"] == "pending"
+    [row] = await queue(client, officer)
+    assert (row["event_id"], row["resent"]) == (str(event.id), True)
+    assert (await safety_item(client, casey, event))["detail"] == "Sent for another safety review."
+
+
+async def test_tc_us30b_13_the_second_review_is_made_and_both_stay_in_the_history(
+    client: AsyncClient, db: Session, event: Event, casey: User, officer: User
+) -> None:
+    await review(client, officer, event, changes())
+    await client.post(DONE.format(event.id), headers=auth(casey))
+
+    # The clock is frozen, so a later review needs a later instant to sort after the earlier one.
+    app.dependency_overrides[get_now] = lambda: NOW + timedelta(minutes=5)
+    approved = await review(client, officer, event)
+
+    assert approved.status_code == 201
+    history = (await client.get(f"{QUEUE}/{event.id}", headers=auth(officer))).json()["history"]
+    assert [(h["outcome"], h["areas"]) for h in history] == [("approved", None), ("changes_requested", ["venue", "layout"])]
+    assert history[1]["internal_notes"] == "Second time this layout has come up."
+    assert (await client.post(f"/api/v1/event-requests/{event.id}/confirmation", headers=auth(casey))).status_code == 200
+
+
+async def test_tc_us30b_14_changes_can_be_requested_again_after_the_second_review(
+    client: AsyncClient, db: Session, event: Event, casey: User, officer: User
+) -> None:
+    await review(client, officer, event, changes())
+    await client.post(DONE.format(event.id), headers=auth(casey))
+
+    # The clock is frozen, so a later review needs a later instant to count as after the send-back.
+    app.dependency_overrides[get_now] = lambda: NOW + timedelta(minutes=5)
+    second = await review(client, officer, event, changes(areas=["equipment"], comments="Move the speakers."))
+    state = (await client.get(f"/api/v1/event-requests/{event.id}/safety-reviews", headers=auth(casey))).json()
+
+    assert second.status_code == 201
+    assert state["state"] == "changes_requested"
+    assert [(r["outcome"], r["areas"]) for r in state["reviews"]] == [
+        ("changes_requested", ["equipment"]), ("changes_requested", ["venue", "layout"]),
+    ]
+
+
+async def test_tc_us30b_15_marking_changes_done_is_refused_when_there_is_nothing_to_mark_and_to_anyone_else(
+    client: AsyncClient, db: Session, event: Event, casey: User, officer: User, organiser: User
+) -> None:
+    url = DONE.format(event.id)
+    await review(client, officer, event, changes())
+    other = make_user(db, UserRole.COORDINATOR)
+
+    assert (await client.post(url, headers=auth(other))).status_code == 404
+    assert (await client.post(url, headers=auth(organiser))).status_code == 403
+    assert (await client.post(url, headers=auth(officer))).status_code == 403
+    assert (await client.post(url)).status_code == 401
+    first = await client.post(url, headers=auth(casey))
+    twice = await client.post(url, headers=auth(casey))
+
+    assert (first.status_code, twice.status_code, twice.json()["reason"]) == (200, 409, "already_requested")
+
+
+async def test_tc_us30b_16_the_organiser_coordinator_and_lead_see_the_comments_and_areas_but_not_internal_notes(
+    client: AsyncClient, db: Session, event: Event, officer: User, organiser: User, casey: User
+) -> None:
+    await review(client, officer, event, changes())
+    lead = make_user(db, UserRole.COORDINATOR_LEAD)
+
+    for reader in (organiser, casey, lead):
+        response = await client.get(f"/api/v1/event-requests/{event.id}/safety-reviews", headers=auth(reader))
+        assert response.status_code == 200
+        body = response.json()
+        assert body["state"] == "changes_requested"
+        [shown] = body["reviews"]
+        assert (shown["outcome"], shown["areas"], shown["comments"]) == (
+            "changes_requested", ["venue", "layout"], "Widen the aisles and move the stage back.",
+        )
+        assert "internal_notes" not in shown
+        assert "Second time" not in response.text
+
+
+async def test_tc_us30b_17_only_a_safety_officer_requests_changes_and_not_for_an_event_they_coordinate(
+    client: AsyncClient, db: Session, event: Event, casey: User, organiser: User
+) -> None:
+    for caller in (casey, organiser):
+        assert (await review(client, caller, event, changes())).status_code == 403
+    assert (await review(client, None, event, changes())).status_code == 401
+    own = make_user(db, UserRole.SAFETY_OFFICER)
+    event.coordinator_id = own.id
+    db.flush()
+
+    refused = await review(client, own, event, changes())
+
+    assert (refused.status_code, refused.json()["code"]) == (403, "SELF_DECISION_NOT_ALLOWED")
+    assert reviews(db, event) == []
+
+
+@pytest.mark.parametrize(
+    "status", [EventStatus.UNDER_REVIEW, EventStatus.CONFIRMED, EventStatus.PREPARATION, EventStatus.CANCELLED, EventStatus.REJECTED]
+)
+async def test_tc_us30b_18_only_an_approved_or_planning_event_is_sent_for_changes(
+    client: AsyncClient, db: Session, event: Event, officer: User, status: EventStatus
+) -> None:
+    event.status = status
+    event.start_at, event.end_at, event.capacity, event.delivery_mode = STARTS, STARTS + timedelta(hours=2), 35, DeliveryMode.IN_PERSON
+    db.flush()
+
+    refused = await review(client, officer, event, changes())
+
+    assert (refused.status_code, refused.json()["reason"]) == (409, "status")
+    assert reviews(db, event) == []
+
+
+async def test_tc_us30b_19_the_seeded_demo_can_be_sent_for_changes_and_a_reseed_forgets_it(
+    client: AsyncClient, db: Session
+) -> None:
+    from app.seed import SAFETY_REVIEW_EVENT, seed, seed_id
+
+    seed(db)
+    demo = db.get(Event, seed_id("event", SAFETY_REVIEW_EVENT.slug))
+    officer = db.scalars(select(User).where(User.roles.any(UserRole.SAFETY_OFFICER))).first()
+
+    sent = await review(client, officer, demo, changes())
+    assert sent.status_code == 201
+    seed(db)
+
+    assert reviews(db, demo) == []
+    assert str(demo.id) in [row["event_id"] for row in await queue(client, officer)]
+

@@ -162,10 +162,12 @@ export interface RecordedCall {
 export interface FakeSafetyReview {
   id: string;
   event_id: string;
-  outcome: "approved" | "rejected";
+  outcome: "approved" | "rejected" | "changes_requested";
   checklist: Record<string, { result: "satisfactory" | "issue"; comment: string | null }>;
   comments: string | null;
   internal_notes: string | null;
+  // US30b: the areas a request for changes marked; null for any other outcome.
+  areas: string[] | null;
   reviewer: { id: string; name: string };
   created_at: string;
 }
@@ -818,7 +820,11 @@ function readinessOf(event: EventRequest) {
       ? "Approved by the Safety Officer."
       : safetyStateOf(event) === "rejected"
         ? `Rejected by the Safety Officer: ${reviewsOf(event)[0].comments} Revise the arrangement, then send it for another review.`
-        : "Waiting for the Safety Officer's approval.",
+        : safetyStateOf(event) === "changes_requested"
+          ? `The Safety Officer asked for changes to ${SAFETY_CHANGE_AREAS.filter(([key]) => reviewsOf(event)[0].areas?.includes(key))
+              .map(([, label]) => label)
+              .join(", ")}: ${reviewsOf(event)[0].comments} Make the changes, then mark them done.`
+          : "Waiting for the Safety Officer's approval.",
   });
   return { ready: items.every((i) => i.complete), items };
 }
@@ -833,16 +839,24 @@ const SAFETY_CHECKLIST: [string, string][] = [
   ["crowd_movement", "Expected crowd movement"],
   ["venue_restrictions", "Known venue restrictions"],
 ];
+// US30b: the areas a request for changes can mark, as backend/app/safety/models.py has them.
+const SAFETY_CHANGE_AREAS: [string, string][] = [
+  ["venue", "Venue"],
+  ["layout", "Layout"],
+  ["equipment", "Equipment"],
+  ["accessibility", "Accessibility"],
+  ["other", "Other"],
+];
 const REVIEWABLE = new Set(["approved", "planning"]);
 
 function reviewsOf(event: EventRequest): FakeSafetyReview[] {
   return db.safetyReviews.filter((r) => r.event_id === event.id).sort((a, b) => b.created_at.localeCompare(a.created_at));
 }
 
-function safetyStateOf(event: EventRequest): "pending" | "approved" | "rejected" {
+function safetyStateOf(event: EventRequest): "pending" | "approved" | "rejected" | "changes_requested" {
   if (event.safety_approved_at) return "approved";
   const latest = reviewsOf(event)[0];
-  if (latest?.outcome === "rejected" && !db.safetyResent[event.id]) return "rejected";
+  if ((latest?.outcome === "rejected" || latest?.outcome === "changes_requested") && !db.safetyResent[event.id]) return latest.outcome;
   return "pending";
 }
 
@@ -1866,6 +1880,7 @@ const handlers = [
         .filter((l) => l.event.id === found.id && l.status !== "rejected")
         .map((l) => ({ equipment_type: l.equipment_type.name, quantity: l.quantity, notes: l.notes })),
       checklist: SAFETY_CHECKLIST.map(([key, label]) => ({ key, label })),
+      change_areas: SAFETY_CHANGE_AREAS.map(([key, label]) => ({ key, label })),
       history: reviewsOf(found),
     });
   }),
@@ -1879,21 +1894,25 @@ const handlers = [
     if (!REVIEWABLE.has(found.status)) return error(409, "SAFETY_REVIEW_NOT_ALLOWED", { reason: "status", status: found.status });
     const state = safetyStateOf(found);
     if (state === "approved") return error(409, "SAFETY_REVIEW_NOT_ALLOWED", { reason: "already_approved", status: found.status });
-    if (state === "rejected") return error(409, "SAFETY_REVIEW_NOT_ALLOWED", { reason: "awaiting_revision", status: found.status });
+    if (state === "rejected" || state === "changes_requested") {
+      return error(409, "SAFETY_REVIEW_NOT_ALLOWED", { reason: "awaiting_revision", status: found.status });
+    }
     if (!arrangementsReady(found)) {
       return error(409, "SAFETY_REVIEW_NOT_ALLOWED", { reason: "arrangements_incomplete", status: found.status });
     }
     const sent = (body ?? {}) as {
-      outcome?: "approved" | "rejected";
+      outcome?: "approved" | "rejected" | "changes_requested";
       checklist?: Record<string, { result?: "satisfactory" | "issue"; comment?: string | null }>;
       comments?: string;
       internal_notes?: string;
+      areas?: string[];
     };
     const comments = (sent.comments ?? "").trim();
     const missing: string[] = [];
     if (!sent.outcome) missing.push("outcome");
     for (const [key] of SAFETY_CHECKLIST) if (!sent.checklist?.[key]?.result) missing.push(`checklist.${key}`);
-    if (sent.outcome === "rejected" && !comments) missing.push("comments");
+    if ((sent.outcome === "rejected" || sent.outcome === "changes_requested") && !comments) missing.push("comments");
+    if (sent.outcome === "changes_requested" && !sent.areas?.length) missing.push("areas");
     if (missing.length > 0) return error(422, "MISSING_REQUIRED_FIELD", { fields: missing });
     const flagged = SAFETY_CHECKLIST.filter(([key]) => sent.checklist![key].result === "issue").map(([key]) => `checklist.${key}`);
     if (sent.outcome === "approved" && flagged.length > 0) return error(422, "CHECKLIST_HAS_ISSUES", { fields: flagged });
@@ -1907,6 +1926,7 @@ const handlers = [
       ),
       comments: comments || null,
       internal_notes: sent.internal_notes?.trim() || null,
+      areas: sent.outcome === "changes_requested" ? SAFETY_CHANGE_AREAS.map(([key]) => key).filter((key) => sent.areas!.includes(key)) : null,
       reviewer: { id: request.headers.get("X-User-Id")!, name: "Sam Safety" },
       created_at,
     };
@@ -1929,7 +1949,9 @@ const handlers = [
     const found = confirmableBy(request, params.id as string);
     if (found instanceof Response) return found;
     if (!REVIEWABLE.has(found.status)) return error(409, "SAFETY_REVIEW_NOT_ALLOWED", { reason: "status", status: found.status });
-    if (safetyStateOf(found) !== "rejected") return error(409, "SAFETY_REVIEW_NOT_ALLOWED", { reason: "not_rejected", status: found.status });
+    if (!["rejected", "changes_requested"].includes(safetyStateOf(found))) {
+      return error(409, "SAFETY_REVIEW_NOT_ALLOWED", { reason: "not_rejected", status: found.status });
+    }
     db.safetyResent[found.id] = true;
     return HttpResponse.json({ state: safetyStateOf(found), reviews: reviewsOf(found).map(publicReview) });
   }),
