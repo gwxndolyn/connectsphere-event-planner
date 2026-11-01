@@ -87,3 +87,8 @@ After merging `origin/main` (#116, US30b request changes after a safety review, 
 
 - Migration: local database downgraded to `20261112_1200_us9_cancellations` before the rename, then `alembic upgrade head`; `python -m app.seed --yes`.
 - Backend: `pytest`: 1503 passed (main's 1495 plus TC-US29B-01 to 07's 8). Frontend: Vitest 460 passed.
+
+After merging `origin/main` (421ff52, SCRUM-99 row level security for `safety_reviews`), 1 Nov 2026: the migration keeps its name and is re-chained after `20261114_1200_us30a_rls` (one head).
+
+- Migration: local database downgraded to `20261113_1200_us30b_changes` first, then `alembic upgrade head`; `python -m app.seed --yes`.
+- Backend: `pytest`: 1504 passed (main's 1496, with TC-SEC-05, plus TC-US29B-01 to 07's 8).

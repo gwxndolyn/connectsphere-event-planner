@@ -28,7 +28,7 @@ from tests.conftest import BACKEND_DIR
 from tests.factories import NOW, make_event, make_user, make_venue, make_venue_booking
 
 REVISION = "20261114_1200_us29b_decisions"
-PREVIOUS_REVISION = "20261113_1200_us30b_changes"
+PREVIOUS_REVISION = "20261114_1200_us30a_rls"
 CHANGE = [{"field": "start_at", "old_value": "2026-10-02T09:00:00+08:00", "new_value": "2026-10-02T10:00:00+08:00"}]
 
 

@@ -1,7 +1,7 @@
 """record a change request's decision, say what each history entry is, and flag arrangements for review
 
 Revision ID: 20261114_1200_us29b_decisions
-Revises: 20261113_1200_us30b_changes
+Revises: 20261114_1200_us30a_rls
 Create Date: 2026-11-01
 
 """
@@ -13,7 +13,7 @@ from sqlalchemy.dialects import postgresql
 
 
 revision: str = "20261114_1200_us29b_decisions"
-down_revision: Union[str, None] = "20261113_1200_us30b_changes"
+down_revision: Union[str, None] = "20261114_1200_us30a_rls"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
