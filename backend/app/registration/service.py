@@ -683,7 +683,8 @@ class RegistrationService:
                 )
 
         # Offers that lapsed, on events still to come, unless the attendee is back on the event with
-        # an active row (they rejoined the queue): the screen shouldn't say both.
+        # an active row (they rejoined the queue): the screen shouldn't say both. One row per event, the
+        # latest lapsed offer, since one can lapse, be rejoined, be offered again and lapse again.
         active_event_ids = {event.id for _, event in rows}
         lapsed = db.execute(
             select(Registration, Event)
@@ -694,9 +695,13 @@ class RegistrationService:
                 Registration.offer_expires_at.is_not(None),
                 Event.end_at > now,
             )
-            .order_by(Event.start_at, Event.name)
+            .order_by(Event.start_at, Event.name, Event.id, Registration.offer_expires_at.desc())
         ).all()
-        lapsed = [(registration, event) for registration, event in lapsed if event.id not in active_event_ids]
+        latest: dict[uuid.UUID, tuple[Registration, Event]] = {}
+        for registration, event in lapsed:
+            if event.id not in active_event_ids:
+                latest.setdefault(event.id, (registration, event))
+        lapsed = list(latest.values())
         venues.update(primary_venues(db, {event.id for _, event in lapsed} - set(venues)))
         expired = [
             MyExpiredRegistrationOut(
