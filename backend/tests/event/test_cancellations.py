@@ -729,6 +729,31 @@ async def test_tc_us9_33_cancelling_rejects_the_events_pending_change_requests(
     db.refresh(pending)
     db.refresh(elsewhere)
     assert (pending.status, elsewhere.status) == (ChangeRequestStatus.REJECTED, ChangeRequestStatus.PENDING_APPROVAL)
+    # A whole decision, as US29b's CHECKs require: by whoever cancelled the event, when, and why.
+    assert (pending.decided_at, pending.decided_by_user_id, pending.rejection_reason) == (
+        NOW, coordinator.id, "The event was cancelled."
+    )
+
+
+async def test_tc_us9_33_cancelling_rejects_the_coordinators_own_pending_edit(
+    client: AsyncClient, db: Session, coordinator: User, event: Event
+) -> None:
+    """US29b D102: no one approves their own request (D51), but cancelling rejects every pending one,
+    the cancelling coordinator's own US12 edit included."""
+    own = EventChangeRequest(
+        event_id=event.id, requested_by_user_id=coordinator.id,
+        changes=[{"field": "capacity", "old_value": 40, "new_value": 60}],
+    )
+    db.add(own)
+    db.flush()
+
+    response = await cancel(client, event, coordinator)
+
+    assert response.status_code == 200, response.text
+    db.refresh(own)
+    assert (own.status, own.decided_by_user_id, own.rejection_reason) == (
+        ChangeRequestStatus.REJECTED, coordinator.id, "The event was cancelled."
+    )
 
 
 async def test_tc_us9_33_tech_support_neither_lists_nor_reviews_a_cancelled_events_pending_line(
