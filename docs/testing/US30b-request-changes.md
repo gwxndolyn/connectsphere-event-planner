@@ -9,7 +9,7 @@
 **Tests:**
 
 - Backend: the US30b section of `backend/tests/safety/test_safety_review.py` (TC-US30B-01 to 19)
-- Frontend: `frontend/src/features/safety/safetyReview.integration.test.tsx` (TC-US30B-31 to 36)
+- Frontend: `frontend/src/features/safety/safetyReview.integration.test.tsx` (TC-US30B-31 to 37 and TC-US30A-50)
 - E2E: `e2e/tests/safety-review.spec.ts` (TC-US30B-30). It is one journey with US30a's (TC-US30A-41), because both use the seeded Safety Review Demo and the specs run in parallel. A rerun needs a reseed (`python -m app.seed`)
 
 ## Acceptance criteria
@@ -21,7 +21,7 @@
 
 ## Decisions
 
-- **D99: what "request changes" does and who says the changes are done.** A review with comments and at least one area; it records the review and changes nothing else. The coordinator's **Mark changes done** puts it back in the queue. See `claude_instructions.md`
+- **D99: what "request changes" does and who says the changes are done.** A review with comments and at least one area; it records the review and changes nothing else. The coordinator's **Mark changes done** puts it back in the queue. Decided by the acting PO on 1 Nov 2026 (the event stays where it is). See `claude_instructions.md`
 - **Deviation 64:** the event's status doesn't move (nothing moves an approved request to Planning, D53, and an approval is final, D92), nothing is reset, and the seven checklist items are still answered. See `claude_instructions.md`
 
 ## Test cases
@@ -52,6 +52,8 @@
 | TC-US30B-34 | Frontend: a request for changes | Organiser opens the event | The areas, the comments and the flagged item; never the internal notes; no button (AC 3) |
 | TC-US30B-35 | Frontend: a request for changes | Coordinator opens the event | The readiness list says what was asked, Confirm is disabled; **Mark changes done** posts and the panel says "Sent for another safety review." (AC 3, 4) |
 | TC-US30B-36 | Frontend: changes marked done | Officer opens the event | The earlier review is in the history with its areas and internal notes (AC 4) |
+| TC-US30B-37 | Frontend: a planning event | Request changes | "Changes requested", and it says the event stays in planning |
+| TC-US30A-50 | Frontend: an Approved event | Reject | "Safety arrangement rejected", and it says the event stays in approved, not planning |
 
 ## Evidence
 
@@ -100,5 +102,5 @@ The Safety Officer reviews it again and approves:
 | Date | Where | Result |
 |---|---|---|
 | 1 Nov 2026 | Backend, `pytest`, rebased onto `main` at SCRUM-12 | 1495 passed |
-| 1 Nov 2026 | Frontend, Vitest, lint, build | 458 passed; lint and build clean |
+| 1 Nov 2026 | Frontend, Vitest, lint, build | 460 passed; lint and build clean |
 | 1 Nov 2026 | E2E, the full suite against a fresh local database | 50 passed, 10 skipped (the Supabase login and sign-up cases, which need credentials), 0 failed |

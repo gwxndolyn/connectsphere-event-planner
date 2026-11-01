@@ -160,6 +160,9 @@ export function SafetyReviewPage() {
     setError(null);
   }
 
+  // A rejection or a request for changes leaves the event in the status it was reviewed in: Approved or Planning.
+  const status = (detail?.event.status ?? "planning").replaceAll("_", " ");
+
   return (
     <main className="request-page">
       <div className="request-page__heading">
@@ -390,8 +393,8 @@ export function SafetyReviewPage() {
             {done.outcome === "approved"
               ? "can now be confirmed by its coordinator."
               : done.outcome === "changes_requested"
-                ? "stays in planning with the areas below marked for review. The coordinator makes the changes and marks them done, and it comes back to your queue."
-                : "stays in planning. The coordinator can revise the arrangement and send it for another review."}
+                ? `stays in ${status} with the areas below marked for review. The coordinator makes the changes and marks them done, and it comes back to your queue.`
+                : `stays in ${status}. The coordinator can revise the arrangement and send it for another review.`}
           </p>
           {done.areas && (
             <ul className="clarify-sent-sections" aria-label="Areas to review">

@@ -289,6 +289,35 @@ describe("Safety Officer requests changes (US30b AC 1, 2)", () => {
     expect(callsTo("POST", /safety-reviews\//)).toHaveLength(0);
   });
 
+  it("TC-US30A-50: says an Approved event stays Approved after a rejection, not planning", async () => {
+    seedReadyEvent();
+    const user = userEvent.setup();
+    await openEvent(user);
+    await answerAll(user);
+    await user.click(within(screen.getByRole("group", { name: "Emergency access" })).getByRole("radio", { name: "Issue" }));
+    await user.type(screen.getByLabelText(/^Comments for the coordinator/), "Add a second exit.");
+
+    await user.click(screen.getByRole("button", { name: "Reject safety arrangement" }));
+
+    expect(await screen.findByRole("heading", { name: "Safety arrangement rejected" })).toBeInTheDocument();
+    expect(screen.getByText(/stays in approved\./)).toBeInTheDocument();
+    expect(screen.queryByText(/stays in planning/)).not.toBeInTheDocument();
+  });
+
+  it("TC-US30B-37: says a Planning event stays in planning after a request for changes", async () => {
+    seedReadyEvent({ status: "planning" });
+    const user = userEvent.setup();
+    await openEvent(user);
+    await answerAll(user);
+    await user.click(within(screen.getByRole("group", { name: /Areas affected/ })).getByRole("checkbox", { name: "Layout" }));
+    await user.type(screen.getByLabelText(/^Comments for the coordinator/), "Widen the aisles.");
+
+    await user.click(screen.getByRole("button", { name: "Request changes" }));
+
+    expect(await screen.findByRole("heading", { name: "Changes requested" })).toBeInTheDocument();
+    expect(screen.getByText(/stays in planning with the areas below marked for review/)).toBeInTheDocument();
+  });
+
   it("TC-US30B-33: sends the outcome, comments and ticked areas, and shows what was sent", async () => {
     const request = seedReadyEvent();
     const user = userEvent.setup();
@@ -308,7 +337,8 @@ describe("Safety Officer requests changes (US30b AC 1, 2)", () => {
     expect(call.body).toMatchObject({ outcome: "changes_requested", areas: ["venue", "equipment"], comments: "Move the stage back.", internal_notes: "Second time." });
     const listed = screen.getByRole("list", { name: "Areas to review" });
     expect(within(listed).getAllByRole("listitem").map((item) => item.textContent)).toEqual(["Venue", "Equipment"]);
-    expect(screen.getByText(/stays in planning with the areas below marked for review/)).toBeInTheDocument();
+    // The demo is Approved, so it says approved; an event that is Planning says planning (TC-US30B-37).
+    expect(screen.getByText(/stays in approved with the areas below marked for review/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Back to safety reviews" }));
     expect(await screen.findByText("No events are waiting for a safety review.")).toBeInTheDocument();
   });
