@@ -395,14 +395,7 @@ async def test_tc_us29a_17_a_coordinators_us12_edits_are_not_in_the_organisers_l
 
 
 def test_tc_us29a_18_one_migration_head(db: Session) -> None:
-    from alembic.config import Config
-    from alembic.script import ScriptDirectory
+    from tests.conftest import assert_one_head_including
 
-    from tests.conftest import BACKEND_DIR
-
-    config = Config(str(BACKEND_DIR / "alembic.ini"))
-    config.set_main_option("script_location", str(BACKEND_DIR / "migrations"))
-    script = ScriptDirectory.from_config(config)
-    assert len(script.get_heads()) == 1
-    assert "20261110_1200_us29a_change_reqs" in {revision.revision for revision in script.walk_revisions()}
+    assert_one_head_including("20261110_1200_us29a_change_reqs")
     assert db.scalar(select(func.count()).select_from(EventChangeRequest)) == 0
