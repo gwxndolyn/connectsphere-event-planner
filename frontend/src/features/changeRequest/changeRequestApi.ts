@@ -1,7 +1,7 @@
 import { ApiError, apiClient } from "../../api/client";
 import { formatInstantDateTime } from "../registration/datetime";
 import type { EventRequest } from "../eventRequest/types";
-import type { FieldChange, OrganiserChangeRequest } from "./types";
+import type { ChangeDecision, ChangeImpact, ChangeRequestReview, FieldChange, OrganiserChangeRequest, ReviewFlag } from "./types";
 
 // US29a routes are the organiser's (X-User-Id or a token), for their own events only.
 export const changeRequestApi = {
@@ -184,4 +184,104 @@ export function changeFieldErrors(error: unknown): Record<string, string> {
       .filter((entry): entry is [string, string] => typeof entry[1] === "string")
       .map(([field, message]) => [form[field] ?? field, message]),
   );
+}
+
+// --- US29b (SCRUM-143): the coordinator reviews and decides change requests, and the flags a significant one raises.
+
+export const changeReviewApi = {
+  async pending(eventId?: string): Promise<ChangeRequestReview[]> {
+    const query = eventId ? `?event_id=${eventId}` : "";
+    const body = await apiClient.get<{ change_requests: ChangeRequestReview[] }>(`/api/v1/change-requests${query}`);
+    return body.change_requests;
+  },
+  approve: (id: string) => apiClient.post<ChangeDecision>(`/api/v1/change-requests/${id}/approve`, {}),
+  reject: (id: string, reason: string) => apiClient.post<ChangeDecision>(`/api/v1/change-requests/${id}/reject`, { reason }),
+  async flags(eventId: string): Promise<ReviewFlag[]> {
+    return (await apiClient.get<{ flags: ReviewFlag[] }>(`/api/v1/events/${eventId}/review-flags`)).flags;
+  },
+  clearFlag: (id: string, note: string) =>
+    apiClient.post<ReviewFlag>(`/api/v1/review-flags/${id}/clear`, { note: note.trim() || null }),
+};
+
+export const REJECTION_MAX_LENGTH = 1000;
+
+function count(n: number, one: string): string {
+  return `${n} ${one}${n === 1 ? "" : "s"}`;
+}
+
+const STATUS_WORDS: Record<string, string> = {
+  submitted: "Submitted",
+  under_review: "Under Review",
+  awaiting_clarification: "Awaiting Clarification",
+  approved: "Approved",
+  planning: "Planning",
+  confirmed: "Confirmed",
+  preparation: "Preparation",
+  cancelled: "Cancelled",
+  completed: "Completed",
+  rejected: "Rejected",
+};
+
+export function statusWord(status: string): string {
+  return STATUS_WORDS[status] ?? status;
+}
+
+/** D103 to D106 in words: what approving a significant request does, from the impact the API gives. */
+export function impactParts(impact: ChangeImpact | null, status: string): string[] {
+  if (!impact) return [];
+  if (impact.venue_bookings === null) return ["The values change; nothing is flagged at this stage."];
+  const parts: string[] = [];
+  if (impact.status_after !== status) parts.push(`moves this event back to ${statusWord(impact.status_after)}`);
+  const flagged = [
+    impact.venue_bookings ? count(impact.venue_bookings, "venue booking") : null,
+    impact.equipment_reservations ? count(impact.equipment_reservations, "equipment reservation") : null,
+    impact.registrations ? count(impact.registrations, "registration") : null,
+  ].filter((part): part is string => part !== null);
+  if (flagged.length > 0) {
+    const listed = flagged.length === 1 ? flagged[0] : `${flagged.slice(0, -1).join(", ")} and ${flagged.at(-1)}`;
+    parts.push(`flags ${listed} for review`);
+  }
+  if (impact.safety_review_required) parts.push("needs a new safety review");
+  return parts;
+}
+
+const STALE_REASONS: Record<string, string> = {
+  changed: "changed since",
+  not_at_this_stage: "not open at this stage",
+  invalid: "no longer valid",
+};
+
+/** Why a decision was refused, in words (deviation 68's codes). */
+export function decisionErrorMessage(error: unknown): string {
+  if (!(error instanceof ApiError)) return FALLBACK;
+  const status = typeof error.body.status === "string" ? error.body.status : "";
+  switch (error.code) {
+    case "CHANGE_REQUEST_STALE": {
+      const fields = Array.isArray(error.body.fields) ? (error.body.fields as { field: string; reason: string }[]) : [];
+      const named = fields.map((f) => `${changeLabel(f.field)} (${STALE_REASONS[f.reason] ?? f.reason})`).join(", ");
+      return `The event has changed since this was asked: ${named}. Reject it with a reason, and the organiser can ask again.`;
+    }
+    case "CHANGE_REQUEST_NOT_PENDING":
+      return `This request was already ${status === "rejected" ? "rejected" : "approved"}.`;
+    case "CHANGE_NOT_ALLOWED":
+      return `Changes can't be approved while the event is in ${statusWord(status)}. The request can still be rejected.`;
+    case "MISSING_REQUIRED_FIELD":
+      return "Give a reason for rejecting.";
+    case "INVALID_CHANGE_DECISION":
+      return "The reason must be at most 1,000 characters.";
+    case "SELF_DECISION_NOT_ALLOWED":
+      return "You made this request, so a Coordinator Lead decides it.";
+    case "NOT_FOUND":
+      return "This request isn't one you decide, or it no longer exists.";
+    default:
+      return FALLBACK;
+  }
+}
+
+export function flagErrorMessage(error: unknown): string {
+  if (!(error instanceof ApiError)) return FALLBACK;
+  if (error.code === "FLAG_ALREADY_CLEARED") return "This was already marked reviewed.";
+  if (error.code === "INVALID_REVIEW_FLAG") return "The note must be at most 1,000 characters.";
+  if (error.code === "NOT_FOUND") return "This event isn't assigned to you.";
+  return FALLBACK;
 }

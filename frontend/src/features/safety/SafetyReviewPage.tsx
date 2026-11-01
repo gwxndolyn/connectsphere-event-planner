@@ -36,6 +36,9 @@ function errorMessage(error: unknown): string {
         awaiting_revision:
           "This arrangement was rejected, or changes were requested. It's reviewed again once the coordinator sends it back.",
         arrangements_incomplete: "Its venue bookings or equipment are no longer all approved, so it isn't ready to review.",
+        // US29b (SCRUM-143, D106).
+        review_flags_open:
+          "This event has arrangements to review after an approved change. It returns to the queue once its coordinator has reviewed them.",
       }[String(error.body.reason)] ?? "This event can't be reviewed right now.";
     default:
       return `The backend rejected the review (${error.status}).`;

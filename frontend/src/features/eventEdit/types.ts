@@ -57,6 +57,9 @@ export interface AuditEntry {
   created_at: string;
   change_request_id: string | null;
   change_request_status: ChangeRequest["status"] | null;
+  // US29b (SCRUM-142): saved, requested, applied, decided, status_changed, confirmation_cleared or
+  // safety_approval_cleared. Missing on entries written before it, which are saves or requests.
+  action?: string;
 }
 
 // The form keeps every value as typed; eventEditApi.toEditBody turns it into the PATCH body.

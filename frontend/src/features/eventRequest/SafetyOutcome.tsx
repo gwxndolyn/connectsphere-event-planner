@@ -134,8 +134,15 @@ export function SafetyOutcome({ request, canResend = false, onResent }: SafetyOu
           )}
         </>
       )}
-      {status.state === "pending" && (
-        <p>{latest ? "Sent for another safety review." : "Waiting for the Safety Officer's review."}</p>
+      {status.state === "pending" && latest?.outcome === "approved" && !request.safety_approved_at ? (
+        // US29b (SCRUM-143, D106): an approval exists but no longer covers the event, which only a significant
+        // change does. Rejected and changes requested (D99) keep their own wording above.
+        <p>
+          <strong>A new safety review is needed.</strong> A significant change was approved after the Safety Officer's
+          approval on {formatInstantDateTime(latest.created_at)}, so its arrangements are reviewed again.
+        </p>
+      ) : (
+        status.state === "pending" && <p>{latest ? "Sent for another safety review." : "Waiting for the Safety Officer's review."}</p>
       )}
     </section>
   );

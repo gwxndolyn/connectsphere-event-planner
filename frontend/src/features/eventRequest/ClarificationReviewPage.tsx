@@ -1,6 +1,8 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { ApiError, apiClient } from "../../api/client";
 import { EventVenueBookings } from "../venue/EventVenueBookings";
+import { ChangeRequestReview } from "../changeRequest/ChangeRequestReview";
+import { CoordinatorChangeRequests } from "../changeRequest/CoordinatorChangeRequests";
 import { ClarificationThreadView } from "./ClarificationThreadView";
 import { CANCELLATION_VISIBLE } from "../cancellation/cancellationApi";
 import { EventCancellation } from "../cancellation/EventCancellation";
@@ -53,6 +55,8 @@ export function ClarificationReviewPage({ userId }: ClarificationReviewPageProps
   const [sending, setSending] = useState(false);
   // Bumped when a rejected safety arrangement is sent back, so the readiness list is read again (US30a).
   const [safetyVersion, setSafetyVersion] = useState(0);
+  // US29b (SCRUM-143): the change request the coordinator came to review from the queue.
+  const [focusChange, setFocusChange] = useState<string | null>(null);
 
   useEffect(() => {
     let current = true;
@@ -72,8 +76,9 @@ export function ClarificationReviewPage({ userId }: ClarificationReviewPageProps
     };
   }, []);
 
-  async function openRequest(request: EventRequest) {
+  async function openRequest(request: Pick<EventRequest, "id">, changeId: string | null = null) {
     setError(null);
+    setFocusChange(changeId);
     try {
       const [latest, history] = await Promise.all([
         apiClient.get<EventRequest>(`/api/v1/event-requests/${request.id}`),
@@ -166,6 +171,9 @@ export function ClarificationReviewPage({ userId }: ClarificationReviewPageProps
 
       {error && <div className="request-alert" role="alert">{error}</div>}
 
+      {screen === "queue" && (
+        <CoordinatorChangeRequests onReview={(eventId, changeId) => void openRequest({ id: eventId }, changeId)} />
+      )}
       {screen === "queue" && (
         <section aria-label="Requests to review" className="request-list">
           {loading ? (
@@ -270,8 +278,22 @@ export function ClarificationReviewPage({ userId }: ClarificationReviewPageProps
       {screen === "review" && activeRequest && ["approved", "planning"].includes(activeRequest.status) && (
         <EventVenueBookings event={activeRequest} />
       )}
+      {/* US29b (SCRUM-143): the event's pending change requests, for its assigned coordinator (D102; deviation 69). */}
+      {screen === "review" && activeRequest && activeRequest.coordinator?.id === userId && (
+        <ChangeRequestReview
+          key={`changes-${activeRequest.id}`}
+          event={activeRequest}
+          focusId={focusChange}
+          onDecided={(decided) => {
+            recordDecision({ ...activeRequest, ...decided });
+            // A decision can change the event without changing its status: read readiness and safety again.
+            setSafetyVersion((version) => version + 1);
+          }}
+        />
+      )}
       {screen === "review" && activeRequest && canConfirm && (
         <SafetyOutcome
+          key={`safety-${activeRequest.id}-${safetyVersion}`}
           request={activeRequest}
           canResend
           onResent={() => setSafetyVersion((version) => version + 1)}

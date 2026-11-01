@@ -55,7 +55,8 @@ export interface EventRequest extends EventRequestWrite {
 
 // One line of the readiness list (US18 AC 2): a venue booking, the equipment, technical support or the safety check.
 export interface ReadinessItem {
-  kind: "venue" | "equipment" | "technical_support" | "safety";
+  // US29b (SCRUM-142): review_flags once a significant change has flagged the arrangements (D104).
+  kind: "venue" | "equipment" | "technical_support" | "safety" | "review_flags";
   name: string;
   complete: boolean;
   detail: string;

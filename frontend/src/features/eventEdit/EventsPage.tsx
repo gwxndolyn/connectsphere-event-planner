@@ -344,6 +344,45 @@ function EventEditForm({
   );
 }
 
+// US29b (SCRUM-143): what a decided change request wrote to History (AC 5), in words.
+const ACTION_LABELS: Record<string, string> = {
+  applied: "Applied",
+  decided: "Decided",
+  status_changed: "Moved to Planning",
+  confirmation_cleared: "Confirmation cleared",
+  safety_approval_cleared: "Safety approval cleared",
+};
+
+function actionLabel(entry: AuditEntry): string {
+  if (entry.action === "decided") {
+    const decision = (entry.new_value as { decision?: string } | null)?.decision;
+    return decision === "rejected" ? "Rejected change" : "Approved change";
+  }
+  if (entry.action === "status_changed") return `Moved to ${statusLabel(String(entry.new_value))}`;
+  return ACTION_LABELS[entry.action ?? ""];
+}
+
+const HISTORY_FIELDS: Record<string, string> = {
+  change_request: "Change request",
+  status: "Status",
+  confirmation: "Confirmation",
+  safety_approval: "Safety approval",
+};
+
+function historyValue(field: string, value: unknown): string {
+  if (!(field in HISTORY_FIELDS)) return displayValue(field, value);
+  if (value === null || value === undefined) return field === "change_request" ? "—" : "Cleared";
+  if (field === "status" || field === "change_request") {
+    if (typeof value === "string") return statusLabel(value);
+    const { decision, reason } = value as { decision?: string; reason?: string };
+    return decision === "rejected" ? `Rejected${reason ? `: ${reason}` : ""}` : "Approved";
+  }
+  const stamped = value as { confirmed_at?: string; approved_at?: string };
+  const at = stamped.confirmed_at ?? stamped.approved_at;
+  const word = field === "confirmation" ? "Confirmed" : "Approved";
+  return at ? `${word} ${formatInstantDateTime(at)}` : word;
+}
+
 function EventHistory({ eventId }: { eventId: string }) {
   const [entries, setEntries] = useState<AuditEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -394,12 +433,16 @@ function EventHistory({ eventId }: { eventId: string }) {
               </td>
               <td>
                 {fieldLabel(entry.field)}
-                {entry.change_request_status && (
-                  <span className="venue-booking-status venue-booking-status--requested">{statusLabel(entry.change_request_status)}</span>
+                {ACTION_LABELS[entry.action ?? ""] ? (
+                  <span className="venue-booking-status venue-booking-status--approved">{actionLabel(entry)}</span>
+                ) : (
+                  entry.change_request_status && (
+                    <span className="venue-booking-status venue-booking-status--requested">{statusLabel(entry.change_request_status)}</span>
+                  )
                 )}
               </td>
-              <td>{displayValue(entry.field, entry.previous_value)}</td>
-              <td>{displayValue(entry.field, entry.new_value)}</td>
+              <td>{historyValue(entry.field, entry.previous_value)}</td>
+              <td>{historyValue(entry.field, entry.new_value)}</td>
             </tr>
           ))}
         </tbody>
