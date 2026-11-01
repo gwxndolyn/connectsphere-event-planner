@@ -13,6 +13,7 @@ from app.seed import (
     EVENT_COORDINATOR_LEAD_EMAILS,
     MULTI_VENUE_EVENT,
     PLANNING_EVENT,
+    SAFETY_REVIEW_EVENT,
     seed,
     seed_id,
 )
@@ -72,15 +73,16 @@ def test_tc_us10a_04_seed_adds_two_active_leads_and_leaves_events_unassigned(db:
     assert all(lead.full_name for lead in leads)
     assert db.scalars(select(User).where(User.roles.any(UserRole.COORDINATOR), User.full_name.is_(None))).first() is None
     # Seeded events start unassigned, except US22's Venue Booking Demo, US26's Equipment Request
-    # Demo, US28's Intro to Supabase, US24's Multi-Venue Conference Demo, US12's Event Planning Demo and
-    # US18's Confirmation Demo: only the assigned coordinator may book a venue, add equipment (D20), view
-    # registrations (D52) or edit an event (US12), so the seed assigns the dev coordinator to all six for
-    # their screens and E2E.
+    # Demo, US28's Intro to Supabase, US24's Multi-Venue Conference Demo, US12's Event Planning Demo, US18's
+    # Confirmation Demo and US30a's Safety Review Demo: only the assigned coordinator may book a venue, add
+    # equipment (D20), view registrations (D52) or edit an event (US12), so the seed assigns the dev
+    # coordinator to all seven for their screens and E2E.
     assigned = db.scalars(select(Event.id).where(Event.coordinator_id.is_not(None))).all()
     assert sorted(assigned) == sorted(
         [
             seed_id("event", BOOKABLE_EVENT.slug),
             seed_id("event", CONFIRMATION_EVENT.slug),
+            seed_id("event", SAFETY_REVIEW_EVENT.slug),
             seed_id("event", EQUIPMENT_EVENT.slug),
             seed_id("event", "supabase-live-coding"),
             seed_id("event", PLANNING_EVENT.slug),

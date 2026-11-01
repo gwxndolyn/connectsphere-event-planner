@@ -26,7 +26,14 @@ describe("screensFor", () => {
   });
 
   it("gives a role the frontend doesn't know yet no screens", () => {
-    expect(screensFor("safety_officer")).toBeUndefined();
+    expect(screensFor("auditor")).toBeUndefined();
     expect(screensFor("toString")).toBeUndefined();
+  });
+
+  it("TC-US30A-40: gives the Safety officer Safety reviews as their only screen (SCRUM-99)", () => {
+    expect(screensFor("safety_officer")).toEqual(["safety-reviews"]);
+    for (const role of ["organiser", "coordinator", "coordinator_lead", "venue_staff", "tech_support", "attendee"]) {
+      expect(screensFor(role)).not.toContain("safety-reviews");
+    }
   });
 });

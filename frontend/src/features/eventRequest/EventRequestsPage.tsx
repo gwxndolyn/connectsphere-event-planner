@@ -4,6 +4,7 @@ import { EventChangeRequests } from "../changeRequest/EventChangeRequests";
 import { EventVenuesOverview } from "../venue/EventVenuesOverview";
 import { ClarificationThreadView } from "./ClarificationThreadView";
 import { DecisionOutcome } from "./RequestDecision";
+import { SafetyOutcome } from "./SafetyOutcome";
 import { sectionLabel, statusLabel } from "./clarificationSections";
 import type {
   Clarification,
@@ -591,6 +592,7 @@ export function EventRequestsPage() {
           <DecisionOutcome request={activeRequest} />
           {VENUES_VISIBLE.includes(activeRequest.status) && <EventVenuesOverview event={activeRequest} />}
           <EventChangeRequests event={activeRequest} />
+          <SafetyOutcome request={activeRequest} />
           <button className="request-button request-button--primary" type="button" onClick={backToList}>
             Back to my requests
           </button>

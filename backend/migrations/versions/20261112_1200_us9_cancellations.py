@@ -1,7 +1,7 @@
 """add event cancellations: an organiser's request, the coordinator's decision, or a direct cancel
 
 Revision ID: 20261112_1200_us9_cancellations
-Revises: 20261110_1200_us29a_change_reqs
+Revises: 20261110_1200_us30a_safety
 Create Date: 2026-11-12
 
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 revision: str = "20261112_1200_us9_cancellations"
-down_revision: Union[str, None] = "20261110_1200_us29a_change_reqs"
+down_revision: Union[str, None] = "20261110_1200_us30a_safety"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

@@ -11,6 +11,8 @@ const SCREENS: Record<string, View[]> = {
   coordinator_lead: ["event-requests", "venues"],
   venue_staff: ["venues"],
   tech_support: ["equipment"],
+  // US30a (SCRUM-99): the Safety Officer's queue and checklist are their only screen.
+  safety_officer: ["safety-reviews"],
   attendee: ["discovery", "my-events"],
 };
 

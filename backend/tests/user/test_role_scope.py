@@ -30,8 +30,8 @@ from tests.factories import NOW, make_attendee, make_event, make_registration, m
 
 pytestmark = pytest.mark.anyio
 
-# The newest migration: TC-US16B-29 checks it is the only head (SCRUM-97 added it, after SCRUM-85's).
-REVISION = "20261110_1200_us29a_change_reqs"
+# The newest migration: TC-US16B-29 checks it is the only head (SCRUM-99 added it).
+REVISION = "20261110_1200_us30a_safety"
 QUESTION = {"sections": ["attendance"], "comment": "How many people are coming?"}
 FORBIDDEN = {"code": "FORBIDDEN"}
 NOT_FOUND = {"code": "NOT_FOUND"}
@@ -231,6 +231,7 @@ async def test_tc_us16b_13_an_attendee_is_refused_every_internal_route(client: A
 ROLES = list(UserRole)
 ORGANISER, COORDINATOR, LEAD = UserRole.ORGANISER, UserRole.COORDINATOR, UserRole.COORDINATOR_LEAD
 VENUE_STAFF, TECH_SUPPORT = UserRole.VENUE_STAFF, UserRole.TECH_SUPPORT
+SAFETY_OFFICER = UserRole.SAFETY_OFFICER
 ID = uuid.uuid4()
 # One row per role-gated route: who may call it. Ids are unknown, so an allowed role gets past the role
 # check to a 404 or 422; the others are stopped at it.
@@ -252,6 +253,12 @@ ROUTES = [
     ("GET", "/api/v1/event-requests/{request_id}/readiness", {COORDINATOR}),
     ("POST", "/api/v1/event-requests/{request_id}/confirmation", {COORDINATOR}),
     ("POST", "/api/v1/event-requests/{request_id}/preparation", {COORDINATOR}),
+    # SCRUM-99 (US30a): the Safety Officer reviews; the Organiser, Coordinator and Lead read the outcome.
+    ("GET", "/api/v1/safety-reviews", {SAFETY_OFFICER}),
+    ("GET", "/api/v1/safety-reviews/{event_id}", {SAFETY_OFFICER}),
+    ("POST", "/api/v1/safety-reviews/{event_id}", {SAFETY_OFFICER}),
+    ("GET", "/api/v1/event-requests/{request_id}/safety-reviews", {ORGANISER, COORDINATOR, LEAD}),
+    ("POST", "/api/v1/event-requests/{request_id}/safety-review-request", {COORDINATOR}),
     ("POST", "/api/v1/event-requests/{request_id}/transfer-request", {COORDINATOR}),
     ("POST", "/api/v1/event-requests/{request_id}/approve", {COORDINATOR}),
     ("POST", "/api/v1/event-requests/{request_id}/reject", {COORDINATOR}),
