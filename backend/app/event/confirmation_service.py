@@ -15,6 +15,7 @@ from app.equipment.models import (
 from app.event.assignment_service import MISSING_NAME, MISSING_REFERENCE
 from app.event.models import DeliveryMode, Event, EventStatus
 from app.event.request_schemas import EventRequestOut, ReadinessItemOut, ReadinessOut
+from app.event.review_flag_service import event_flags, is_open
 from app.notification.service import Notifier
 from app.safety.models import CHANGE_AREAS
 from app.safety.state import latest_review, safety_state
@@ -133,6 +134,22 @@ class ConfirmationService:
                 detail="Approved by the Safety Officer." if safety_done else self._safety_wait(db, event),
             )
         )
+        # US29b (SCRUM-142) D104: once a significant change has flagged its arrangements, each must be reviewed.
+        flagged = event_flags(db, event.id)
+        if flagged:
+            still_open = [flag for flag in flagged if is_open(db, flag)]
+            items.append(
+                ReadinessItemOut(
+                    kind="review_flags",
+                    name="Review after change",
+                    complete=not still_open,
+                    detail=(
+                        f"{len(still_open)} arrangement{'s' if len(still_open) != 1 else ''} to review after an approved change."
+                        if still_open
+                        else "Every flagged arrangement is reviewed."
+                    ),
+                )
+            )
         approved_bookings = [(b, v) for b, v in bookings if b.status == VenueBookingStatus.APPROVED]
         return ReadinessOut(ready=all(item.complete for item in items), items=items), approved_bookings
 

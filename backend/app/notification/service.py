@@ -199,6 +199,24 @@ class Notifier(Protocol):
         to_lead: bool,
     ) -> None: ...
 
+    def change_request_decided(
+        self,
+        *,
+        email: str,
+        event_id: uuid.UUID,
+        event_name: str,
+        decision: str,
+        fields: list[str],
+        rejection_reason: str | None,
+        status_change: str | None,
+        safety_review_required: bool,
+        to_requester: bool,
+    ) -> None: ...
+
+    def arrangement_flagged(
+        self, *, email: str, event_id: uuid.UUID, event_name: str, kind: str, label: str, fields: list[str]
+    ) -> None: ...
+
     def cancellation_requested(
         self, *, email: str, event_id: uuid.UUID, event_name: str, organiser_name: str, reason: str
     ) -> None: ...
@@ -560,6 +578,42 @@ class LoggingNotifier:
             ", ".join(fields),
             reason,
         )
+
+
+    def change_request_decided(
+        self,
+        *,
+        email: str,
+        event_id: uuid.UUID,
+        event_name: str,
+        decision: str,
+        fields: list[str],
+        rejection_reason: str | None,
+        status_change: str | None,
+        safety_review_required: bool,
+        to_requester: bool,
+    ) -> None:
+        # US29b (SCRUM-142) AC 4: the requester hears the decision, and the organiser too when an approved US12
+        # edit changed their event (D102).
+        logger.info(
+            "change request %s: %s%s, %r (%s), fields %s%s%s%s",
+            decision,
+            email,
+            "" if to_requester else " (organiser)",
+            event_name,
+            event_id,
+            fields,
+            f"; reason: {rejection_reason}" if rejection_reason else "",
+            f"; back to {status_change}" if status_change else "",
+            "; a new safety review is needed" if safety_review_required else "",
+        )
+
+    def arrangement_flagged(
+        self, *, email: str, event_id: uuid.UUID, event_name: str, kind: str, label: str, fields: list[str]
+    ) -> None:
+        # US29b (SCRUM-142) D104: Venue staff and Tech support hear an approved change may have overtaken what
+        # they arranged. Nothing on it changed.
+        logger.info("arrangement flagged for review: %s, %s %s on %r (%s), changed %s", email, kind, label, event_name, event_id, fields)
 
     def cancellation_requested(
         self, *, email: str, event_id: uuid.UUID, event_name: str, organiser_name: str, reason: str

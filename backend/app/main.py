@@ -14,6 +14,9 @@ from app.equipment.router import router as equipment_router
 from app.equipment.router import types_router as equipment_types_router
 from app.event.router import router as event_router
 from app.event.router import v1_router as event_v1_router
+from app.event.change_decision_router import events_router as change_decision_events_router
+from app.event.change_decision_router import flags_router as change_decision_flags_router
+from app.event.change_decision_router import router as change_decision_router
 from app.event.edit_router import me_router as event_edit_me_router
 from app.event.edit_router import router as event_edit_router
 from app.event.request_router import cancellations_router as event_cancellations_router
@@ -56,6 +59,9 @@ app.include_router(event_v1_router)
 # After event_v1_router, so "/api/v1/events/available" isn't read as an event id.
 app.include_router(event_edit_router)
 app.include_router(event_edit_me_router)
+app.include_router(change_decision_router)
+app.include_router(change_decision_events_router)
+app.include_router(change_decision_flags_router)
 app.include_router(registration_router)
 app.include_router(registration_events_router)
 app.include_router(registration_me_router)
