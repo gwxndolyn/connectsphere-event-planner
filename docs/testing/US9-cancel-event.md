@@ -21,7 +21,7 @@
 | --- | --- | --- |
 | 1 | `event_cancellations` and `cancellation_status`; a cancelled event may lack its date and capacity, not its name (D98), and the Planning-onwards lists leave such an event out. Migration `20261112_1200_us9_cancellations` | `backend/tests/event/test_cancellation_schema.py` (TC-US9-01 to 08), `test_cancelled_event_reads.py` (TC-US9-08, every read route) |
 | 2 | Ask, approve, reject and cancel; reading the record; releasing venues and equipment; the notices; no waitlist offers on a cancelled event | `backend/tests/event/test_cancellations.py` (TC-US9-09 to 23, 25), `test_cancellation_race.py` (TC-US9-24); `backend/tests/user/test_role_scope.py` (the routes' roles and D51) |
-| 3 | Organiser's and coordinator's screens | Not built yet |
+| 3 | The **Cancellation** panel for the organiser (ask, then wait) and the coordinator (approve or reject a request; cancel directly after a confirm step); the record on both; the seeded Cancellation Demo | `frontend/src/features/cancellation/cancellation.integration.test.tsx` (TC-US9-26 to 31); `e2e/tests/event-cancellation.spec.ts` (TC-US9-32); `backend/tests/event/test_cancellations.py` (TC-US9-32's reseed) |
 
 ## Decisions for this story
 
@@ -63,6 +63,13 @@
 | TC-US9-21 | 4 | A cancelled event | Cancel again, ask | `409 CANCELLATION_NOT_ALLOWED`, `status: cancelled` |
 | TC-US9-22 | 8 | A rejected request and a newer waiting one; two cancelled events, one dateless | The organiser and the coordinator read; another organiser and coordinator; the coordinator opens their queue and each event | Both newest first; `404`; both cancelled events in the queue and open, `200`, to them only |
 | TC-US9-25 | 4, 8 | Events cancelled by request and directly, one with a rejected request, one untouched; a second cancel refused | Compare event statuses with approved rows | Exactly the cancelled events have an approved row, one each; only the direct cancel is `direct` |
+| TC-US9-26 | 1 | The organiser's Approved event | Request cancellation, send without a reason, then with one | "Give a reason" on the field, nothing sent; then sent with the reason, "Waiting for decision" in the history, the button gone and a note that the coordinator decides |
+| TC-US9-27 | 1, 4 | An Under Review request; a cancelled event | The organiser opens each | No Cancellation panel; "This event is cancelled." and no Request cancellation |
+| TC-US9-28 | 2, 4, 8 | A waiting request on the coordinator's Planning event | They open it and approve | The asker and reason shown, no Cancel event beside it; then "The event is cancelled.", the record "Approved by Casey Tan", badge Cancelled |
+| TC-US9-29 | 2, 8 | A waiting request | Reject without a reason, then with one | "Give a reason", nothing sent; then sent, the record "Rejected by Casey Tan" and why; the event still Planning and Cancel event offered |
+| TC-US9-30 | 3, 4 | The coordinator's Planning event | Cancel event, give a reason, Continue, then confirm | A confirm step naming the event, what's released and who's told, "This can't be undone." and the reason, nothing sent until confirmed; then "The event is cancelled.", "Cancelled by Casey Tan" |
+| TC-US9-31 | 7 | The API refuses with `EVENT_STARTED` | The coordinator cancels | "This event has already started, so it can't be cancelled."; the event unchanged |
+| TC-US9-32 | 1 to 4, 8 | The seeded Cancellation Demo (E2E, real backend) | The organiser asks; the coordinator rejects with a reason, then cancels directly; the organiser reopens it | Each step's message; the organiser sees "This event is cancelled.", "Cancelled by Casey Tan" and the rejection's reason, and no Request cancellation. A reseed puts the event back in Planning with no record |
 | TC-US9-23 | 6 | An offer made before the cancel; a full event with a queue | The attendee accepts; a registered attendee withdraws after the cancel | `409 EVENT_CANCELLED`, the offer unchanged; no place offered, nobody told |
 | TC-US9-24 | 5 | A requested booking, committed | Venue staff approve it (locking the booking, then pausing) while the coordinator cancels the event, on two connections | Both succeed in turn: the booking is approved, then withdrawn with its decision kept; the event Cancelled. Locking the event first deadlocked (`DeadlockDetected`) |
 
@@ -76,3 +83,4 @@
 | 1 Nov | Backend (`pytest`), PR 1 after merging `main` (#113, US15) | 1472 passed; the migration now follows `20261111_1200_us15_sessions`; D98 renumbered to D98 (#113 took D98 to D97); the read-route sweep (TC-US9-08) covers US15's agenda routes too |
 | 1 Nov | Backend (`pytest`), PR 2 on PR 1 after Matt's review | 1506 passed, including TC-US9-09 to 25 and the new routes in `test_role_scope.py`; TC-US9-24 fails with `DeadlockDetected` without the lock order |
 | 1 Nov | Backend (`pytest`), PR 2 after merging PR 1 (with #113) | 1518 passed; D94 and D95 renumbered to D99 and D100 (#113 took D93 to D97) |
+| 1 Nov | PR 3: backend (`pytest`), frontend (Vitest), E2E (Playwright, local Postgres and the real backend) | Backend 1519 passed (TC-US9-32's reseed); frontend 458 passed (TC-US9-26 to 31); E2E 50 passed, 11 skipped (the login and sign-up specs, as without Supabase secrets), including TC-US9-32 |
