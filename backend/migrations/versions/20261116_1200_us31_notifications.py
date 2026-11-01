@@ -1,8 +1,8 @@
 """keep the notices the system raises, one row per recipient, so each user can read their own
 
-Revision ID: 20261114_1200_us31_notifications
-Revises: 20261114_1200_us30a_rls
-Create Date: 2026-11-14
+Revision ID: 20261116_1200_us31_notifications
+Revises: 20261115_1200_us29b_decisions
+Create Date: 2026-11-16
 
 """
 from typing import Sequence, Union
@@ -11,8 +11,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "20261114_1200_us31_notifications"
-down_revision: Union[str, None] = "20261114_1200_us30a_rls"
+revision: str = "20261116_1200_us31_notifications"
+down_revision: Union[str, None] = "20261115_1200_us29b_decisions"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

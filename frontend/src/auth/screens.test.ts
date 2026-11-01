@@ -25,7 +25,7 @@ describe("screensFor", () => {
     }
   });
 
-  it("TC-US31-50: gives every role the Notifications screen, last (SCRUM-107)", () => {
+  it("TC-US31-57: gives every role the Notifications screen, last (SCRUM-107)", () => {
     for (const role of ["organiser", "coordinator", "coordinator_lead", "venue_staff", "tech_support", "safety_officer", "attendee"]) {
       expect(screensFor(role)?.at(-1)).toBe("notifications");
     }
