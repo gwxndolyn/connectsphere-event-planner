@@ -176,7 +176,12 @@ class EventEditService:
     def list_mine(self, db: Session, coordinator: User) -> list[CoordinatedEventOut]:
         events = db.scalars(
             select(Event)
-            .where(Event.coordinator_id == coordinator.id, Event.status.in_(COORDINATED_STATUSES))
+            # D93: an event cancelled before it was planned has no date and never reached this screen.
+            .where(
+                Event.coordinator_id == coordinator.id,
+                Event.status.in_(COORDINATED_STATUSES),
+                Event.start_at.is_not(None),
+            )
             .order_by(Event.start_at, Event.id)
         ).all()
         return [self._summary(event) for event in events]
@@ -273,7 +278,12 @@ class EventEditService:
         """The event, if this user is its assigned coordinator (D48) and it's past the request stage; else 404."""
         query = select(Event).where(Event.id == event_id)
         event = db.scalars(query.with_for_update() if lock else query).one_or_none()
-        if event is None or event.status not in COORDINATED_STATUSES or not is_assigned_coordinator(event, coordinator):
+        if (
+            event is None
+            or event.status not in COORDINATED_STATUSES
+            or event.start_at is None  # D93: cancelled before it was planned
+            or not is_assigned_coordinator(event, coordinator)
+        ):
             raise DomainError(404, "NOT_FOUND")
         return event
 

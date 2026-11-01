@@ -65,7 +65,8 @@ class RegistrationRosterService:
             managed.append(Event.coordinator_id == user.id)
         events = db.scalars(
             select(Event)
-            .where(Event.status.in_(MANAGED_EVENT_STATUSES), or_(false(), *managed))
+            # D93: an event cancelled before it was planned has no date and never took registrations.
+            .where(Event.status.in_(MANAGED_EVENT_STATUSES), Event.start_at.is_not(None), or_(false(), *managed))
             .order_by(Event.start_at, Event.id)
         ).all()
         return [ManagedEventOut.model_validate(event, from_attributes=True) for event in events]
@@ -83,7 +84,12 @@ class RegistrationRosterService:
         """Totals over every registration (AC 2); the list narrowed to `statuses` when given (AC 4),
         else to active rows unless `show_all` (AC 5). Someone else's event is 404 (AC 1, §1a)."""
         event = db.get(Event, event_id)
-        if event is None or event.status not in MANAGED_EVENT_STATUSES or not self._manages(event, user):
+        if (
+            event is None
+            or event.status not in MANAGED_EVENT_STATUSES
+            or event.start_at is None  # D93: cancelled before it was planned
+            or not self._manages(event, user)
+        ):
             raise DomainError(404, "NOT_FOUND")
         # D2 (SCRUM-137): lapsed offers expire and pass on before the totals are counted. Only after
         # the check above, so a caller who can't see the event changes nothing.
