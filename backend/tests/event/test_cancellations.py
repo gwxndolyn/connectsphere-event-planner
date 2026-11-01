@@ -583,3 +583,56 @@ async def test_tc_us9_23_a_freed_place_isnt_offered_on_a_cancelled_event(
     db.refresh(queued)
     assert queued.status == RegistrationStatus.WAITLISTED
     assert notifier.offers == []
+
+
+async def test_tc_us9_22_the_coordinator_opens_a_cancelled_event_from_their_queue(
+    client: AsyncClient, db: Session, organiser: User, coordinator: User, event: Event
+) -> None:
+    dateless = owned_event(db, organiser, coordinator, EventStatus.APPROVED)
+    dateless.capacity = None
+    db.flush()
+    for target in (event, dateless):
+        await cancel(client, target, coordinator)
+
+    queue = await client.get("/api/v1/event-requests", headers=auth(coordinator))
+    opened = [
+        await client.get(f"/api/v1/event-requests/{target.id}", headers=auth(coordinator)) for target in (event, dateless)
+    ]
+    by_other = await client.get(f"/api/v1/event-requests/{event.id}", headers=auth(make_user(db, UserRole.COORDINATOR)))
+
+    assert {row["id"]: row["status"] for row in queue.json()["event_requests"]} == {
+        str(event.id): "cancelled",
+        str(dateless.id): "cancelled",
+    }
+    assert [(response.status_code, response.json()["status"]) for response in opened] == [(200, "cancelled")] * 2
+    assert by_other.status_code == 404
+
+
+# --- AC 4, 8: the two tables agree (Matt's review of #115) ---
+
+
+async def test_tc_us9_25_every_cancelled_event_has_exactly_one_approved_cancellation(
+    client: AsyncClient, db: Session, organiser: User, coordinator: User
+) -> None:
+    by_request, direct, rejected, untouched = (owned_event(db, organiser, coordinator) for _ in range(4))
+    asked = (await ask(client, by_request, organiser)).json()
+    await decide(client, asked["id"], coordinator, "approve")
+    await cancel(client, direct, coordinator)
+    refused = (await ask(client, rejected, organiser)).json()
+    await decide(client, refused["id"], coordinator, "reject", "Go ahead")
+    await cancel(client, by_request, coordinator, "Again")  # refused: already cancelled
+
+    ids = [event.id for event in (by_request, direct, rejected, untouched)]
+    statuses = dict(db.execute(select(Event.id, Event.status).where(Event.id.in_(ids))).all())
+    approved = dict(
+        db.execute(
+            select(EventCancellation.event_id, func.count())
+            .where(EventCancellation.event_id.in_(ids), EventCancellation.status == CancellationStatus.APPROVED)
+            .group_by(EventCancellation.event_id)
+        ).all()
+    )
+    assert {event_id for event_id, status in statuses.items() if status == EventStatus.CANCELLED} == set(approved)
+    assert set(approved) == {by_request.id, direct.id}
+    assert set(approved.values()) == {1}
+    flags = db.scalars(select(EventCancellation.direct).where(EventCancellation.event_id.in_(ids))).all()
+    assert sorted(flags) == [False, False, True]  # the approved request, the rejected one, the direct cancel
