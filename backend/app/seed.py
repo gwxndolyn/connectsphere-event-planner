@@ -33,6 +33,7 @@ from app.agenda.models import EventSession
 from app.core.database import SessionLocal
 from app.equipment.models import EquipmentRequestLine, EquipmentReservation, EquipmentType, TechStaffAssignment
 from app.event.models import DeliveryMode, Event, EventAuditEntry, EventChangeRequest, EventStatus
+from app.safety.models import SafetyReview
 from app.registration.models import ACTIVE_STATUSES, Registration, RegistrationStatus
 from app.user.models import Attendee, User, UserRole
 from app.user.supabase_admin import SupabaseAdmin, SupabaseAdminError
@@ -498,6 +499,17 @@ MULTI_VENUE_EVENT = MultiVenueEventSpec(
     ],
 )
 
+# US18 (SCRUM-85): the dev coordinator confirms it, then starts Preparation. Everything is arranged
+# already: an approved venue booking and the Safety Officer's approval (US30a doesn't exist yet to give
+# it), so Confirm works the first time. A reseed puts it back to Approved, with no date of its own.
+CONFIRMATION_EVENT = BookableEventSpec(slug="confirmation-demo", name="Confirmation Demo", expected_attendees=25)
+# US30a (SCRUM-99): the Safety Officer reviews it. The same arrangement as the confirmation demo, with no
+# safety review yet, so it is in the Safety Officer's queue; after approving it the coordinator can confirm it.
+SAFETY_REVIEW_EVENT = BookableEventSpec(slug="safety-review-demo", name="Safety Review Demo", expected_attendees=30)
+SAFETY_REVIEW_IN_DAYS = 12
+ARRANGED_VENUE_SLUG = "lks-library-seminar-3-4"
+CONFIRMATION_IN_DAYS = 10  # not the US2 search slot (VENUE_SLOT_IN_DAYS), which expects its venues free
+
 # US26 (SCRUM-109): the dev coordinator adds equipment lines to it (SCRUM-110, TC-US26-16). Only a
 # planning or confirmed event takes them, from its assigned coordinator (D20), and no other seeded
 # event is both. Registration is off, so it stays off the attendees' events board.
@@ -744,6 +756,96 @@ def upsert_bookable_event(db: Session, spec: BookableEventSpec, organiser: User,
     return event
 
 
+def upsert_arranged_event(
+    db: Session,
+    spec: BookableEventSpec,
+    organiser: User,
+    coordinator: User,
+    now: datetime,
+    *,
+    in_days: int,
+    safety_approved: bool,
+) -> Event:
+    """An approved event with its one venue booking approved, assigned to `coordinator`, for the screens
+    that act on a finished arrangement: US18 confirms it (safety already approved), US30a's Safety Officer
+    reviews it. Reset on every reseed, so what a demo changes can be done again."""
+    event_id = seed_id("event", spec.slug)
+    values = {
+        "name": spec.name,
+        "status": EventStatus.APPROVED,
+        "event_category": "Workshop",
+        "purpose": "Seeded for confirming an event (US18) and reviewing its safety (US30a)",
+        "expected_attendees": spec.expected_attendees,
+        "created_by_user_id": organiser.id,
+        "coordinator_id": coordinator.id,
+        "safety_approved_at": now if safety_approved else None,
+        "safety_approved_by_user_id": seed_id("user", "safety-officer") if safety_approved else None,
+        "safety_review_requested_at": None,
+        "start_at": None,
+        "end_at": None,
+        "capacity": None,
+        "delivery_mode": None,
+        "venue_name": None,
+        "confirmed_at": None,
+        "confirmed_by_user_id": None,
+    }
+    event = db.get(Event, event_id)
+    if event is None:
+        event = Event(id=event_id, **values)
+        db.add(event)
+    else:
+        for key, value in values.items():
+            setattr(event, key, value)
+    db.flush()
+
+    venue = db.get(Venue, seed_id("venue", ARRANGED_VENUE_SLUG))
+    day = now.astimezone(SEED_TIMEZONE).date() + timedelta(days=in_days)
+    starts_at = datetime.combine(day, time(14, 0), SEED_TIMEZONE)
+    ends_at = datetime.combine(day, time(16, 0), SEED_TIMEZONE)
+    occupied_starts_at, occupied_ends_at = occupied_window(venue, starts_at, ends_at)
+    booking_values = {
+        "event_id": event.id,
+        "venue_id": venue.id,
+        "requested_by_user_id": coordinator.id,
+        "starts_at": starts_at,
+        "ends_at": ends_at,
+        "occupied_starts_at": occupied_starts_at,
+        "occupied_ends_at": occupied_ends_at,
+        "expected_attendees": spec.expected_attendees,
+        "room_layout": "classroom",
+        "purpose": MAIN_VENUE_PURPOSE,
+        "is_primary": True,
+        "status": VenueBookingStatus.APPROVED,
+        "withdrawn_at": None,
+        "decided_at": now,
+        "decided_by_user_id": seed_id("user", "venue-staff"),
+        "rejection_reason": None,
+        "alternative_suggestion": None,
+    }
+    booking_id = seed_id("venue-booking", spec.slug)
+    # A reseed forgets the reviews the demo collected, so its queue entry comes back.
+    db.execute(delete(SafetyReview).where(SafetyReview.event_id == event.id))
+    booking = db.get(VenueBooking, booking_id)
+    if booking is None:
+        db.add(VenueBooking(id=booking_id, **booking_values))
+    else:
+        for key, value in booking_values.items():
+            setattr(booking, key, value)
+    return event
+
+
+def upsert_confirmation_event(
+    db: Session, spec: BookableEventSpec, organiser: User, coordinator: User, now: datetime
+) -> Event:
+    return upsert_arranged_event(db, spec, organiser, coordinator, now, in_days=CONFIRMATION_IN_DAYS, safety_approved=True)
+
+
+def upsert_safety_review_event(
+    db: Session, spec: BookableEventSpec, organiser: User, coordinator: User, now: datetime
+) -> Event:
+    return upsert_arranged_event(db, spec, organiser, coordinator, now, in_days=SAFETY_REVIEW_IN_DAYS, safety_approved=False)
+
+
 def upsert_equipment_event(
     db: Session, spec: EventSpec, organiser: User, coordinator: User, now: datetime
 ) -> Event:
@@ -967,9 +1069,10 @@ def upsert_multi_venue_event(
 
 def seeded_booking_count() -> int:
     """Every booking the seed owns: US2's slot, each in-person event's primary and the multi-venue
-    demo event's venues (US24). Bookings made in the app aren't counted."""
+    demo event's venues (US24), US18's Confirmation Demo's booking and US30a's Safety Review Demo's. Bookings made in the app aren't
+    counted."""
     primaries = sum(1 for spec in [*EVENTS, EQUIPMENT_EVENT] if spec.venue_slug)
-    return len(VENUE_BOOKINGS) + primaries + len(MULTI_VENUE_EVENT.bookings)
+    return len(VENUE_BOOKINGS) + primaries + len(MULTI_VENUE_EVENT.bookings) + 2
 
 
 def upsert_venue_block(db: Session, spec: VenueBlockSpec, now: datetime) -> VenueBlock:
@@ -1082,6 +1185,8 @@ def seed(db: Session, now: datetime | None = None) -> None:
     for spec in VENUE_BLOCKS:
         upsert_venue_block(db, spec, now)
     upsert_bookable_event(db, BOOKABLE_EVENT, organiser, coordinator)
+    upsert_confirmation_event(db, CONFIRMATION_EVENT, organiser, coordinator, now)
+    upsert_safety_review_event(db, SAFETY_REVIEW_EVENT, organiser, coordinator, now)
     equipment_event = upsert_equipment_event(db, EQUIPMENT_EVENT, organiser, coordinator, now)
     db.flush()
     upsert_primary_booking(db, EQUIPMENT_EVENT, equipment_event, coordinator, now)

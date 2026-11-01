@@ -2,7 +2,9 @@ import { useEffect, useState, type FormEvent } from "react";
 import { ApiError, apiClient } from "../../api/client";
 import { EventVenueBookings } from "../venue/EventVenueBookings";
 import { ClarificationThreadView } from "./ClarificationThreadView";
+import { EventConfirmation } from "./EventConfirmation";
 import { DecisionOutcome, RequestDecisionPanel } from "./RequestDecision";
+import { SafetyOutcome } from "./SafetyOutcome";
 import { SECTIONS, displayValue, sectionLabel, statusLabel } from "./clarificationSections";
 import type {
   Clarification,
@@ -47,6 +49,8 @@ export function ClarificationReviewPage({ userId }: ClarificationReviewPageProps
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  // Bumped when a rejected safety arrangement is sent back, so the readiness list is read again (US30a).
+  const [safetyVersion, setSafetyVersion] = useState(0);
 
   useEffect(() => {
     let current = true;
@@ -130,6 +134,12 @@ export function ClarificationReviewPage({ userId }: ClarificationReviewPageProps
   const canClarify = activeRequest !== null && CLARIFIABLE_STATUSES.has(activeRequest.status);
   const canDecide =
     activeRequest !== null && activeRequest.status === "under_review" && activeRequest.coordinator?.id === userId;
+
+  // US18: only the event's assigned coordinator confirms it and starts Preparation.
+  const canConfirm =
+    activeRequest !== null &&
+    activeRequest.coordinator?.id === userId &&
+    ["approved", "planning", "confirmed", "preparation"].includes(activeRequest.status);
 
   function recordDecision(decided: EventRequest) {
     setRequests((current) => current.map((request) => (request.id === decided.id ? decided : request)));
@@ -254,8 +264,20 @@ export function ClarificationReviewPage({ userId }: ClarificationReviewPageProps
         <RequestDecisionPanel key={activeRequest.id} request={activeRequest} onDecided={recordDecision} />
       )}
 
-      {/* US22 (SCRUM-113): an approved request can have a venue requested for it (D20). */}
-      {screen === "review" && activeRequest?.status === "approved" && <EventVenueBookings event={activeRequest} />}
+      {/* US22 (SCRUM-113): an approved or planning event can have a venue requested for it (D20). */}
+      {screen === "review" && activeRequest && ["approved", "planning"].includes(activeRequest.status) && (
+        <EventVenueBookings event={activeRequest} />
+      )}
+      {screen === "review" && activeRequest && canConfirm && (
+        <SafetyOutcome
+          request={activeRequest}
+          canResend
+          onResent={() => setSafetyVersion((version) => version + 1)}
+        />
+      )}
+      {screen === "review" && activeRequest && canConfirm && (
+        <EventConfirmation key={`${activeRequest.id}-${safetyVersion}`} request={activeRequest} onChanged={recordDecision} />
+      )}
 
       {screen === "sent" && sent && activeRequest && (
         <section className="request-confirmation" aria-labelledby="clarification-sent-title">

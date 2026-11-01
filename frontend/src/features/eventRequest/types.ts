@@ -7,6 +7,7 @@ export type EventRequestStatus =
   | "rejected"
   | "planning"
   | "confirmed"
+  | "preparation"
   | "cancelled"
   | "completed";
 
@@ -47,6 +48,22 @@ export interface EventRequest extends EventRequestWrite {
   // US24 (SCRUM-129, D65): the event's own dates once it's planned; a venue's window falls within them.
   start_at?: string | null;
   end_at?: string | null;
+  // SCRUM-85 (US18): when the Safety Officer approved it and when it was confirmed. Null until then.
+  safety_approved_at: string | null;
+  confirmed_at: string | null;
+}
+
+// One line of the readiness list (US18 AC 2): a venue booking, the equipment, technical support or the safety check.
+export interface ReadinessItem {
+  kind: "venue" | "equipment" | "technical_support" | "safety";
+  name: string;
+  complete: boolean;
+  detail: string;
+}
+
+export interface Readiness {
+  ready: boolean;
+  items: ReadinessItem[];
 }
 
 export interface QueuePerson {

@@ -8,7 +8,7 @@ import type {
   WithdrawalResult,
 } from "./types";
 
-const NO_REGISTRATIONS: MyRegistrations = { confirmed: [], waitlisted: [], offered: [] };
+const NO_REGISTRATIONS: MyRegistrations = { confirmed: [], waitlisted: [], offered: [], expired: [] };
 
 function loadBoth() {
   return Promise.all([registrationApi.listAvailable(), registrationApi.listMine()]);

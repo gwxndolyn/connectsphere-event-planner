@@ -24,11 +24,11 @@
 
 Decided by the acting PO, Matthew, on 1 Nov (team channel).
 
-- **D87, who and when (AC 1):** the request's own Organiser, while it's `draft` or `planning`; read-only in every other status, `awaiting_clarification` included, and for anyone else who can read the request.
-- **D88, the window (AC 3):** a `planning` event's `[start_at, end_at]`; for a draft, D65's window (one of its preferred dates, between its preferred times). Existing sessions aren't re-checked when the dates change, so the Agenda marks any outside the current window.
-- **D89, single track (AC 4):** each event is one track; no two of its sessions overlap. A track per room is a likely follow-up.
-- **D90, session fields (AC 2):** the AC's types plus `other`; the speaker is required unless it's a break.
-- **D91, where (AC 5):** the request's details in the Organiser's Event requests screen.
+- **D93, who and when (AC 1):** the request's own Organiser, while it's `draft` or `planning`; read-only in every other status, `awaiting_clarification` included, and for anyone else who can read the request.
+- **D94, the window (AC 3):** a `planning` event's `[start_at, end_at]`; for a draft, D65's window (one of its preferred dates, between its preferred times). Existing sessions aren't re-checked when the dates change, so the Agenda marks any outside the current window.
+- **D95, single track (AC 4):** each event is one track; no two of its sessions overlap. A track per room is a likely follow-up.
+- **D96, session fields (AC 2):** the AC's types plus `other`; the speaker is required unless it's a break.
+- **D97, where (AC 5):** the request's details in the Organiser's Event requests screen.
 
 ## Test cases
 
@@ -56,3 +56,4 @@ Decided by the acting PO, Matthew, on 1 Nov (team channel).
 | --- | --- | --- | --- |
 | 1 Nov | SCRUM-138 | `pytest` (local Postgres): `tests/agenda/test_event_sessions_schema.py`, then the full backend suite; `alembic downgrade -1` and `upgrade head`; the seed | Tests written first: they failed on collection (no `app.agenda`). After the change: 12 items for TC-US15-01 to 04 pass. Whole backend suite 1249 passed; the migration round-trips and the seed runs |
 | 1 Nov | SCRUM-138 | After merging `main` (#107, #110): the full backend suite; `alembic heads`, `downgrade -1` and `upgrade head`; the seed | The migration now chains after `20261108_1200_us12_event_edits` (US12, #107), one head. Whole backend suite 1291 passed; the migration round-trips and the seed runs, with both planning demo events (US12's Event Planning Demo and Agenda Demo) |
+| 1 Nov | SCRUM-138 | After merging `main` again (#109, US18, US29a, US30a): the full backend suite; `alembic heads`, `downgrade -1` and `upgrade head`; the seed | The migration is renamed `20261111_1200_us15_sessions` and chains after `20261110_1200_us30a_safety`, one head; US15's decisions are renumbered D93 to D97, as D87 to D92 are now taken. TC-US29a-18 checked that US30a's migration was the head, so it now checks for one head with US29a's migration in the chain, as the other schema tests do. Whole backend suite 1445 passed; the migration round-trips and the seed runs |

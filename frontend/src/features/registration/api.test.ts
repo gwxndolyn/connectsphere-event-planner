@@ -107,7 +107,7 @@ describe("registrationApi mapping", () => {
     });
   });
 
-  it("maps GET /me/registrations into its three sections, tagging each row's status", async () => {
+  it("maps GET /me/registrations into its four sections, tagging each row's status", async () => {
     const row = {
       registration_id: "r1",
       event_id: "e1",
@@ -124,6 +124,7 @@ describe("registrationApi mapping", () => {
         confirmed: [row],
         waitlisted: [{ ...row, registration_id: "r2", waitlist_position: 3 }],
         offered: [{ ...row, registration_id: "r3", offer_expires_at: "2026-10-03T01:00:00Z" }],
+        expired: [{ ...row, registration_id: "r4", offer_expires_at: "2026-10-02T01:00:00Z" }],
       }),
     );
 
@@ -140,11 +141,18 @@ describe("registrationApi mapping", () => {
     });
     expect(mine.waitlisted[0]).toMatchObject({ id: "r2", status: "waitlisted", waitlistPosition: 3 });
     expect(mine.offered[0]).toMatchObject({ id: "r3", status: "offered", offerExpiresAt: "2026-10-03T01:00:00Z" });
+    // SCRUM-137: an offer that lapsed, shown to its holder as expired.
+    expect(mine.expired[0]).toMatchObject({ id: "r4", status: "expired", offerExpiresAt: "2026-10-02T01:00:00Z" });
   });
 
-  it("treats a missing offered section as empty", async () => {
+  it("treats missing offered and expired sections as empty", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ confirmed: [], waitlisted: [] }));
-    await expect(registrationApi.listMine()).resolves.toEqual({ confirmed: [], waitlisted: [], offered: [] });
+    await expect(registrationApi.listMine()).resolves.toEqual({
+      confirmed: [],
+      waitlisted: [],
+      offered: [],
+      expired: [],
+    });
   });
 
   it("registers with the answers and maps the confirmation", async () => {

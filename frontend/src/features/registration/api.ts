@@ -74,6 +74,7 @@ interface MyRegistrationsOut {
   confirmed: MyRegistrationOut[];
   waitlisted: MyRegistrationOut[];
   offered?: MyRegistrationOut[];
+  expired?: MyRegistrationOut[];
 }
 
 interface WithdrawResponseOut {
@@ -157,6 +158,7 @@ export const registrationApi = {
       confirmed: body.confirmed.map((row) => toMyRegistration(row, "confirmed")),
       waitlisted: body.waitlisted.map((row) => toMyRegistration(row, "waitlisted")),
       offered: (body.offered ?? []).map((row) => toMyRegistration(row, "offered")),
+      expired: (body.expired ?? []).map((row) => toMyRegistration(row, "expired")),
     };
   },
 

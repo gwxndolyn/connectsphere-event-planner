@@ -38,6 +38,7 @@ ACTIVE_ASSIGNED_STATUSES = (
     EventStatus.APPROVED,
     EventStatus.PLANNING,
     EventStatus.CONFIRMED,
+    EventStatus.PREPARATION,
 )
 EVENT_TIMEZONE = ZoneInfo("Asia/Singapore")
 
@@ -403,6 +404,7 @@ NOT_A_REQUEST_STATUSES = (
     EventStatus.DRAFT,
     EventStatus.PLANNING,
     EventStatus.CONFIRMED,
+    EventStatus.PREPARATION,
     EventStatus.CANCELLED,
     EventStatus.COMPLETED,
 )

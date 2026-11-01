@@ -13,6 +13,8 @@ ReassignmentRecipient = Literal["new_coordinator", "previous_coordinator", "orga
 BookingDecision = Literal["approved", "rejected"]
 # What the coordinator decided on an event request (SCRUM-84).
 RequestDecision = Literal["approved", "rejected"]
+# What the Safety Officer decided on an event's arrangements (SCRUM-99).
+SafetyOutcome = Literal["approved", "rejected"]
 
 
 class Notifier(Protocol):
@@ -149,6 +151,40 @@ class Notifier(Protocol):
         equipment_needs: str | None,
     ) -> None: ...
 
+    def event_confirmed(
+        self,
+        *,
+        email: str,
+        request_reference: str,
+        event_name: str,
+        starts_at: datetime,
+        ends_at: datetime,
+        venues: list[str],
+    ) -> None: ...
+
+    def safety_review_decided(
+        self,
+        *,
+        email: str,
+        request_reference: str,
+        event_name: str,
+        outcome: SafetyOutcome,
+        comments: str | None,
+        issues: list[str],
+    ) -> None: ...
+
+
+    def change_requested(
+        self,
+        *,
+        email: str,
+        event_id: uuid.UUID,
+        event_name: str,
+        organiser_name: str,
+        fields: list[str],
+        reason: str,
+        to_lead: bool,
+    ) -> None: ...
 
 class LoggingNotifier:
     """Sprint 1 stand-in: no mail is sent, the call is logged (spec §7)."""
@@ -406,6 +442,72 @@ class LoggingNotifier:
             equipment_needs or "none",
         )
 
+    def event_confirmed(
+        self,
+        *,
+        email: str,
+        request_reference: str,
+        event_name: str,
+        starts_at: datetime,
+        ends_at: datetime,
+        venues: list[str],
+    ) -> None:
+        # SCRUM-85 AC 4: the organiser hears the event is confirmed, with its date, time and venue(s).
+        logger.info(
+            "event confirmed: %s, %s (%s) from %s to %s at %s",
+            email,
+            request_reference,
+            event_name,
+            starts_at.isoformat(),
+            ends_at.isoformat(),
+            ", ".join(venues),
+        )
+
+    def safety_review_decided(
+        self,
+        *,
+        email: str,
+        request_reference: str,
+        event_name: str,
+        outcome: SafetyOutcome,
+        comments: str | None,
+        issues: list[str],
+    ) -> None:
+        # SCRUM-99 AC 5: the event's coordinator hears the outcome, the comments and what was flagged.
+        logger.info(
+            "safety review %s: %s, %s (%s); issues: %s; comments: %s",
+            outcome,
+            email,
+            request_reference,
+            event_name,
+            ", ".join(issues) or "none",
+            comments or "none",
+        )
+
+
+    def change_requested(
+        self,
+        *,
+        email: str,
+        event_id: uuid.UUID,
+        event_name: str,
+        organiser_name: str,
+        fields: list[str],
+        reason: str,
+        to_lead: bool,
+    ) -> None:
+        # US29a (SCRUM-97) AC 5: the event's coordinator hears an organiser asked for a change; a Lead when
+        # nobody is assigned yet (D91).
+        logger.info(
+            "change requested: %s%s, %r (%s) by %s, fields %s; reason: %s",
+            email,
+            " (Lead, unassigned)" if to_lead else "",
+            event_name,
+            event_id,
+            organiser_name,
+            ", ".join(fields),
+            reason,
+        )
 
 notifier = LoggingNotifier()
 

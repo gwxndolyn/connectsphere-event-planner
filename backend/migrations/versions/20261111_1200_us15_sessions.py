@@ -1,7 +1,7 @@
 """add event sessions, an event's agenda on one track
 
-Revision ID: 20261109_1200_us15_sessions
-Revises: 20261108_1200_us12_event_edits
+Revision ID: 20261111_1200_us15_sessions
+Revises: 20261110_1200_us30a_safety
 Create Date: 2026-11-09
 
 """
@@ -12,8 +12,8 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 
-revision: str = "20261109_1200_us15_sessions"
-down_revision: Union[str, None] = "20261108_1200_us12_event_edits"
+revision: str = "20261111_1200_us15_sessions"
+down_revision: Union[str, None] = "20261110_1200_us30a_safety"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

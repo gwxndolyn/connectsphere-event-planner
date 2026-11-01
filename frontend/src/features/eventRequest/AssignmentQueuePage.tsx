@@ -20,7 +20,7 @@ type Screen = "queue" | "assign" | "done" | "history" | "detail";
 type Tab = "unassigned" | "assigned";
 
 // SCRUM-86 AC 3: the statuses an assigned, still-active event can be in.
-const ACTIVE_STATUSES = ["under_review", "awaiting_clarification", "approved", "planning", "confirmed"];
+const ACTIVE_STATUSES = ["under_review", "awaiting_clarification", "approved", "planning", "confirmed", "preparation"];
 
 // SCRUM-13 AC 4 and 7: the backend says why a pick was refused.
 const REFUSALS: Record<string, string> = {

@@ -33,8 +33,9 @@ def list_my_registrations(
     attendee: Attendee = Depends(get_current_attendee),
     db: Session = Depends(get_db),
     now: datetime = Depends(get_now),
+    notifier: Notifier = Depends(get_notifier),
 ) -> MyRegistrationsResponse:
-    return registration_service.list_my_registrations(db, attendee, now)
+    return registration_service.list_my_registrations(db, attendee, now, notifier)
 
 
 @events_router.post("/{event_id}/registrations", status_code=201)
@@ -44,8 +45,9 @@ def register(
     attendee: Attendee = Depends(get_current_attendee),
     db: Session = Depends(get_db),
     now: datetime = Depends(get_now),
+    notifier: Notifier = Depends(get_notifier),
 ) -> RegisterResponse:
-    return registration_service.register(db, event_id, attendee, body.answers, now)
+    return registration_service.register(db, event_id, attendee, body.answers, now, notifier)
 
 
 @events_router.post("/{event_id}/waitlist", status_code=201)
@@ -54,9 +56,10 @@ def join_waitlist(
     attendee: Attendee = Depends(get_current_attendee),
     db: Session = Depends(get_db),
     now: datetime = Depends(get_now),
+    notifier: Notifier = Depends(get_notifier),
 ) -> WaitlistJoinResponse:
     # SCRUM-136: the logged-in attendee joins, like register; there's no body (D3, D7).
-    return registration_service.join_waitlist(db, event_id, attendee, now)
+    return registration_service.join_waitlist(db, event_id, attendee, now, notifier)
 
 
 @router.post("/{registration_id}/withdraw")
@@ -78,7 +81,7 @@ def expire_offer(
     now: datetime = Depends(get_now),
     notifier: Notifier = Depends(get_notifier),
 ) -> OfferReleaseResponse:
-    """Manual stand-in for the scheduled sweep (SCRUM-37). No scheduler this sprint."""
+    """Forced expiry, kept for tests (SCRUM-37). Offers expire on read since SCRUM-137 (D2)."""
     return registration_service.expire_offer(db, registration_id, now, notifier)
 
 
@@ -101,6 +104,7 @@ def accept_offer(
     attendee: Attendee = Depends(get_current_attendee),
     db: Session = Depends(get_db),
     now: datetime = Depends(get_now),
+    notifier: Notifier = Depends(get_notifier),
 ) -> RegisterResponse:
     """US6b AC 2: the attendee holding an offer takes up the seat."""
-    return registration_service.accept_offer(db, registration_id, attendee, now)
+    return registration_service.accept_offer(db, registration_id, attendee, now, notifier)

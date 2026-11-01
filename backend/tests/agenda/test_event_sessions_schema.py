@@ -17,7 +17,7 @@ from app.seed import AGENDA_EVENT_NAME, AGENDA_EVENT_SLUG, seed, seed_id
 from tests.conftest import BACKEND_DIR
 from tests.factories import NOW, make_event
 
-REVISION = "20261109_1200_us15_sessions"
+REVISION = "20261111_1200_us15_sessions"
 TEN = NOW.replace(hour=10) + timedelta(days=3)
 
 
