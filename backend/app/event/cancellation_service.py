@@ -74,7 +74,7 @@ def _out(row: EventCancellation, event: Event) -> CancellationOut:
         decided_by=_person(row.decided_by) if row.decided_by else None,
         decided_at=row.decided_at,
         rejection_reason=row.rejection_reason,
-        direct=row.decided_by_user_id == row.requested_by_user_id,
+        direct=row.direct,
     )
 
 
@@ -136,6 +136,7 @@ class CancellationService:
             requested_at=now,
             decided_by_user_id=coordinator.id,
             decided_at=now,
+            direct=True,
         )
         db.add(row)
         return self._cancel(db, notifier, event, row, now)
