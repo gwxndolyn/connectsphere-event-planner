@@ -40,7 +40,7 @@ Decided by the acting PO, Matthew, on 1 Nov (team channel).
 | TC-US15-04 | — | The seed; sessions on Agenda Demo and on another event | The seed runs (twice) | Agenda Demo exists in `planning`, owned by the seeded organiser, with its times; the second run changes nothing; Agenda Demo's sessions are gone and the other event's remain | SCRUM-138 |
 | TC-US15-05 | 1, 2, 5 | The owner's draft with preferred dates and times | The owner adds a presentation, a workshop, a panel, a break and an `other` session, then lists them | `201` each; the list is in chronological order with every field | SCRUM-139 |
 | TC-US15-06 | 1 | A session | The owner edits its title, speaker and times; then deletes it | `200` with the new values; `204`, then it's gone from the list | SCRUM-139 |
-| TC-US15-07 | 3 | A planning event (10:00–17:00), and a draft with two preferred dates, 09:00–12:00 | Sessions starting before, ending after, or on a date that isn't preferred; one exactly at the edges; a draft with no dates | Outside the window is `422 INVALID_SESSION` naming `starts_at` / `ends_at`; the edges save; no dates is `422` saying the event's dates are needed first | SCRUM-139 |
+| TC-US15-07 | 3 | A planning event (10:00–17:00), and a draft with two preferred dates, 09:00–12:00 | Sessions starting before, ending after, or on a date that isn't preferred; one exactly at the edges; a draft with no dates; the planning event's start moved past a saved session | Outside the window is `422 INVALID_SESSION` naming `starts_at` / `ends_at`; the edges save; no dates is `422` saying the event's dates are needed first; the moved-past session stays, and the list marks it `outside_window` | SCRUM-139 |
 | TC-US15-08 | 4 | A 10:00–11:00 session | Adding, or editing another session to, 10:30–11:30; adding 11:00–12:00; editing the first session within its own times | `409 SESSION_OVERLAP` naming the 10:00 session; back-to-back saves; a session doesn't clash with itself | SCRUM-139 |
 | TC-US15-09 | 2 | A blank title, an end before the start, a non-break with no speaker, an unknown type | The owner adds it | `422 INVALID_SESSION`, naming every invalid field at once | SCRUM-139 |
 | TC-US15-10 | 1 | A request in `submitted`, `awaiting_clarification`, `approved`, `confirmed` and `preparation` | The owner adds, edits or deletes a session | `409 AGENDA_NOT_EDITABLE` with the status; nothing changes; listing still works | SCRUM-139 |
@@ -50,6 +50,45 @@ Decided by the acting PO, Matthew, on 1 Nov (team channel).
 | TC-US15-14 | 1, 3, 4 | A mocked `SESSION_OVERLAP`; a submitted request; a session outside the current window | The owner saves; opens the submitted one; opens the third | The overlap is shown naming the clashing session; the submitted one's agenda is read-only; the session is marked "Outside the event's times" | SCRUM-140 |
 | TC-US15-15 | 1, 2, 5 | Agenda Demo (planning) | The organiser adds a break and a presentation, then edits one, out of time order | The agenda shows them in chronological order. Rerun after a reseed | SCRUM-140 |
 
+## Evidence
+
+SCRUM-139's API, called on a local server (`AUTH_DEV_HEADERS=true`) against a freshly seeded database, as the seeded organiser Olivia Organiser and Lead Lena Lim, at the commit that adds these files. Agenda Demo is `planning`, 09:00 to 17:00 on its day (Singapore time); the submitted request is Olivia's Neighbourhood planning workshop. The sessions added were deleted afterwards, so Agenda Demo is as the seed left it.
+
+### SCRUM-139: the organiser adds a session (TC-US15-05)
+
+![The organiser adds a session to Agenda Demo: 201](screenshots/US15-event-agenda/01-add-session.png)
+
+### SCRUM-139: chronological order (TC-US15-05, AC 5)
+
+![The agenda in chronological order: 200](screenshots/US15-event-agenda/02-chronological-list.png)
+
+### SCRUM-139: one track (TC-US15-08, AC 4)
+
+![An overlapping session refused, naming the clash: 409 SESSION_OVERLAP](screenshots/US15-event-agenda/03-overlap.png)
+
+### SCRUM-139: the event's window (TC-US15-07, AC 3)
+
+![A session past the event's end refused: 422 INVALID_SESSION](screenshots/US15-event-agenda/04-outside-window.png)
+
+### SCRUM-139: every invalid field at once (TC-US15-09, AC 2)
+
+![Four invalid fields named in one 422](screenshots/US15-event-agenda/05-every-invalid-field.png)
+
+### SCRUM-139: edit and delete (TC-US15-06, AC 1)
+
+![A partial edit (200), then a delete (204)](screenshots/US15-event-agenda/06-edit-and-delete.png)
+
+### SCRUM-139: read-only once submitted (TC-US15-10, AC 1)
+
+![A submitted request's agenda refused: 409 AGENDA_NOT_EDITABLE](screenshots/US15-event-agenda/07-submitted-is-read-only.png)
+
+### SCRUM-139: a Lead reads but doesn't change (TC-US15-11)
+
+![A Lead lists a submitted request's agenda (200) and is refused a change (403)](screenshots/US15-event-agenda/08-lead-reads-not-changes.png)
+
+### SCRUM-139: the backend tests
+
+![24 agenda API tests, the 4 routes in the role matrix, and the whole backend suite pass](screenshots/US15-event-agenda/09-backend-tests.png)
 ## Run log
 
 | Date | Subtask | What ran | Result |
