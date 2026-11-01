@@ -1009,6 +1009,14 @@ function sessionValues(current: Partial<FakeSession>, body: unknown): Partial<Fa
 }
 
 function refuseSession(eventId: string, values: Partial<FakeSession>, sessionId?: string): Response | null {
+  // As the API's schema: a time that's sent but isn't one ("") is FastAPI's own 422, with no `code`; only a
+  // missing (null) time reaches the service's per-field messages.
+  for (const field of ["starts_at", "ends_at"] as const) {
+    const value = values[field];
+    if (value != null && Number.isNaN(Date.parse(value))) {
+      return HttpResponse.json({ detail: [{ type: "datetime_from_date_parsing", loc: ["body", field] }] }, { status: 422 });
+    }
+  }
   const errors: Record<string, string> = {};
   if (!values.title) errors.title = "Give the session a title.";
   if (!values.session_type) errors.session_type = "Choose a session type.";

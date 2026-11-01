@@ -92,6 +92,25 @@ describe("the organiser builds their event's agenda (US15)", () => {
     expect(callsTo("DELETE", `/api/v1/event-sessions/${welcome.id}`)).toHaveLength(1);
   });
 
+  it("TC-US15-13: a session saved with no times gets the API's message on Start time and End time (AC 2)", async () => {
+    const user = userEvent.setup();
+    const draft = seedRequest();
+    const agenda = await openAgenda(user);
+
+    await user.click(within(agenda).getByRole("button", { name: "Add session" }));
+    const form = within(agenda).getByRole("form", { name: "Session" });
+    await user.type(within(form).getByLabelText("Title"), "Keynote");
+    await user.type(within(form).getByLabelText("Speaker or presenter"), "Dr Tan");
+    await user.click(within(form).getByRole("button", { name: "Save session" }));
+
+    expect(await within(agenda).findByRole("alert")).toHaveTextContent("Review the fields marked below");
+    expect(within(form).getByLabelText("Start time")).toHaveAttribute("aria-invalid", "true");
+    expect(within(form).getByLabelText("End time")).toHaveAttribute("aria-invalid", "true");
+    expect(form).toHaveTextContent("Give the session's start time.");
+    expect(form).toHaveTextContent("Give the session's end time.");
+    expect(callsTo("POST", `/api/v1/event-requests/${draft.id}/sessions`)[0].body).toMatchObject({ starts_at: null, ends_at: null });
+  });
+
   it("TC-US15-14: names the clashing session on an overlap (AC 4)", async () => {
     const user = userEvent.setup();
     const draft = seedRequest();
