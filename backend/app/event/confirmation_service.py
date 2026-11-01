@@ -22,7 +22,7 @@ from app.venue.models import LIVE_BOOKING_STATUSES, Venue, VenueBooking, VenueBo
 logger = logging.getLogger(__name__)
 
 # US18 AC 5: only an event still being arranged can be confirmed. Cancelled, Rejected and an
-# already Confirmed event are refused, and so is anything not yet approved. DECISION-PENDING: D84 —
+# already Confirmed event are refused, and so is anything not yet approved. DECISION-PENDING: D86 —
 # Approved counts as well as Planning, because nothing moves an approved request on to Planning (D53).
 CONFIRMABLE_STATUSES = (EventStatus.APPROVED, EventStatus.PLANNING)
 # The statuses an event's coordinator works it in, so the readiness list shows in each (widens D11).
