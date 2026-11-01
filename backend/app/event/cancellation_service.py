@@ -4,13 +4,20 @@ from dataclasses import dataclass
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import DomainError
 from app.equipment.models import EquipmentReservation, TechStaffAssignment
 from app.event.cancellation_schemas import CancellationOut, CancellationWrite
-from app.event.models import CancellationStatus, Event, EventCancellation, EventStatus
+from app.event.models import (
+    CancellationStatus,
+    ChangeRequestStatus,
+    Event,
+    EventCancellation,
+    EventChangeRequest,
+    EventStatus,
+)
 from app.event.request_schemas import CoordinatorOut
 from app.event.self_decision import refuse_self_decision
 from app.notification.service import CancellationRecipient, Notifier
@@ -30,9 +37,9 @@ EVENT_TIMEZONE = ZoneInfo("Asia/Singapore")
 
 def _starts_at(event: Event, first_booking: datetime | None) -> datetime | None:
     """When the event starts, for AC 7. Its own start once planned. An Approved request has none (D86), so:
-    DECISION-PENDING: D101 — its earliest live venue booking, which places it; with no booking, its last preferred
-    date at its preferred start time, Singapore time (D9), by when it has started whichever date it's on. None if
-    it has neither."""
+    DECISION-PENDING: D101 — its earliest approved venue booking, which places it (a pending one may never be
+    approved, and doesn't expire until US25); with none, its last preferred date at its preferred start time,
+    Singapore time (D9), by when it has started whichever date it's on. None if it has neither."""
     if event.start_at is not None:
         return event.start_at
     if first_booking is not None:
@@ -185,12 +192,14 @@ class CancellationService:
         return result
 
     def list_for_event(self, db: Session, reader: User, event_id: uuid.UUID) -> list[CancellationOut]:
-        """AC 8: the event's cancellation requests and decisions, newest first, for its organiser and its coordinator."""
+        """AC 8: the event's cancellation requests and decisions, newest first, for its organiser, its coordinator and
+        every Coordinator Lead (who read every submitted request, D48)."""
         event = db.get(Event, event_id)
-        if event is None or event.status == EventStatus.DRAFT or reader.id not in (
-            event.created_by_user_id,
-            event.coordinator_id if reader.holds(UserRole.COORDINATOR) else None,
-        ):
+        reads = reader.holds(UserRole.COORDINATOR_LEAD) or reader.id in (
+            event.created_by_user_id if event else None,
+            event.coordinator_id if event and reader.holds(UserRole.COORDINATOR) else None,
+        )
+        if event is None or event.status == EventStatus.DRAFT or not reads:
             raise DomainError(404, "NOT_FOUND")
         rows = db.scalars(
             select(EventCancellation)
@@ -248,7 +257,7 @@ class CancellationService:
             raise DomainError(409, "CANCELLATION_NOT_ALLOWED", status=event.status.value)
         first_booking = db.scalar(
             select(func.min(VenueBooking.starts_at)).where(
-                VenueBooking.event_id == event.id, VenueBooking.status.in_(LIVE_BOOKING_STATUSES)
+                VenueBooking.event_id == event.id, VenueBooking.status == VenueBookingStatus.APPROVED
             )
         )
         starts_at = _starts_at(event, first_booking)
@@ -286,6 +295,18 @@ class CancellationService:
             booking.updated_at = now
         # D75 (Calvin's ask on SCRUM-12): releasing a reservation is deleting it.
         db.execute(delete(EquipmentReservation).where(EquipmentReservation.event_id == event.id))
+        # Work still open on the event can't go ahead (AC 4): its pending change requests (US12, US29a) are rejected
+        # here, so US29b never approves a change to a cancelled event. Equipment lines awaiting Tech support can't be
+        # (D51 bars the coordinator as their reviewer), so Tech support's queue and review refuse a cancelled event's
+        # instead; safety reviews already take only Approved and Planning events (US30a).
+        db.execute(
+            update(EventChangeRequest)
+            .where(
+                EventChangeRequest.event_id == event.id,
+                EventChangeRequest.status == ChangeRequestStatus.PENDING_APPROVAL,
+            )
+            .values(status=ChangeRequestStatus.REJECTED)
+        )
         # TODO(US25): release the event's tentative venue holds here (SCRUM-93 AC 7).
         # Tech support assignments stay (the story owner's choice): D81 already frees the staff of a cancelled event.
         db.flush()
@@ -368,21 +389,36 @@ class CancellationService:
         self, db: Session, notifier: Notifier, event: Event, organiser: User, coordinator_id: uuid.UUID | None,
         reason: str,
     ) -> None:
-        """AC 2: the assigned coordinator hears of the request. After the commit; a failure is logged."""
+        """AC 2: the assigned coordinator hears of the request. With none active, every active Lead does instead, as
+        for a change request (D91): only the event's coordinator decides, so a Lead must reassign it (US10e) or the
+        organiser waits for good. After the commit; a failure is logged."""
         try:
             coordinator = db.get(User, coordinator_id) if coordinator_id else None
-            if coordinator is None or not coordinator.is_active:
+            if coordinator is not None and coordinator.is_active:
+                recipients = [coordinator]
+            else:
+                recipients = db.scalars(
+                    select(User)
+                    .where(User.roles.any(UserRole.COORDINATOR_LEAD), User.is_active.is_(True))
+                    .order_by(User.email)
+                ).all()
+            if not recipients:
                 logger.warning("could not tell anyone about the cancellation request on event %s", event.id)
                 return
-            notifier.cancellation_requested(
-                email=coordinator.email,
-                event_id=event.id,
-                event_name=self._name(event),
-                organiser_name=organiser.display_name,
-                reason=reason,
-            )
         except Exception:
-            logger.exception("could not send the cancellation request notice for event %s", event.id)
+            logger.exception("could not look up who to tell about the cancellation request on event %s", event.id)
+            return
+        for recipient in recipients:
+            try:
+                notifier.cancellation_requested(
+                    email=recipient.email,
+                    event_id=event.id,
+                    event_name=self._name(event),
+                    organiser_name=organiser.display_name,
+                    reason=reason,
+                )
+            except Exception:
+                logger.exception("could not tell %s about the cancellation request on event %s", recipient.id, event.id)
 
     def _name(self, event: Event) -> str:
         return event.name or event.request_reference or str(event.id)
