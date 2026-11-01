@@ -1,6 +1,8 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { ApiError, apiClient } from "../../api/client";
 import { EventChangeRequests } from "../changeRequest/EventChangeRequests";
+import { CANCELLATION_VISIBLE } from "../cancellation/cancellationApi";
+import { EventCancellation } from "../cancellation/EventCancellation";
 import { EventVenuesOverview } from "../venue/EventVenuesOverview";
 import { ClarificationThreadView } from "./ClarificationThreadView";
 import { DecisionOutcome } from "./RequestDecision";
@@ -593,6 +595,19 @@ export function EventRequestsPage() {
           {VENUES_VISIBLE.includes(activeRequest.status) && <EventVenuesOverview event={activeRequest} />}
           <EventChangeRequests event={activeRequest} />
           <SafetyOutcome request={activeRequest} />
+          {/* US9 (SCRUM-12): ask to cancel from approval on, and the cancellation record afterwards. */}
+          {CANCELLATION_VISIBLE.includes(activeRequest.status) && (
+            <EventCancellation
+              key={activeRequest.id}
+              event={activeRequest}
+              role="organiser"
+              onChanged={(status) => {
+                const updated = { ...activeRequest, status };
+                setRequests((current) => current.map((request) => (request.id === updated.id ? updated : request)));
+                setActiveRequest(updated);
+              }}
+            />
+          )}
           <button className="request-button request-button--primary" type="button" onClick={backToList}>
             Back to my requests
           </button>
