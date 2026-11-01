@@ -2084,7 +2084,7 @@ One PR, no subtasks in Jira.
 
 ### SCRUM-85 (US18)
 
-One PR. The ticket's subtasks: widen D11, readiness check, confirm endpoint, Preparation status and transition, frontend readiness panel and confirm button, notifier, tests.
+Test cases in full, with screenshots of each acceptance criterion: `docs/testing/US18-confirm-event.md`. One PR. The ticket's subtasks: widen D11, readiness check, confirm endpoint, Preparation status and transition, frontend readiness panel and confirm button, notifier, tests.
 
 | Work | Done when |
 |---|---|
