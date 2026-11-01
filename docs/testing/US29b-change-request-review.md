@@ -17,7 +17,7 @@
 
 | PR | Work | Tests |
 | --- | --- | --- |
-| 1, SCRUM-141 | Decision columns on `event_change_requests`, `event_audit_entries.action`, `event_review_flags` (migration `20261113_1200_us29b_decisions`); seeded **Change Request Demo** | `backend/tests/event/test_change_request_decision_schema.py` (TC-US29B-01 to 07) |
+| 1, SCRUM-141 | Decision columns on `event_change_requests`, `event_audit_entries.action`, `event_review_flags` (migration `20261114_1200_us29b_decisions`); seeded **Change Request Demo** | `backend/tests/event/test_change_request_decision_schema.py` (TC-US29B-01 to 07) |
 | 2, SCRUM-142 | List, approve and reject change requests; list and clear review flags; readiness and safety queue; notices | `backend/tests/event/test_change_request_decisions.py`, `backend/tests/event/test_review_flags.py` (TC-US29B-08 to 25) |
 | 3, SCRUM-143 | The coordinator's review panel, flags in the readiness list, the safety notice, the organiser's outcome | `frontend/src/features/changeRequest/changeRequestReview.integration.test.tsx` (TC-US29B-26 to 32); `e2e/tests/change-request-review.spec.ts` (TC-US29B-33) |
 
@@ -25,12 +25,12 @@
 
 All six are **the story owner's defaults, asked of the acting PO (Matthew) on 1 Nov**, and marked `DECISION-PENDING` in the code. They'll be updated when he answers.
 
-- **D99, who decides** (settles D89): the event's assigned coordinator decides an Organiser's request. A coordinator's own US12 critical edit goes to any active Coordinator Lead (D51), through the API only: there is no Lead screen in this story, and a follow-up ticket adds it.
-- **D100, significant:** schedule, attendance, layout, venue (accessibility, delivery mode) or equipment; not name, category, purpose or join link.
-- **D101, flags:** one row per affected live booking, reserved equipment line, and one for the event's registrations; one open flag per item. The coordinator clears each with an optional note. Open flags block confirming. Nothing on the item changes.
-- **D102, statuses:** Confirmed goes back to Planning (its confirmation cleared); Approved and Planning stay; request-stage events just take the values; approving is refused in Preparation, Cancelled, Completed and Rejected. Registration closes until the event is confirmed again.
-- **D103, safety** (amends D92): a significant change clears an existing safety approval; the earlier review row stays. The event returns to the Safety Officer's queue once its flags are cleared.
-- **D104, stale requests:** if the event changed since the request was made, approving is refused with `409 CHANGE_REQUEST_STALE`; it can still be rejected.
+- **D100, who decides** (settles D89): the event's assigned coordinator decides an Organiser's request. A coordinator's own US12 critical edit goes to any active Coordinator Lead (D51), through the API only: there is no Lead screen in this story, and a follow-up ticket adds it.
+- **D101, significant:** schedule, attendance, layout, venue (accessibility, delivery mode) or equipment; not name, category, purpose or join link.
+- **D102, flags:** one row per affected live booking, reserved equipment line, and one for the event's registrations; one open flag per item. The coordinator clears each with an optional note. Open flags block confirming. Nothing on the item changes.
+- **D103, statuses:** Confirmed goes back to Planning (its confirmation cleared); Approved and Planning stay; request-stage events just take the values; approving is refused in Preparation, Cancelled, Completed and Rejected. Registration closes until the event is confirmed again.
+- **D104, safety** (amends D92): a significant change clears an existing safety approval; the earlier review row stays. The event returns to the Safety Officer's queue once its flags are cleared.
+- **D105, stale requests:** if the event changed since the request was made, approving is refused with `409 CHANGE_REQUEST_STALE`; it can still be rejected.
 
 ## Test cases
 
@@ -82,3 +82,8 @@ After merging `origin/main` (#115, US9 cancellations schema, SCRUM-12), 1 Nov 20
 
 - Migration: local database rebuilt (it had run the old revision id), then `alembic upgrade head`, `downgrade -1`, `upgrade head`; `python -m app.seed`.
 - Backend: `pytest`: 1480 passed (main's 1472 plus TC-US29B-01 to 07's 8).
+
+After merging `origin/main` (#116, US30b request changes after a safety review, SCRUM-100), 1 Nov 2026: the migration is renamed `20261114_1200_us29b_decisions` and follows `20261113_1200_us30b_changes` (one head); US29b's decisions are renumbered D100 to D105, since US30b took D99. Deviation 64 is now US30b's, so US29b's API and screen deviations will be 65 and 66.
+
+- Migration: local database downgraded to `20261112_1200_us9_cancellations` before the rename, then `alembic upgrade head`; `python -m app.seed --yes`.
+- Backend: `pytest`: 1503 passed (main's 1495 plus TC-US29B-01 to 07's 8). Frontend: Vitest 460 passed.

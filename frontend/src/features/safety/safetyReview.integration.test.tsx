@@ -61,8 +61,13 @@ async function openEvent(user: User, name = "Alumni night") {
   await screen.findByRole("heading", { name: "Safety review" });
 }
 
+// The seven checklist items are the groups of radios; the areas affected (US30b) are a group of checkboxes.
+function checklistGroups() {
+  return screen.getAllByRole("group").filter((group) => within(group).queryAllByRole("radio").length > 0);
+}
+
 async function answerAll(user: User, result: "Satisfactory" | "Issue" = "Satisfactory") {
-  for (const group of screen.getAllByRole("group")) {
+  for (const group of checklistGroups()) {
     await user.click(within(group).getByRole("radio", { name: result }));
   }
 }
@@ -108,7 +113,7 @@ describe("Safety Officer reviews an event (US30a AC 2, 9)", () => {
     expect(within(screen.getByRole("region", { name: "Event details" })).getByText("Step-free access")).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Venue SCIS Seminar Room 2-1" })).toBeInTheDocument();
     expect(within(screen.getByRole("region", { name: "Equipment" })).getByText(/2 × Projector/)).toBeInTheDocument();
-    expect(screen.getAllByRole("group")).toHaveLength(7);
+    expect(checklistGroups()).toHaveLength(7);
     expect(screen.getByRole("group", { name: "Emergency access" })).toBeInTheDocument();
     // Nothing about the organiser or the request's history is shown (AC 9).
     expect(screen.queryByText(/organiser-id/i)).not.toBeInTheDocument();
@@ -193,6 +198,7 @@ describe("Organiser and Coordinator read the outcome (US30a AC 4, 7)", () => {
       id: "review-1",
       event_id: request.id,
       outcome: "rejected",
+      areas: null,
       checklist: Object.fromEntries(KEYS.map((key) => [key, { result: key === "emergency_access" ? "issue" : "satisfactory", comment: key === "emergency_access" ? "Only one exit is clear." : null }])) as never,
       comments: "Add a second exit.",
       internal_notes: "Venue has a history of blocked exits.",
@@ -247,5 +253,161 @@ describe("Organiser and Coordinator read the outcome (US30a AC 4, 7)", () => {
 
     expect(screen.queryByRole("region", { name: "Safety review" })).not.toBeInTheDocument();
     expect(callsTo("GET", /safety-reviews$/)).toHaveLength(0);
+  });
+});
+
+// US30b (SCRUM-100): request changes, with comments and the areas affected; the coordinator marks them done.
+describe("Safety Officer requests changes (US30b AC 1, 2)", () => {
+  it("TC-US30B-31: offers Request changes with the five areas to tick", async () => {
+    seedReadyEvent();
+    const user = userEvent.setup();
+
+    await openEvent(user);
+
+    const areas = screen.getByRole("group", { name: /Areas affected/ });
+    expect(within(areas).getAllByRole("checkbox").map((box) => box.closest("label")?.textContent)).toEqual([
+      "Venue", "Layout", "Equipment", "Accessibility", "Other",
+    ]);
+    expect(screen.getByRole("button", { name: "Request changes" })).toBeInTheDocument();
+  });
+
+  it("TC-US30B-32: needs comments and at least one area, and sends nothing without them", async () => {
+    seedReadyEvent();
+    const user = userEvent.setup();
+    await openEvent(user);
+    await answerAll(user);
+
+    await user.click(screen.getByRole("button", { name: "Request changes" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Tick at least one area when requesting changes");
+    await user.type(screen.getByLabelText("Comments for the coordinator and organiser"), "Widen the aisles.");
+    await user.click(screen.getByRole("button", { name: "Request changes" }));
+    await user.click(within(screen.getByRole("group", { name: /Areas affected/ })).getByRole("checkbox", { name: "Layout" }));
+    await user.clear(screen.getByLabelText("Comments for the coordinator and organiser"));
+    await user.click(screen.getByRole("button", { name: "Request changes" }));
+
+    expect(screen.getByLabelText("Comments for the coordinator and organiser")).toBeInvalid();
+    expect(callsTo("POST", /safety-reviews\//)).toHaveLength(0);
+  });
+
+  it("TC-US30A-50: says an Approved event stays Approved after a rejection, not planning", async () => {
+    seedReadyEvent();
+    const user = userEvent.setup();
+    await openEvent(user);
+    await answerAll(user);
+    await user.click(within(screen.getByRole("group", { name: "Emergency access" })).getByRole("radio", { name: "Issue" }));
+    await user.type(screen.getByLabelText(/^Comments for the coordinator/), "Add a second exit.");
+
+    await user.click(screen.getByRole("button", { name: "Reject safety arrangement" }));
+
+    expect(await screen.findByRole("heading", { name: "Safety arrangement rejected" })).toBeInTheDocument();
+    expect(screen.getByText(/stays in approved\./)).toBeInTheDocument();
+    expect(screen.queryByText(/stays in planning/)).not.toBeInTheDocument();
+  });
+
+  it("TC-US30B-37: says a Planning event stays in planning after a request for changes", async () => {
+    seedReadyEvent({ status: "planning" });
+    const user = userEvent.setup();
+    await openEvent(user);
+    await answerAll(user);
+    await user.click(within(screen.getByRole("group", { name: /Areas affected/ })).getByRole("checkbox", { name: "Layout" }));
+    await user.type(screen.getByLabelText(/^Comments for the coordinator/), "Widen the aisles.");
+
+    await user.click(screen.getByRole("button", { name: "Request changes" }));
+
+    expect(await screen.findByRole("heading", { name: "Changes requested" })).toBeInTheDocument();
+    expect(screen.getByText(/stays in planning with the areas below marked for review/)).toBeInTheDocument();
+  });
+
+  it("TC-US30B-33: sends the outcome, comments and ticked areas, and shows what was sent", async () => {
+    const request = seedReadyEvent();
+    const user = userEvent.setup();
+    await openEvent(user);
+    await answerAll(user);
+    await user.click(within(screen.getByRole("group", { name: "Room layout" })).getByRole("radio", { name: "Issue" }));
+    const areas = screen.getByRole("group", { name: /Areas affected/ });
+    await user.click(within(areas).getByRole("checkbox", { name: "Venue" }));
+    await user.click(within(areas).getByRole("checkbox", { name: "Equipment" }));
+    await user.type(screen.getByLabelText("Comments for the coordinator and organiser"), "Move the stage back.");
+    await user.type(screen.getByLabelText(/^Internal notes/), "Second time.");
+
+    await user.click(screen.getByRole("button", { name: "Request changes" }));
+
+    expect(await screen.findByRole("heading", { name: "Changes requested" })).toBeInTheDocument();
+    const [call] = callsTo("POST", `/api/v1/safety-reviews/${request.id}`);
+    expect(call.body).toMatchObject({ outcome: "changes_requested", areas: ["venue", "equipment"], comments: "Move the stage back.", internal_notes: "Second time." });
+    const listed = screen.getByRole("list", { name: "Areas to review" });
+    expect(within(listed).getAllByRole("listitem").map((item) => item.textContent)).toEqual(["Venue", "Equipment"]);
+    // The demo is Approved, so it says approved; an event that is Planning says planning (TC-US30B-37).
+    expect(screen.getByText(/stays in approved with the areas below marked for review/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Back to safety reviews" }));
+    expect(await screen.findByText("No events are waiting for a safety review.")).toBeInTheDocument();
+  });
+});
+
+describe("Coordinator and Organiser read the request for changes (US30b AC 2, 3, 4)", () => {
+  function seedChanges() {
+    const request = seedReadyEvent({ status: "planning" });
+    db.safetyReviews.push({
+      id: "review-changes",
+      event_id: request.id,
+      outcome: "changes_requested",
+      areas: ["venue", "layout"],
+      checklist: Object.fromEntries(KEYS.map((key) => [key, { result: key === "layout" ? "issue" : "satisfactory", comment: key === "layout" ? "Aisles too narrow" : null }])) as never,
+      comments: "Widen the aisles.",
+      internal_notes: "Second time this layout has come up.",
+      reviewer: { id: SAFETY_OFFICER_ID, name: "Sam Safety" },
+      created_at: "2026-10-04T03:00:00Z",
+    });
+    return request;
+  }
+
+  async function openAs(role: "organiser" | "coordinator", user: User) {
+    setDevRole(role);
+    render(<App />);
+    await user.click(within(screen.getByRole("banner")).getByRole("button", { name: "Event requests" }));
+    await user.click(await screen.findByRole("button", { name: /Alumni night/ }));
+  }
+
+  it("TC-US30B-34: the organiser reads the areas and comments, never the internal notes", async () => {
+    seedChanges();
+    const user = userEvent.setup();
+
+    await openAs("organiser", user);
+
+    const outcome = await screen.findByRole("region", { name: "Safety review" });
+    expect(outcome).toHaveTextContent("Changes requested");
+    expect(within(within(outcome).getByRole("list", { name: "Areas to review" })).getAllByRole("listitem").map((i) => i.textContent)).toEqual(["Venue", "Layout"]);
+    expect(outcome).toHaveTextContent("Comments: Widen the aisles.");
+    expect(within(outcome).getByText("Room layout: Aisles too narrow")).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("Second time");
+    expect(within(outcome).queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("TC-US30B-35: the coordinator sees it on the readiness list and marks the changes done", async () => {
+    const request = seedChanges();
+    const user = userEvent.setup();
+    await openAs("coordinator", user);
+
+    const readiness = await screen.findByRole("list", { name: "Readiness" });
+    expect(within(readiness).getByText(/The Safety Officer asked for changes to Venue, Layout: Widen the aisles\./)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirm event" })).toBeDisabled();
+    await user.click(await screen.findByRole("button", { name: "Mark changes done" }));
+
+    expect(await screen.findByText("Sent for another safety review.")).toBeInTheDocument();
+    expect(callsTo("POST", `/api/v1/event-requests/${request.id}/safety-review-request`)).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Mark changes done" })).not.toBeInTheDocument();
+  });
+
+  it("TC-US30B-36: once marked done the event is back in the Safety Officer's queue, and the earlier review stays in its history", async () => {
+    seedChanges();
+    db.safetyResent[db.requests[0].id] = true;
+    const user = userEvent.setup();
+
+    await openEvent(user);
+
+    const earlier = screen.getByRole("region", { name: "Earlier reviews" });
+    expect(earlier).toHaveTextContent("Changes requested");
+    expect(earlier).toHaveTextContent("Areas to review: Venue, Layout");
+    expect(earlier).toHaveTextContent("Internal notes: Second time this layout has come up.");
   });
 });

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { ApiError, apiClient } from "../../api/client";
 import { formatInstantDateTime } from "../registration/datetime";
-import { checklistLabel } from "./checklist";
+import { areaLabel, checklistLabel } from "./checklist";
 import type {
   ChecklistAnswer,
   ChecklistResult,
@@ -28,18 +28,23 @@ function errorMessage(error: unknown): string {
     case "CHECKLIST_HAS_ISSUES":
       return "An item is marked Issue, so this can't be approved. Reject the arrangement, or mark the item satisfactory.";
     case "MISSING_REQUIRED_FIELD":
-      return "Answer every checklist item, and give comments when rejecting.";
+      return "Answer every checklist item, and give comments when rejecting or requesting changes. Tick at least one area when requesting changes.";
     case "SAFETY_REVIEW_NOT_ALLOWED":
       return {
         status: "This event can't be reviewed in its current status.",
         already_approved: "This event's safety has already been approved.",
-        awaiting_revision: "This arrangement was rejected. It's reviewed again once the coordinator sends it back.",
+        awaiting_revision:
+          "This arrangement was rejected, or changes were requested. It's reviewed again once the coordinator sends it back.",
         arrangements_incomplete: "Its venue bookings or equipment are no longer all approved, so it isn't ready to review.",
       }[String(error.body.reason)] ?? "This event can't be reviewed right now.";
     default:
       return `The backend rejected the review (${error.status}).`;
   }
 }
+
+const OUTCOME_LABELS = { approved: "Approved", rejected: "Rejected", changes_requested: "Changes requested" };
+const DONE_EYEBROWS = { approved: "APPROVED", rejected: "REJECTED", changes_requested: "CHANGES REQUESTED" };
+const DONE_TITLES = { approved: "Safety approved", rejected: "Safety arrangement rejected", changes_requested: "Changes requested" };
 
 function list(values: string[]): string {
   return values.length > 0 ? values.join(", ") : "None";
@@ -48,7 +53,8 @@ function list(values: string[]): string {
 /**
  * US30a (SCRUM-99): the Safety Officer's queue (AC 1), each event's checklist review (AC 2) and the
  * decision, approve or reject the safety arrangement with comments (AC 3, 4). Internal notes stay with the
- * Safety Officer (AC 7); only the event details a review needs are shown (AC 9).
+ * Safety Officer (AC 7); only the event details a review needs are shown (AC 9). SCRUM-100 (US30b): or
+ * request changes, with comments and the areas affected (AC 1).
  */
 export function SafetyReviewPage() {
   const [queue, setQueue] = useState<SafetyQueueRow[]>([]);
@@ -57,6 +63,7 @@ export function SafetyReviewPage() {
   const [answers, setAnswers] = useState<Record<string, { result?: ChecklistResult; comment: string }>>({});
   const [comments, setComments] = useState("");
   const [internalNotes, setInternalNotes] = useState("");
+  const [areas, setAreas] = useState<string[]>([]);
   const [invalid, setInvalid] = useState<string[]>([]);
   const [done, setDone] = useState<SafetyReviewInternal | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -89,6 +96,7 @@ export function SafetyReviewPage() {
       setAnswers({});
       setComments("");
       setInternalNotes("");
+      setAreas([]);
       setInvalid([]);
       setScreen("review");
     } catch (reason) {
@@ -102,10 +110,18 @@ export function SafetyReviewPage() {
     setError(null);
   }
 
-  async function submit(outcome: "approved" | "rejected") {
+  function toggleArea(key: string) {
+    setAreas((current) => (current.includes(key) ? current.filter((area) => area !== key) : [...current, key]));
+    setInvalid((current) => current.filter((field) => field !== "areas"));
+    setError(null);
+  }
+
+  async function submit(outcome: "approved" | "rejected" | "changes_requested") {
     if (!detail) return;
     const unanswered = detail.checklist.filter((item) => !answers[item.key]?.result).map((item) => `checklist.${item.key}`);
-    const missing = outcome === "rejected" && !comments.trim() ? [...unanswered, "comments"] : unanswered;
+    const missing = [...unanswered];
+    if (outcome !== "approved" && !comments.trim()) missing.push("comments");
+    if (outcome === "changes_requested" && areas.length === 0) missing.push("areas");
     if (missing.length > 0) {
       setInvalid(missing);
       setError(errorMessage(new ApiError(422, "MISSING_REQUIRED_FIELD", missing)));
@@ -124,6 +140,7 @@ export function SafetyReviewPage() {
         checklist,
         comments,
         internal_notes: internalNotes,
+        ...(outcome === "changes_requested" ? { areas } : {}),
       });
       setQueue((current) => current.filter((row) => row.event_id !== detail.event.id));
       setDone(saved);
@@ -142,6 +159,9 @@ export function SafetyReviewPage() {
     setDone(null);
     setError(null);
   }
+
+  // A rejection or a request for changes leaves the event in the status it was reviewed in: Approved or Planning.
+  const status = (detail?.event.status ?? "planning").replaceAll("_", " ");
 
   return (
     <main className="request-page">
@@ -255,8 +275,9 @@ export function SafetyReviewPage() {
               <h2>Earlier reviews</h2>
               {detail.history.map((review) => (
                 <div className="safety-outcome" key={review.id}>
-                  <strong>{review.outcome === "approved" ? "Approved" : "Rejected"}</strong> by {review.reviewer.name} on{" "}
+                  <strong>{OUTCOME_LABELS[review.outcome]}</strong> by {review.reviewer.name} on{" "}
                   {formatInstantDateTime(review.created_at)}
+                  {review.areas && <p>Areas to review: {review.areas.map(areaLabel).join(", ")}</p>}
                   {review.comments && <p>Comments: {review.comments}</p>}
                   {review.internal_notes && <p>Internal notes: {review.internal_notes}</p>}
                 </div>
@@ -303,6 +324,18 @@ export function SafetyReviewPage() {
             );
           })}
 
+          <fieldset className="safety-check safety-areas" aria-invalid={invalid.includes("areas")}>
+            <legend>Areas affected (tick at least one to request changes)</legend>
+            <div className="safety-check__choices">
+              {detail.change_areas.map((area) => (
+                <label key={area.key}>
+                  <input type="checkbox" checked={areas.includes(area.key)} onChange={() => toggleArea(area.key)} />
+                  {area.label}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+
           <label className={`request-field request-field--wide${invalid.includes("comments") ? " request-field--invalid" : ""}`}>
             Comments for the coordinator and organiser
             <textarea
@@ -331,6 +364,14 @@ export function SafetyReviewPage() {
               Reject safety arrangement
             </button>
             <button
+              className="request-button request-button--secondary"
+              type="button"
+              disabled={saving}
+              onClick={() => void submit("changes_requested")}
+            >
+              Request changes
+            </button>
+            <button
               className="request-button request-button--primary"
               type="button"
               disabled={saving}
@@ -345,14 +386,23 @@ export function SafetyReviewPage() {
       {screen === "done" && done && detail && (
         <section className="request-confirmation" aria-labelledby="safety-done-title">
           <span className="request-confirmation__mark" aria-hidden="true">✓</span>
-          <p className="request-page__eyebrow">{done.outcome === "approved" ? "APPROVED" : "REJECTED"}</p>
-          <h2 id="safety-done-title">{done.outcome === "approved" ? "Safety approved" : "Safety arrangement rejected"}</h2>
+          <p className="request-page__eyebrow">{DONE_EYEBROWS[done.outcome]}</p>
+          <h2 id="safety-done-title">{DONE_TITLES[done.outcome]}</h2>
           <p>
             {detail.event.name || "The event"}{" "}
             {done.outcome === "approved"
               ? "can now be confirmed by its coordinator."
-              : "stays in planning. The coordinator can revise the arrangement and send it for another review."}
+              : done.outcome === "changes_requested"
+                ? `stays in ${status} with the areas below marked for review. The coordinator makes the changes and marks them done, and it comes back to your queue.`
+                : `stays in ${status}. The coordinator can revise the arrangement and send it for another review.`}
           </p>
+          {done.areas && (
+            <ul className="clarify-sent-sections" aria-label="Areas to review">
+              {done.areas.map((key) => (
+                <li key={key}>{areaLabel(key)}</li>
+              ))}
+            </ul>
+          )}
           <ul className="clarify-sent-sections" aria-label="Checklist issues">
             {Object.entries(done.checklist)
               .filter(([, given]) => given.result === "issue")

@@ -1,6 +1,6 @@
 """US29b review an event change request, PR 1 (SCRUM-141, story SCRUM-98): a change request records its
 decision (who, when, and a rejection's reason), the event's history says what each entry is, and a
-significant change flags the event's affected arrangements for review (D101) without touching them. The
+significant change flags the event's affected arrangements for review (D102) without touching them. The
 seed adds Change Request Demo. The endpoints come in PR 2 (SCRUM-142). See
 docs/testing/US29b-change-request-review.md."""
 
@@ -27,8 +27,8 @@ from app.venue.models import VenueBooking, VenueBookingStatus
 from tests.conftest import BACKEND_DIR
 from tests.factories import NOW, make_event, make_user, make_venue, make_venue_booking
 
-REVISION = "20261113_1200_us29b_decisions"
-PREVIOUS_REVISION = "20261112_1200_us9_cancellations"
+REVISION = "20261114_1200_us29b_decisions"
+PREVIOUS_REVISION = "20261113_1200_us30b_changes"
 CHANGE = [{"field": "start_at", "old_value": "2026-10-02T09:00:00+08:00", "new_value": "2026-10-02T10:00:00+08:00"}]
 
 
@@ -393,7 +393,7 @@ def test_tc_us29b_07_seed_has_a_change_request_demo_and_a_reseed_resets_it(db: S
         assert demo.confirmed_at is not None and demo.confirmed_by_user_id == coordinator_id
         assert demo.safety_approved_at is not None and demo.safety_approved_by_user_id == safety_officer_id
         # The approval has its review (US30a), so the screens name the officer and a later significant change
-        # can clear the approval while the review stays (D103, TC-US29B-12).
+        # can clear the approval while the review stays (D104, TC-US29B-12).
         reviews = db.execute(
             text("select reviewer_id, outcome, created_at from safety_reviews where event_id = :e"), {"e": demo.id}
         ).all()
@@ -420,7 +420,7 @@ def test_tc_us29b_07_seed_has_a_change_request_demo_and_a_reseed_resets_it(db: S
     check_seeded()
 
     # What the app would do: approve a significant change, which moves the event back to Planning,
-    # clears its safety approval and flags its booking, its reservation and its registrations (D101-D103).
+    # clears its safety approval and flags its booking, its reservation and its registrations (D102-D104).
     request = db.scalars(select(EventChangeRequest).where(EventChangeRequest.event_id == demo.id)).one()
     db.execute(
         text(
