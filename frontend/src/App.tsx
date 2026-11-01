@@ -20,6 +20,8 @@ import { EventRequestsPage } from "./features/eventRequest/EventRequestsPage";
 import { EventsBoard } from "./features/registration/EventsBoard";
 import { MyEventsView } from "./features/registration/MyEventsView";
 import { useEventRegistry } from "./features/registration/useEventRegistry";
+import { NotificationsPage } from "./features/notifications/NotificationsPage";
+import { useUnreadCount } from "./features/notifications/useUnreadCount";
 import { SafetyReviewPage } from "./features/safety/SafetyReviewPage";
 import { VenuesPage } from "./features/venue/VenuesPage";
 
@@ -34,7 +36,17 @@ function workableRoles(me: Me): string[] {
 
 // The last screen, so a refresh comes back to it (TC-US16A-35).
 const VIEW_KEY = "connectsphere.view";
-const VIEWS: View[] = ["discovery", "my-events", "event-requests", "events", "registrations", "venues", "equipment", "safety-reviews"];
+const VIEWS: View[] = [
+  "discovery",
+  "my-events",
+  "event-requests",
+  "events",
+  "registrations",
+  "venues",
+  "equipment",
+  "safety-reviews",
+  "notifications",
+];
 
 function storedView(): View {
   try {
@@ -203,6 +215,16 @@ function Workspace({ me, role: currentRole, onRoleChange, view, onNavigate, onLo
   const [search, setSearch] = useState("");
   const [devRole, setDevRoleState] = useState<DevRole>(getDevRole);
   const role = currentRole ? (currentRole as DevRole | "attendee") : devRole;
+  // US31 (SCRUM-107): the unread count on the Notifications link, and the request a notification asked to open.
+  const { unread, setUnread } = useUnreadCount(`${shown}:${role}`);
+  const [openRequestId, setOpenRequestId] = useState<string | null>(null);
+
+  function openFromNotification(notification: { event_id: string | null }) {
+    if (!notification.event_id) return;
+    // The organiser and the coordinator open the request itself; a Lead lands on the requests screen.
+    if (role === "organiser" || role === "coordinator") setOpenRequestId(notification.event_id);
+    onNavigate("event-requests");
+  }
 
   return (
     <div>
@@ -224,9 +246,12 @@ function Workspace({ me, role: currentRole, onRoleChange, view, onNavigate, onLo
           setDevRoleState(role);
         }}
         onLogOut={onLogOut}
+        unreadCount={unread}
       />
 
-      {shown === "venues" ? (
+      {shown === "notifications" ? (
+        <NotificationsPage key={role} onUnreadChange={setUnread} onOpen={openFromNotification} />
+      ) : shown === "venues" ? (
         <VenuesPage
           key={role}
           staff={role === "venue_staff"}
@@ -235,7 +260,13 @@ function Workspace({ me, role: currentRole, onRoleChange, view, onNavigate, onLo
         />
       ) : shown === "event-requests" ? (
         role === "coordinator" ? (
-          <ClarificationReviewPage key="coordinator" userId={me?.id ?? DEV_USER_IDS.coordinator} actingAs={role} />
+          <ClarificationReviewPage
+            key="coordinator"
+            userId={me?.id ?? DEV_USER_IDS.coordinator}
+            actingAs={role}
+            openId={openRequestId}
+            onOpened={() => setOpenRequestId(null)}
+          />
         ) : role === "coordinator_lead" ? (
           <AssignmentQueuePage key="coordinator_lead" />
         ) : role === "venue_staff" || role === "tech_support" ? (
@@ -246,7 +277,7 @@ function Workspace({ me, role: currentRole, onRoleChange, view, onNavigate, onLo
             </p>
           </main>
         ) : (
-          <EventRequestsPage key="organiser" />
+          <EventRequestsPage key="organiser" openId={openRequestId} onOpened={() => setOpenRequestId(null)} />
         )
       ) : shown === "equipment" ? (
         role === "coordinator" ? (
