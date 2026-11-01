@@ -3,13 +3,20 @@
 from datetime import timedelta
 
 import pytest
+from httpx import AsyncClient
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.event.models import CancellationStatus, Event, EventCancellation, EventStatus
 from app.user.models import User, UserRole
+from tests.conftest import BACKEND_DIR
+from tests.event.test_event_request_clarification_api import auth
 from tests.factories import NOW, make_event, make_user
+
+REVISION = "20261112_1200_us9_cancellations"
 
 
 @pytest.fixture
@@ -85,7 +92,7 @@ def test_tc_us9_02_one_pending_request_per_event(db: Session, event: Event, orga
     db.add(request(event, organiser))
     db.flush()
 
-    refused(db, request(event, organiser, reason="Asking again"), "event_cancellations_one_pending")
+    refused(db, request(event, organiser, reason="Asking again"), "event_cancellations_one_open")
 
 
 def test_tc_us9_02_a_decided_request_doesnt_block_a_new_one(
@@ -109,7 +116,23 @@ def test_tc_us9_03_one_approved_cancellation_per_event(db: Session, event: Event
     db.add(approved(event, coordinator))
     db.flush()
 
-    refused(db, approved(event, coordinator, reason="Again"), "event_cancellations_one_approved")
+    refused(db, approved(event, coordinator, reason="Again"), "event_cancellations_one_open")
+
+
+def test_tc_us9_03_no_request_after_a_cancel(db: Session, event: Event, organiser: User, coordinator: User) -> None:
+    db.add(approved(event, coordinator))
+    db.flush()
+
+    refused(db, request(event, organiser), "event_cancellations_one_open")
+
+
+def test_tc_us9_03_a_cancel_must_decide_the_pending_request(
+    db: Session, event: Event, organiser: User, coordinator: User
+) -> None:
+    db.add(request(event, organiser))
+    db.flush()
+
+    refused(db, approved(event, coordinator), "event_cancellations_one_open")
 
 
 def test_tc_us9_04_reason_cant_be_blank(db: Session, event: Event, organiser: User) -> None:
@@ -117,16 +140,24 @@ def test_tc_us9_04_reason_cant_be_blank(db: Session, event: Event, organiser: Us
 
 
 @pytest.mark.parametrize(
-    "overrides",
+    ("overrides", "with_decider"),
     [
-        {"status": CancellationStatus.APPROVED},  # decided, but no one and no time
-        {"decided_at": NOW},  # pending, but a decision time
-        {"status": CancellationStatus.APPROVED, "decided_at": NOW},  # a time but no decider
+        ({"status": CancellationStatus.APPROVED}, False),  # decided, but no one and no time
+        ({"decided_at": NOW}, False),  # pending, but a decision time
+        ({"status": CancellationStatus.APPROVED, "decided_at": NOW}, False),  # a time but no decider
+        ({"status": CancellationStatus.APPROVED, "decided_at": NOW - timedelta(minutes=1)}, True),  # before the ask
     ],
 )
 def test_tc_us9_05_decision_fields_follow_the_status(
-    db: Session, event: Event, organiser: User, overrides: dict[str, object]
+    db: Session,
+    event: Event,
+    organiser: User,
+    coordinator: User,
+    overrides: dict[str, object],
+    with_decider: bool,
 ) -> None:
+    if with_decider:
+        overrides = {**overrides, "decided_by_user_id": coordinator.id}
     refused(db, request(event, organiser, **overrides), "event_cancellations_decided_consistent")
 
 
@@ -167,7 +198,61 @@ def test_tc_us9_07_an_approved_event_without_a_date_can_be_cancelled(db: Session
     db.flush()
 
 
+def test_tc_us9_07_a_cancelled_event_still_needs_its_name(db: Session) -> None:
+    event = make_event(db, status=EventStatus.APPROVED)
+    event.name = None
+    db.flush()
+
+    event.status = EventStatus.CANCELLED
+    with pytest.raises(IntegrityError, match="events_final_fields_required"):
+        db.flush()
+
+
 def test_tc_us9_07_a_planned_event_still_needs_its_final_fields(db: Session, event: Event) -> None:
     event.start_at = None
     with pytest.raises(IntegrityError, match="events_final_fields_required"):
         db.flush()
+
+
+def test_tc_us9_01_migrations_have_one_head() -> None:
+    config = Config(str(BACKEND_DIR / "alembic.ini"))
+    config.set_main_option("script_location", str(BACKEND_DIR / "migrations"))
+    script = ScriptDirectory.from_config(config)
+
+    assert len(script.get_heads()) == 1
+    assert REVISION in {revision.revision for revision in script.walk_revisions()}
+
+
+@pytest.fixture
+def dateless_cancelled(db: Session, organiser: User, coordinator: User) -> Event:
+    """Cancelled while Approved, before it had a date or capacity (D93)."""
+    event = make_event(db, status=EventStatus.APPROVED, coordinator_id=coordinator.id)
+    event.created_by_user_id = organiser.id
+    event.capacity = None
+    event.status = EventStatus.CANCELLED
+    db.flush()
+    return event
+
+
+@pytest.mark.anyio
+async def test_tc_us9_08_coordinators_events_leave_out_one_cancelled_before_it_was_planned(
+    client: AsyncClient, db: Session, coordinator: User, event: Event, dateless_cancelled: Event
+) -> None:
+    listed = await client.get("/api/v1/me/coordinated-events", headers=auth(coordinator))
+    opened = await client.get(f"/api/v1/events/{dateless_cancelled.id}", headers=auth(coordinator))
+
+    assert listed.status_code == 200
+    assert [row["id"] for row in listed.json()["events"]] == [str(event.id)]
+    assert opened.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_tc_us9_08_managed_events_leave_out_one_cancelled_before_it_was_planned(
+    client: AsyncClient, db: Session, organiser: User, dateless_cancelled: Event
+) -> None:
+    listed = await client.get("/api/v1/me/managed-events", headers=auth(organiser))
+    opened = await client.get(f"/api/v1/events/{dateless_cancelled.id}/registrations", headers=auth(organiser))
+
+    assert listed.status_code == 200
+    assert str(dateless_cancelled.id) not in listed.text
+    assert opened.status_code == 404

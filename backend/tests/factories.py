@@ -26,6 +26,7 @@ def make_attendee(db: Session) -> Attendee:
 
 
 # Statuses before an event is planned: events_final_fields_required lets these go without a date.
+# A cancelled event may too, if it was cancelled before it was planned (D93); make_event still gives it one.
 REQUEST_STATUSES = (
     EventStatus.DRAFT,
     EventStatus.SUBMITTED,
