@@ -4,21 +4,28 @@ being confirmed. See docs/testing/US29b-change-request-review.md (TC-US29B-22, 2
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import delete, select
+from sqlalchemy import Engine, delete, select
 from sqlalchemy.orm import Session
 
+import app.event.review_flag_service as flag_module
+from app.core.exceptions import DomainError
 from app.equipment.models import EquipmentLineStatus, EquipmentReservation
+from app.event.change_decision_schemas import ClearFlagWrite
 from app.event.models import Event, EventReviewFlag
+from app.event.review_flag_service import review_flag_service
 from app.user.models import User, UserRole
 from app.venue.models import Venue, VenueBookingStatus
 from tests.equipment.test_equipment_api import make_line
 from tests.equipment.test_equipment_schema import make_type
-from tests.event.test_change_request_decisions import (
+from tests.event.test_change_request_decisions import (  # noqa: F401 - committed is a fixture
+    Committed,
     approve,
     change,
+    committed,
     confirmed_event,
     move,
     pending,
+    reassign_from,
 )
 from tests.event.test_confirmation import book, reserve
 from tests.event.test_event_request_clarification_api import auth
@@ -160,3 +167,37 @@ async def test_tc_us29b_25_a_second_change_adds_its_fields_to_the_open_flag(
 
     assert len(stored) == 1
     assert stored[0].fields == ["start_at", "end_at", "expected_attendees"]
+
+
+# --- Calvin's #125 review, note 1: a reassignment just before the lock refuses the old coordinator's clear ---
+
+
+def test_tc_us29b_22_a_reassignment_just_before_the_lock_refuses_the_old_coordinators_clear(
+    engine: Engine, committed: Committed, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The first check passes on the event as read; a Lead then reassigns it on another connection and commits,
+    before the clear locks anything. The check made again on the locked event refuses the old coordinator."""
+    original = flag_module.is_assigned_coordinator
+    calls = {"n": 0}
+
+    def check_then_reassign(event: Event, user: User) -> bool:
+        allowed = original(event, user)
+        calls["n"] += 1
+        if calls["n"] == 1:
+            reassign_from(engine, committed)
+        return allowed
+
+    monkeypatch.setattr(flag_module, "is_assigned_coordinator", check_then_reassign)
+    flag_id = committed.ids["flag"][0]
+
+    with Session(engine) as session:
+        coordinator = session.get(User, committed.ids["coordinator"][0])
+        try:
+            review_flag_service.clear(session, coordinator, flag_id, ClearFlagWrite(note="Checked."), NOW)
+            outcome: object = 200
+        except DomainError as error:
+            outcome = (error.status_code, error.code)
+
+    assert outcome == (404, "NOT_FOUND")
+    with Session(engine) as check:
+        assert check.get(EventReviewFlag, flag_id).cleared_at is None
