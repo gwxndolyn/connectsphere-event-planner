@@ -13,6 +13,8 @@ ReassignmentRecipient = Literal["new_coordinator", "previous_coordinator", "orga
 BookingDecision = Literal["approved", "rejected"]
 # What the coordinator decided on an event request (SCRUM-84).
 RequestDecision = Literal["approved", "rejected"]
+# What the Safety Officer decided on an event's arrangements (SCRUM-99).
+SafetyOutcome = Literal["approved", "rejected"]
 
 
 class Notifier(Protocol):
@@ -158,6 +160,17 @@ class Notifier(Protocol):
         starts_at: datetime,
         ends_at: datetime,
         venues: list[str],
+    ) -> None: ...
+
+    def safety_review_decided(
+        self,
+        *,
+        email: str,
+        request_reference: str,
+        event_name: str,
+        outcome: SafetyOutcome,
+        comments: str | None,
+        issues: list[str],
     ) -> None: ...
 
 
@@ -448,6 +461,27 @@ class LoggingNotifier:
             starts_at.isoformat(),
             ends_at.isoformat(),
             ", ".join(venues),
+        )
+
+    def safety_review_decided(
+        self,
+        *,
+        email: str,
+        request_reference: str,
+        event_name: str,
+        outcome: SafetyOutcome,
+        comments: str | None,
+        issues: list[str],
+    ) -> None:
+        # SCRUM-99 AC 5: the event's coordinator hears the outcome, the comments and what was flagged.
+        logger.info(
+            "safety review %s: %s, %s (%s); issues: %s; comments: %s",
+            outcome,
+            email,
+            request_reference,
+            event_name,
+            ", ".join(issues) or "none",
+            comments or "none",
         )
 
 

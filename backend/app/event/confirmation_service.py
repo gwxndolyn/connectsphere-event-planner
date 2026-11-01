@@ -16,6 +16,7 @@ from app.event.assignment_service import MISSING_NAME, MISSING_REFERENCE
 from app.event.models import DeliveryMode, Event, EventStatus
 from app.event.request_schemas import EventRequestOut, ReadinessItemOut, ReadinessOut
 from app.notification.service import Notifier
+from app.safety.state import latest_review, safety_state
 from app.user.models import User
 from app.venue.models import LIVE_BOOKING_STATUSES, Venue, VenueBooking, VenueBookingStatus
 
@@ -82,6 +83,10 @@ class ConfirmationService:
         event = self._assigned(db, request_id, coordinator, lock=True)
         if event.status != EventStatus.CONFIRMED:
             raise DomainError(409, "PREPARATION_NOT_ALLOWED", status=event.status.value)
+        # US30a: an event without an approved safety review doesn't move to Preparation, however it
+        # came to be Confirmed.
+        if event.safety_approved_at is None:
+            raise DomainError(409, "SAFETY_NOT_APPROVED")
         event.status = EventStatus.PREPARATION
         db.flush()
         db.refresh(event, ["coordinator", "decided_by"])
@@ -250,6 +255,15 @@ class ConfirmationService:
     def _safety_wait(self, db: Session, event: Event) -> str:
         """What the coordinator still has to do about the safety check (US30a AC 4): after a rejection,
         read the comments, revise the arrangement and send it back."""
+        latest = latest_review(db, event.id)
+        state = safety_state(event, latest)
+        if state == "rejected" and latest is not None:
+            return (
+                f"Rejected by the Safety Officer: {latest.comments} "
+                "Revise the arrangement, then send it for another review."
+            )
+        if latest is not None:
+            return "Sent for another safety review."
         return "Waiting for the Safety Officer's approval."
 
     def _fill_final_fields(

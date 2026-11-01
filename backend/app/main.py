@@ -22,6 +22,8 @@ from app.registration.router import me_router as registration_me_router
 from app.registration.roster_router import events_router as roster_events_router
 from app.registration.roster_router import me_router as roster_me_router
 from app.registration.router import router as registration_router
+from app.safety.router import requests_router as safety_requests_router
+from app.safety.router import router as safety_router
 from app.user.auth import warn_if_dev_headers_enabled
 from app.user.router import me_router as auth_me_router
 from app.user.router import router as auth_router
@@ -62,6 +64,8 @@ app.include_router(event_request_coordinators_router)
 app.include_router(venue_router)
 app.include_router(venue_booking_router)
 app.include_router(venue_booking_events_router)
+app.include_router(safety_router)
+app.include_router(safety_requests_router)
 app.include_router(equipment_types_router)
 app.include_router(equipment_router)
 app.include_router(equipment_events_router)

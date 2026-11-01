@@ -15,7 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.event.models import Event, EventStatus
-from app.seed import CONFIRMATION_EVENT, VENUE_BLOCKS, VENUE_BOOKINGS, VENUE_SLOT_IN_DAYS, VENUES, seed, seed_id
+from app.seed import CONFIRMATION_EVENT, SAFETY_REVIEW_EVENT, VENUE_BLOCKS, VENUE_BOOKINGS, VENUE_SLOT_IN_DAYS, VENUES, seed, seed_id
 from app.user.models import User, UserRole
 from app.venue.models import Venue, VenueBlock, VenueBooking, VenueBookingStatus, occupied_window
 from app.venue.service import VENUE_TIMEZONE, venue_service

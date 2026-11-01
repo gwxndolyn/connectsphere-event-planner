@@ -4,6 +4,7 @@ import { EventVenueBookings } from "../venue/EventVenueBookings";
 import { ClarificationThreadView } from "./ClarificationThreadView";
 import { EventConfirmation } from "./EventConfirmation";
 import { DecisionOutcome, RequestDecisionPanel } from "./RequestDecision";
+import { SafetyOutcome } from "./SafetyOutcome";
 import { SECTIONS, displayValue, sectionLabel, statusLabel } from "./clarificationSections";
 import type {
   Clarification,
@@ -48,6 +49,8 @@ export function ClarificationReviewPage({ userId }: ClarificationReviewPageProps
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  // Bumped when a rejected safety arrangement is sent back, so the readiness list is read again (US30a).
+  const [safetyVersion, setSafetyVersion] = useState(0);
 
   useEffect(() => {
     let current = true;
@@ -266,7 +269,14 @@ export function ClarificationReviewPage({ userId }: ClarificationReviewPageProps
         <EventVenueBookings event={activeRequest} />
       )}
       {screen === "review" && activeRequest && canConfirm && (
-        <EventConfirmation key={activeRequest.id} request={activeRequest} onChanged={recordDecision} />
+        <SafetyOutcome
+          request={activeRequest}
+          canResend
+          onResent={() => setSafetyVersion((version) => version + 1)}
+        />
+      )}
+      {screen === "review" && activeRequest && canConfirm && (
+        <EventConfirmation key={`${activeRequest.id}-${safetyVersion}`} request={activeRequest} onChanged={recordDecision} />
       )}
 
       {screen === "sent" && sent && activeRequest && (
