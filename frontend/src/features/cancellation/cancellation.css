@@ -1,0 +1,76 @@
+/* US9 (SCRUM-12): cancelling an event, on the organiser's request and the coordinator's review screen. */
+.event-cancellation {
+  margin: 32px 0 8px;
+  text-align: left;
+}
+
+.event-cancellation__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.event-cancellation__heading h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.event-cancellation__hint {
+  margin: 12px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.event-cancellation__banner {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--badge-bg);
+  color: var(--badge-text);
+  font-weight: 600;
+}
+
+.event-cancellation__form,
+.event-cancellation__pending {
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.event-cancellation__pending p,
+.event-cancellation__confirm p {
+  margin: 0 0 8px;
+}
+
+.event-cancellation__confirm h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+/* As the withdraw dialog's (SCRUM-38): the action that can't be undone. */
+.request-button--danger {
+  background: var(--badge-bg);
+  color: var(--badge-text);
+  border-color: transparent;
+}
+
+.request-button--danger:hover:not(:disabled) {
+  border-color: var(--badge-text);
+}
+
+.cancellation-status--pending {
+  background: var(--badge-soon-bg);
+  color: var(--badge-soon-text);
+}
+
+.cancellation-status--approved {
+  background: var(--badge-bg);
+  color: var(--badge-text);
+}
+
+.cancellation-status--rejected {
+  background: var(--chip-bg);
+  color: var(--text-muted);
+}

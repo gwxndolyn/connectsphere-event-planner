@@ -2,6 +2,8 @@ import { useEffect, useState, type FormEvent } from "react";
 import { ApiError, apiClient } from "../../api/client";
 import { EventVenueBookings } from "../venue/EventVenueBookings";
 import { ClarificationThreadView } from "./ClarificationThreadView";
+import { CANCELLATION_VISIBLE } from "../cancellation/cancellationApi";
+import { EventCancellation } from "../cancellation/EventCancellation";
 import { EventConfirmation } from "./EventConfirmation";
 import { DecisionOutcome, RequestDecisionPanel } from "./RequestDecision";
 import { SafetyOutcome } from "./SafetyOutcome";
@@ -278,6 +280,18 @@ export function ClarificationReviewPage({ userId }: ClarificationReviewPageProps
       {screen === "review" && activeRequest && canConfirm && (
         <EventConfirmation key={`${activeRequest.id}-${safetyVersion}`} request={activeRequest} onChanged={recordDecision} />
       )}
+      {/* US9 (SCRUM-12): the assigned coordinator decides an organiser's cancellation request, or cancels directly. */}
+      {screen === "review" &&
+        activeRequest &&
+        activeRequest.coordinator?.id === userId &&
+        CANCELLATION_VISIBLE.includes(activeRequest.status) && (
+          <EventCancellation
+            key={activeRequest.id}
+            event={activeRequest}
+            role="coordinator"
+            onChanged={(status) => recordDecision({ ...activeRequest, status })}
+          />
+        )}
 
       {screen === "sent" && sent && activeRequest && (
         <section className="request-confirmation" aria-labelledby="clarification-sent-title">
