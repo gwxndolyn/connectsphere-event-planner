@@ -18,6 +18,9 @@ untouched. And it deletes Agenda Demo's sessions (SCRUM-138), so TC-US15-15 reru
 agenda. And it puts Change Request Demo back as it was (SCRUM-141): its change requests, their history and
 review flags are deleted and its one seeded request is pending again, so TC-US29B-33 reruns start the same;
 review flags on the other demos are deleted with them.
+It puts Cancellation Demo back in Planning and deletes its cancellation record, so TC-US9-32 reruns start from the
+same event (SCRUM-12). Every seeded event goes back to its own status, so one cancelled in the app loses its approved
+cancellation too; other events' cancellations are untouched.
 """
 
 import sys
@@ -41,10 +44,12 @@ from app.equipment.models import (
     TechStaffAssignment,
 )
 from app.event.models import (
+    CancellationStatus,
     ChangeRequestStatus,
     DeliveryMode,
     Event,
     EventAuditEntry,
+    EventCancellation,
     EventChangeRequest,
     EventReviewFlag,
     EventStatus,
@@ -568,6 +573,17 @@ PLANNING_EVENT = EventSpec(
     capacity=80,
 )
 
+# US9 (SCRUM-12): the event the cancellation E2E cancels; only that spec uses it, and a reseed puts it back.
+CANCELLATION_EVENT = EventSpec(
+    slug="cancellation-demo",
+    name="Cancellation Demo",
+    note="planning, assigned to the seeded coordinator, registration off; a reseed undoes its cancellation (US9)",
+    status=EventStatus.PLANNING,
+    registration_enabled=False,
+    starts_in=timedelta(days=28),
+    capacity=50,
+)
+
 VENUE_BLOCKS = [
     VenueBlockSpec(
         slug="connexion-maintenance",
@@ -1045,6 +1061,20 @@ def _upsert(db: Session, model: type, row_id: uuid.UUID, values: dict[str, objec
     return row
 
 
+def upsert_cancellation_event(
+    db: Session, spec: EventSpec, organiser: User, coordinator: User, now: datetime
+) -> Event:
+    """The event the cancellation E2E asks to cancel and cancels (TC-US9-32), assigned to `coordinator`. A reseed
+    puts it back in Planning and removes its cancellation record, so a rerun starts from the same event."""
+    db.execute(delete(EventCancellation).where(EventCancellation.event_id == seed_id("event", spec.slug)))
+    event = upsert_event(db, spec, now, organiser)
+    event.coordinator_id = coordinator.id
+    event.event_category = "Talk"
+    event.purpose = "Seeded for cancelling an event (US9)"
+    event.expected_attendees = 40
+    return event
+
+
 def upsert_venue_booking(
     db: Session, spec: VenueBookingSpec, event: Event, coordinator: User, now: datetime
 ) -> VenueBooking:
@@ -1326,12 +1356,22 @@ def seed(db: Session, now: datetime | None = None) -> None:
     upsert_primary_booking(db, EQUIPMENT_EVENT, equipment_event, coordinator, now)
     upsert_multi_venue_event(db, MULTI_VENUE_EVENT, organiser, coordinator, now)
     upsert_planning_event(db, PLANNING_EVENT, organiser, coordinator, now)
+    upsert_cancellation_event(db, CANCELLATION_EVENT, organiser, coordinator, now)
     upsert_agenda_event(db, organiser, now)
     for name, stock in EQUIPMENT_STOCK.items():
         upsert_equipment_type(db, name, stock)
     db.flush()
     upsert_change_request_event(db, CHANGE_REQUEST_EVENT, organiser, coordinator, now)
     db.flush()
+    # US9 (SCRUM-12): the upserts above put each seeded event back in its own status, so one cancelled in the app is
+    # no longer cancelled. Its approved cancellation goes with it, keeping one approved row exactly when an event is
+    # cancelled (TC-US9-25); otherwise the next cancel would break event_cancellations_one_open.
+    db.execute(
+        delete(EventCancellation).where(
+            EventCancellation.status == CancellationStatus.APPROVED,
+            EventCancellation.event_id.in_(select(Event.id).where(Event.status != EventStatus.CANCELLED)),
+        )
+    )
 
     db.commit()
 
@@ -1401,7 +1441,9 @@ REMOTE_RESEED_WARNING = (
     "every session on Agenda Demo's agenda, "
     "and every change request, decision, history entry and review flag on Change Request Demo, "
     "whose seeded request is pending again. "
-    "Other events' lines, bookings, sessions and change requests are untouched."
+    "It puts Cancellation Demo back in Planning with no cancellation record, and drops the approved cancellation "
+    "of any other seeded event that was cancelled in the app, which the reseed puts back in its own status. "
+    "Other events' lines, bookings, sessions, change requests and cancellations are untouched."
 )
 
 
