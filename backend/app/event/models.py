@@ -11,6 +11,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Identity,
+    Index,
     Integer,
     Text,
     Time,
@@ -54,6 +55,14 @@ class ChangeRequestStatus(enum.StrEnum):
     REJECTED = "rejected"
 
 
+class CancellationStatus(enum.StrEnum):
+    """US9 (SCRUM-12): an organiser's cancellation request waits for the coordinator; a direct cancel is approved."""
+
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
 class DeliveryMode(enum.StrEnum):
     IN_PERSON = "in_person"
     ONLINE = "online"
@@ -87,9 +96,10 @@ class Event(Base):
             "expected_attendees IS NULL OR expected_attendees >= 1",
             name="events_expected_attendees_positive",
         ),
+        # DECISION-PENDING: D93 — US9 (SCRUM-12): an Approved event may be cancelled before it has a date or capacity.
         CheckConstraint(
-            "status::text IN ('draft', 'submitted', 'under_review', 'awaiting_clarification', 'approved', 'rejected') "
-            "OR (name IS NOT NULL AND start_at IS NOT NULL AND end_at IS NOT NULL "
+            "status::text IN ('draft', 'submitted', 'under_review', 'awaiting_clarification', 'approved', 'rejected', "
+            "'cancelled') OR (name IS NOT NULL AND start_at IS NOT NULL AND end_at IS NOT NULL "
             "AND capacity IS NOT NULL AND delivery_mode IS NOT NULL)",
             name="events_final_fields_required",
         ),
@@ -256,6 +266,46 @@ class EventChangeRequest(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     requested_by: Mapped["User"] = relationship(foreign_keys=[requested_by_user_id])
+
+
+class EventCancellation(Base):
+    """US9 (SCRUM-12) AC 8: a cancellation with who asked, why and when, and who decided and when. An organiser's
+    request is pending until the assigned coordinator approves or rejects it (AC 1, 2); a coordinator's direct
+    cancel (AC 3) is one approved row, requested and decided by them at the same moment. The table's CHECKs and
+    partial unique indexes (one pending and one approved per event) are the source of truth."""
+
+    __tablename__ = "event_cancellations"
+    __table_args__ = (
+        CheckConstraint("btrim(reason) <> ''", name="event_cancellations_reason_not_blank"),
+        CheckConstraint(
+            "(status = 'pending') = (decided_at IS NULL) AND (decided_at IS NULL) = (decided_by_user_id IS NULL)",
+            name="event_cancellations_decided_consistent",
+        ),
+        CheckConstraint(
+            "(status = 'rejected') = (rejection_reason IS NOT NULL) "
+            "AND (rejection_reason IS NULL OR btrim(rejection_reason) <> '')",
+            name="event_cancellations_rejection_reason_only_when_rejected",
+        ),
+        Index("event_cancellations_one_pending", "event_id", unique=True, postgresql_where=text("status = 'pending'")),
+        Index(
+            "event_cancellations_one_approved", "event_id", unique=True, postgresql_where=text("status = 'approved'")
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, server_default=text("gen_random_uuid()"))
+    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id"), index=True)
+    requested_by_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    reason: Mapped[str] = mapped_column(Text)
+    status: Mapped[CancellationStatus] = mapped_column(
+        pg_enum(CancellationStatus, "cancellation_status"), server_default=CancellationStatus.PENDING.value
+    )
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    decided_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    rejection_reason: Mapped[str | None] = mapped_column(Text)
+
+    requested_by: Mapped["User"] = relationship(foreign_keys=[requested_by_user_id])
+    decided_by: Mapped["User | None"] = relationship(foreign_keys=[decided_by_user_id])
 
 
 class EventAuditEntry(Base):
