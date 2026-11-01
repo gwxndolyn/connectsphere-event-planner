@@ -114,3 +114,4 @@ SCRUM-143 (PR 3), 1 Nov 2026, branch `feat(SCRUM-143)Change-Request-Review-Scree
 - TC-US29B-33 asks for expected attendance and equipment needs, fields the seeded start-and-end request doesn't touch, so that request stays pending and not stale; equipment is there for the projector flag (attendance flags bookings and registrations only, D104).
 - Frontend: `npm run lint` clean, `tsc -b` clean, `npm run build` passes; Vitest 486 passed (45 files).
 - E2E, freshly seeded, backend without `--reload`: 53 passed, 10 skipped (the login and sign-up cases without their secrets), 63 in all; reseeded afterwards.
+- Seed fix: a reseed now resets Change Request Demo's equipment needs, so TC-US29B-33 reruns. It also resets room layout and accessibility needs, the other organiser-requestable fields (D90) the seed left alone; TC-US29B-07 sets them, with attendance 30 and "Two projectors", before the reseed and failed first on them.
