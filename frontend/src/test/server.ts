@@ -3,6 +3,7 @@ import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll } from "vitest";
 import type { EventRegistrations } from "../features/eventRegistrations/types";
 import type { AuditEntry, EventDetails } from "../features/eventEdit/types";
+import type { Cancellation } from "../features/cancellation/types";
 import type { OrganiserChangeRequest } from "../features/changeRequest/types";
 import type { AssignmentRecord, Clarification, EventRequest, EventRequestWrite } from "../features/eventRequest/types";
 import type { BookingEvaluation, VenueBooking } from "../features/venue/bookingTypes";
@@ -209,6 +210,8 @@ interface Db {
   history: Record<string, AuditEntry[]>;
   // US29a (SCRUM-97): organisers' change requests, newest first.
   changeRequests: OrganiserChangeRequest[];
+  // US9 (SCRUM-12): cancellation requests and cancels, newest first.
+  cancellations: Cancellation[];
   calls: RecordedCall[];
   nextId: number;
   nextReference: number;
@@ -229,6 +232,7 @@ function emptyDb(): Db {
     coordinatedEvents: [],
     history: {},
     changeRequests: [],
+    cancellations: [],
     bookings: [],
     blocks: [],
     evaluations: {},
@@ -933,6 +937,41 @@ function isLive(booking: VenueBooking): boolean {
 const BOOKING_REQUIRED = ["event_id", "venue_id", "starts_at", "ends_at", "expected_attendees", "room_layout", "purpose"];
 const SECTION_ORDER = ["details", "schedule", "attendance", "layout", "accessibility", "equipment", "registration"];
 
+// US9 (SCRUM-12): asking (organiser) or cancelling directly (coordinator).
+const CANCELLABLE_STATUSES = new Set(["approved", "planning", "confirmed", "preparation"]);
+
+function cancellationTime(): string {
+  return new Date(Date.UTC(2026, 9, 1, 1, db.nextId)).toISOString();
+}
+
+function startCancellation(event: EventRequest, body: unknown, direct: boolean) {
+  if (!CANCELLABLE_STATUSES.has(event.status)) return error(409, "CANCELLATION_NOT_ALLOWED", { status: event.status });
+  const reason = ((body ?? {}) as { reason?: string }).reason?.trim();
+  if (!reason) return error(422, "MISSING_REQUIRED_FIELD", { fields: ["reason"] });
+  const pending = db.cancellations.find((c) => c.event_id === event.id && c.status === "pending");
+  if (pending) return error(409, "CANCELLATION_PENDING", { cancellation_id: pending.id });
+  const now = cancellationTime();
+  const person = direct ? { id: COORDINATOR_PERSON.id, name: COORDINATOR_PERSON.name } : { id: ORGANISER_PERSON.id, name: ORGANISER_PERSON.name };
+  if (direct) event.status = "cancelled";
+  const created: Cancellation = {
+    id: newId("cancellation"),
+    event_id: event.id,
+    event_name: event.name,
+    request_reference: event.request_reference,
+    event_status: event.status,
+    status: direct ? "approved" : "pending",
+    reason,
+    requested_by: person,
+    requested_at: now,
+    decided_by: direct ? person : null,
+    decided_at: direct ? now : null,
+    rejection_reason: null,
+    direct,
+  };
+  db.cancellations.unshift(created);
+  return HttpResponse.json(created as unknown as JsonBodyType, { status: direct ? 200 : 201 });
+}
+
 // --- Handlers -------------------------------------------------------------------------------
 
 type Resolver = (args: { request: Request; params: Record<string, string>; body: unknown }) =>
@@ -1511,6 +1550,49 @@ const handlers = [
     };
     db.changeRequests.unshift(created);
     return HttpResponse.json(created as unknown as JsonBodyType, { status: 201 });
+  }),
+
+  // US9 (SCRUM-12), identified by X-User-Id. Which statuses can be cancelled, the start time and the releases are
+  // the API's (backend/tests/event/test_cancellations.py); this keeps one pending request per event, needs a reason
+  // and moves the event to cancelled, so a flow sees its own writes. Other refusals: server.use(...).
+  route("get", "/api/v1/event-requests/:id/cancellations", ({ request, params }) => {
+    const role = userRole(request);
+    const userId = request.headers.get("X-User-Id");
+    const event = db.requests.find((r) => r.id === params.id);
+    const reader = role === "organiser" ? event?.created_by_user_id === userId : event?.coordinator?.id === userId;
+    if (!event || event.status === "draft" || !reader) return error(404, "NOT_FOUND");
+    return HttpResponse.json({ cancellations: db.cancellations.filter((c) => c.event_id === event.id) } as unknown as JsonBodyType);
+  }),
+
+  route("post", "/api/v1/event-requests/:id/cancellation-requests", ({ request, params, body }) => {
+    if (userRole(request) !== "organiser") return error(403, "FORBIDDEN");
+    const event = db.requests.find((r) => r.id === params.id && r.created_by_user_id === request.headers.get("X-User-Id"));
+    if (!event || event.status === "draft") return error(404, "NOT_FOUND");
+    return startCancellation(event, body, false);
+  }),
+
+  route("post", "/api/v1/event-requests/:id/cancellation", ({ request, params, body }) => {
+    if (userRole(request) !== "coordinator") return error(403, "FORBIDDEN");
+    const event = db.requests.find((r) => r.id === params.id && r.coordinator?.id === request.headers.get("X-User-Id"));
+    if (!event || event.status === "draft") return error(404, "NOT_FOUND");
+    return startCancellation(event, body, true);
+  }),
+
+  route("post", "/api/v1/event-cancellations/:id/:verb", ({ request, params, body }) => {
+    if (userRole(request) !== "coordinator") return error(403, "FORBIDDEN");
+    const record = db.cancellations.find((c) => c.id === params.id);
+    const event = record && db.requests.find((r) => r.id === record.event_id);
+    if (!record || !event || event.coordinator?.id !== request.headers.get("X-User-Id")) return error(404, "NOT_FOUND");
+    const reason = ((body ?? {}) as { reason?: string }).reason?.trim();
+    if (params.verb === "reject" && !reason) return error(422, "MISSING_REQUIRED_FIELD", { fields: ["reason"] });
+    if (record.status !== "pending") return error(409, "CANCELLATION_NOT_PENDING", { status: record.status });
+    record.status = params.verb === "approve" ? "approved" : "rejected";
+    record.decided_by = { id: COORDINATOR_PERSON.id, name: COORDINATOR_PERSON.name };
+    record.decided_at = cancellationTime();
+    record.rejection_reason = params.verb === "reject" ? reason! : null;
+    if (params.verb === "approve") event.status = "cancelled";
+    record.event_status = event.status;
+    return HttpResponse.json(record as unknown as JsonBodyType);
   }),
 
   route("get", "/api/v1/me/change-requests", ({ request }) => {
