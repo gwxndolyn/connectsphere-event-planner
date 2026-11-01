@@ -65,7 +65,7 @@ test("TC-US13-16: the form previews the window the chosen venue's setup and turn
   await expect(page.getByText(/^The venue is occupied 11:00 AM – 2:30 PM \(90 min setup, 60 min turnaround\)/)).toBeVisible();
 
   // Nothing is sent until asked.
-  await page.getByRole("button", { name: "Cancel" }).click();
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
 });
 
 test("TC-US13-17: an occupied window past closing is refused on the end time (AC 5)", async ({ page }) => {

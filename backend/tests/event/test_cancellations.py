@@ -650,6 +650,61 @@ async def test_tc_us9_25_every_cancelled_event_has_exactly_one_approved_cancella
     assert sorted(flags) == [False, False, True]  # the approved request, the rejected one, the direct cancel
 
 
+# --- The seeded event the E2E cancels ---
+
+
+def test_tc_us9_32_the_seed_puts_the_cancellation_demo_back(db: Session) -> None:
+    from app.seed import CANCELLATION_EVENT, seed, seed_id
+
+    seed(db, now=NOW)
+    event = db.get(Event, seed_id("event", CANCELLATION_EVENT.slug))
+    assert (event.name, event.status, event.coordinator_id) == (
+        "Cancellation Demo",
+        EventStatus.PLANNING,
+        seed_id("user", "event-coordinator"),
+    )
+    coordinator = db.get(User, event.coordinator_id)
+    event.status = EventStatus.CANCELLED
+    db.add(
+        EventCancellation(
+            event_id=event.id, requested_by_user_id=coordinator.id, reason="E2E run", requested_at=NOW,
+            status=CancellationStatus.APPROVED, decided_by_user_id=coordinator.id, decided_at=NOW, direct=True,
+        )
+    )
+    db.flush()
+
+    seed(db, now=NOW)
+
+    db.refresh(event)
+    assert event.status == EventStatus.PLANNING
+    assert rows(db, event) == 0
+
+
+def test_tc_us9_32_a_reseed_un_cancels_any_seeded_event_and_drops_its_approved_row(db: Session) -> None:
+    """Every seeded event goes back to its own status on a reseed, so one cancelled in the app loses its approved row
+    too; otherwise the next cancel breaks event_cancellations_one_open (PR 3 review)."""
+    from app.seed import PLANNING_EVENT, seed, seed_id
+
+    seed(db, now=NOW)
+    event = db.get(Event, seed_id("event", PLANNING_EVENT.slug))
+    coordinator = db.get(User, event.coordinator_id)
+    other = make_event(db, status=EventStatus.CANCELLED, coordinator_id=coordinator.id)  # not seeded: left alone
+    for target in (event, other):
+        target.status = EventStatus.CANCELLED
+        db.add(
+            EventCancellation(
+                event_id=target.id, requested_by_user_id=coordinator.id, reason="By hand", requested_at=NOW,
+                status=CancellationStatus.APPROVED, decided_by_user_id=coordinator.id, decided_at=NOW, direct=True,
+            )
+        )
+    db.flush()
+
+    seed(db, now=NOW)
+
+    db.refresh(event)
+    db.refresh(other)
+    assert (event.status, rows(db, event)) == (EventStatus.PLANNING, 0)
+    assert (other.status, rows(db, other)) == (EventStatus.CANCELLED, 1)
 
 # --- Work still open on a cancelled event (Matt's review of #117) ---
 
