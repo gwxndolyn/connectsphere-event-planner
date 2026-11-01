@@ -77,9 +77,13 @@ export function sessionFormValues(session: AgendaSession): SessionFormValues {
   };
 }
 
-/** The body: Singapore wall-clock times (+08:00, D9), both on the form's date. The API checks every rule. */
+/**
+ * The body: Singapore wall-clock times (+08:00, D9), both on the form's date. The API checks every rule. A missing
+ * date or time is null: the API then names the field ("Give the session's start time."), where an empty string
+ * would fail FastAPI's own parsing, with no code to show.
+ */
 export function toSessionWrite(values: SessionFormValues): SessionWrite {
-  const instant = (time: string) => (values.date && time ? `${values.date}T${time}:00+08:00` : "");
+  const instant = (time: string) => (values.date && time ? `${values.date}T${time}:00+08:00` : null);
   return {
     title: values.title,
     session_type: values.session_type,
