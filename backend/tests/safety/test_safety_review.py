@@ -173,6 +173,21 @@ async def test_tc_us30a_04_a_planning_event_is_in_the_queue_too(
     assert [row["event_id"] for row in await queue(client, officer)] == [str(event.id)]
 
 
+async def test_tc_us30a_49_an_online_event_with_no_booking_is_queued_without_breaking_the_queue(
+    client: AsyncClient, db: Session, organiser: User, casey: User, event: Event, officer: User
+) -> None:
+    online = make_request(db, organiser, EventStatus.APPROVED, coordinator=casey)
+    online.delivery_mode = DeliveryMode.ONLINE
+    online.expected_attendees = 20
+    db.flush()
+
+    rows = {row["event_id"]: row for row in await queue(client, officer)}
+
+    assert set(rows) == {str(event.id), str(online.id)}
+    assert (rows[str(online.id)]["venues"], rows[str(online.id)]["starts_at"]) == ([], None)
+    assert datetime.fromisoformat(rows[str(event.id)]["starts_at"]) == STARTS
+
+
 # --- AC 2, 9: what the Safety Officer opens ---
 
 

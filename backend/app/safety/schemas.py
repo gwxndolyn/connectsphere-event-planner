@@ -25,7 +25,7 @@ class SafetyReviewWrite(BaseModel):
     checklist: dict[str, ChecklistEntryWrite] | None = None
     # What the Coordinator and Organiser read; required on a rejection (AC 4).
     comments: str | None = Field(default=None, max_length=2000)
-    # The Safety Officer's own notes: never shown to the Organiser or the Coordinator (AC 8).
+    # The Safety Officer's own notes: never shown to the Organiser or the Coordinator (AC 7).
     internal_notes: str | None = Field(default=None, max_length=2000)
 
 
@@ -114,7 +114,7 @@ class ChecklistItemOut(BaseModel):
 
 class SafetyReviewDetailOut(BaseModel):
     """What the Safety Officer opens to review (AC 2, 9). `history` is the event's earlier reviews: the
-    change history that matters here (deviation 51: there is no change log of attendance, venue, access
+    change history that matters here (deviation 62: there is no change log of attendance, venue, access
     or equipment edits yet)."""
 
     event: ReviewEventOut

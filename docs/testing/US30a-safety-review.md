@@ -8,7 +8,7 @@
 
 **Tests:**
 
-- Backend: `backend/tests/safety/test_safety_review.py` (TC-US30A-01 to 31)
+- Backend: `backend/tests/safety/test_safety_review.py` (TC-US30A-01 to 31 and 49)
 - Frontend: `frontend/src/features/safety/safetyReview.integration.test.tsx` (TC-US30A-40, 42 to 48)
 - E2E: `e2e/tests/safety-review.spec.ts` (TC-US30A-41). It uses the seeded Safety Review Demo, so a rerun needs a reseed (`python -m app.seed`)
 
@@ -56,6 +56,7 @@
 | TC-US30A-46 | Frontend: nothing answered; a rejection without comments | Approve, Reject | The alert, the comments field marked, nothing sent |
 | TC-US30A-47 | Frontend: an issue and comments | Reject | "Safety arrangement rejected", stays in planning, the issue listed; an API `CHECKLIST_HAS_ISSUES` is explained |
 | TC-US30A-48 | Frontend: a rejected event | Organiser and coordinator open it | Outcome, comments and issues, never the internal notes; the coordinator's **Send for another review** posts and the panel says "Sent for another safety review." |
+| TC-US30A-49 | An online approved event with no booking, beside a queued in-person one | Safety officer reads the queue | Both are listed; the online one has no venues and no start (D72); the queue doesn't fail (AC 1) |
 
 ## Evidence
 
@@ -117,6 +118,6 @@ The coordinator's notice (log-only) is TC-US30A-24 and 25, and the Preparation g
 
 | Date | Where | Result |
 |---|---|---|
-| 1 Nov 2026 | Backend, `pytest`, rebased onto `main` at 742f6d4 | 1432 passed |
+| 1 Nov 2026 | Backend, `pytest`, rebased onto `main` at 742f6d4 | 1433 passed |
 | 1 Nov 2026 | Frontend, Vitest, lint, build | 452 passed; lint and build clean |
 | 1 Nov 2026 | E2E, the full suite against a fresh local database | 50 passed, 10 skipped (the Supabase login and sign-up cases, which need credentials), 0 failed |

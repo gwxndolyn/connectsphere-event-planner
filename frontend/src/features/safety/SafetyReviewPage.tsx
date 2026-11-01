@@ -48,7 +48,7 @@ function list(values: string[]): string {
 /**
  * US30a (SCRUM-99): the Safety Officer's queue (AC 1), each event's checklist review (AC 2) and the
  * decision, approve or reject the safety arrangement with comments (AC 3, 4). Internal notes stay with the
- * Safety Officer (AC 8); only the event details a review needs are shown (AC 9).
+ * Safety Officer (AC 7); only the event details a review needs are shown (AC 9).
  */
 export function SafetyReviewPage() {
   const [queue, setQueue] = useState<SafetyQueueRow[]>([]);

@@ -68,7 +68,8 @@ class SafetyService:
                     request_reference=event.request_reference,
                     expected_attendees=event.expected_attendees,
                     venues=list(dict.fromkeys(venue.name for _, venue in approved)),
-                    starts_at=min(booking.starts_at for booking, _ in approved),
+                    # An online event needs no venue (D72), so it can be queued with no booking to take a start from.
+                    starts_at=min((booking.starts_at for booking, _ in approved), default=event.start_at),
                     resent=latest is not None,
                 )
             )
