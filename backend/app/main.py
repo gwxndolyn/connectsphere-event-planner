@@ -31,6 +31,7 @@ from app.user.auth import warn_if_dev_headers_enabled
 from app.user.router import me_router as auth_me_router
 from app.user.router import router as auth_router
 from app.venue.booking_router import events_router as venue_booking_events_router
+from app.venue.booking_router import holds_router as venue_holds_router
 from app.venue.booking_router import router as venue_booking_router
 from app.venue.router import router as venue_router
 
@@ -68,6 +69,7 @@ app.include_router(event_cancellations_router)
 app.include_router(venue_router)
 app.include_router(venue_booking_router)
 app.include_router(venue_booking_events_router)
+app.include_router(venue_holds_router)
 app.include_router(safety_router)
 app.include_router(safety_requests_router)
 app.include_router(agenda_requests_router)

@@ -7,9 +7,11 @@ from sqlalchemy.orm import Session
 
 from app.core.clock import get_now
 from app.core.database import get_db
+from app.notification.service import Notifier, get_notifier
 from app.user.dependencies import get_current_user, require_user_roles
 from app.user.models import User
 from app.venue.calendar_service import calendar_service
+from app.venue.hold_service import expire_lapsed_holds
 from app.venue.schemas import VenueCalendarOut, VenueOut, VenueSearchOut, VenuesOut, VenueWrite
 from app.venue.service import CALENDAR_ROLES, VENUE_SEARCH_ROLES, VENUE_STAFF_ROLES, venue_service
 
@@ -49,6 +51,7 @@ def search_available_venues(
     _: VenueSearcher,
     db: Session = Depends(get_db),
     now: datetime = Depends(get_now),
+    notifier: Notifier = Depends(get_notifier),
     # Optional here so a missing one is MISSING_REQUIRED_FIELD naming every gap, not FastAPI's 422.
     date: date | None = None,
     start_time: time | None = None,
@@ -60,6 +63,8 @@ def search_available_venues(
     facilities: Annotated[list[str] | None, Query()] = None,
     accessibility: Annotated[list[str] | None, Query()] = None,
 ) -> VenueSearchOut:
+    # US25 (SCRUM-93): a lapsed hold frees its venue before the search (D103).
+    expire_lapsed_holds(db, now, notifier)
     return venue_service.find_available(
         db,
         now,
@@ -87,11 +92,15 @@ def venue_calendar(
     venue_id: uuid.UUID,
     reader: CalendarReader,
     db: Session = Depends(get_db),
+    now: datetime = Depends(get_now),
+    notifier: Notifier = Depends(get_notifier),
     # Strings, so a missing or bad date is INVALID_DATE_RANGE naming the field (deviation 51).
     start: Annotated[str | None, Query(alias="from")] = None,
     end: Annotated[str | None, Query(alias="to")] = None,
 ) -> VenueCalendarOut:
     """US21 (SCRUM-88): what occupies the venue over `from`..`to` (Singapore days, both included)."""
+    # US25 (SCRUM-93): a lapsed hold leaves the calendar first (AC 6, D103).
+    expire_lapsed_holds(db, now, notifier)
     return calendar_service.calendar(db, venue_id, reader, start, end)
 
 

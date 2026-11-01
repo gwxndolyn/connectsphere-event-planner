@@ -14,7 +14,9 @@ from app.event.self_decision import refuse_self_decision
 from app.notification.service import BookingDecision, Notifier
 from app.user.models import User, UserRole
 from app.venue.availability import Conflict, Evaluation, HoursBreach, Window, evaluate_booking, evaluate_window
+from app.venue.hold_service import HOLD_MAX_LENGTH, HOLD_WARNING, expire_lapsed_holds, notice_for, send
 from app.venue.models import (
+    BLOCKING_STATUSES,
     LIVE_BOOKING_STATUSES,
     ROOM_LAYOUTS,
     PreparationStatus,
@@ -23,6 +25,8 @@ from app.venue.models import (
     VenueBookingStatus,
 )
 from app.venue.schemas import (
+    HoldEventOut,
+    VenueHoldWrite,
     BookingConflictOut,
     BookingEvaluationOut,
     BookingEventOut,
@@ -269,6 +273,24 @@ def _schedule_errors(event: Event, starts_at: datetime, ends_at: datetime) -> di
     return errors
 
 
+def _hold_expiry(value: datetime | None, starts_at: datetime | None, now: datetime) -> datetime:
+    """US25 AC 1: a hold's expiry is required and in the future; D102: at most 14 days ahead. It must also come
+    before the held time starts, since a hold on a slot that has begun keeps nothing for anyone."""
+    if value is None:
+        raise DomainError(422, "MISSING_REQUIRED_FIELD", fields=["hold_expires_at"])
+    if value.utcoffset() is None:
+        message = "Give the expiry with a timezone offset, e.g. 2026-10-08T17:00:00+08:00."
+    elif value <= now:
+        message = "The hold must expire in the future."
+    elif value > now + HOLD_MAX_LENGTH:
+        message = f"A hold can last at most {HOLD_MAX_LENGTH.days} days."
+    elif starts_at is not None and starts_at.utcoffset() is not None and value > starts_at:
+        message = "The hold must expire before the held time starts."
+    else:
+        return value
+    raise DomainError(422, "INVALID_HOLD", fields=["hold_expires_at"], errors={"hold_expires_at": message})
+
+
 def _unavailability(booking: VenueBooking, venue: Venue) -> BookingUnavailabilityOut | None:
     """US24 AC 4 (D71): why this venue needs replacing, if it does."""
     if booking.status == VenueBookingStatus.REJECTED:
@@ -280,8 +302,12 @@ def _unavailability(booking: VenueBooking, venue: Venue) -> BookingUnavailabilit
     return None
 
 
-def _next_action(booking: VenueBooking, venue: Venue) -> Literal["venue_staff_to_decide", "coordinator_to_rebook", "none"]:
-    """US24 AC 4 (D71): who acts next on this booking."""
+def _next_action(
+    booking: VenueBooking, venue: Venue
+) -> Literal["venue_staff_to_decide", "coordinator_to_rebook", "coordinator_to_confirm", "none"]:
+    """US24 AC 4 (D71): who acts next on this booking. US25: a hold waits for the coordinator (AC 5)."""
+    if booking.status == VenueBookingStatus.HELD:
+        return "coordinator_to_confirm"
     # DECISION-PENDING: D71 — an inactive venue can't be approved (D39) or used, so it's rebooked.
     if _unavailability(booking, venue) is not None:
         return "coordinator_to_rebook"
@@ -362,6 +388,9 @@ def _out(booking: VenueBooking, event: Event, venue: Venue) -> VenueBookingOut:
         preparation_status=booking.preparation_status,
         unavailability=_unavailability(booking, venue),
         next_action=_next_action(booking, venue),
+        hold_expires_at=booking.hold_expires_at,
+        held_by_user_id=booking.held_by_user_id,
+        expired_at=booking.expired_at,
     )
 
 
@@ -372,28 +401,55 @@ class VenueBookingService:
     def create(
         self, db: Session, coordinator: User, body: VenueBookingWrite, now: datetime, notifier: Notifier
     ) -> VenueBookingCreatedOut:
-        for _ in range(CREATE_ATTEMPTS):
-            try:
-                booking, event, venue = self._insert(db, coordinator, body, now)
-                break
-            except OperationalError as error:
-                if getattr(error.orig, "sqlstate", None) != DEADLOCK_DETECTED:
-                    raise
-                db.rollback()
-                logger.info("venue booking request deadlocked with another; trying once more")
-        else:
-            raise _unavailable(None)
-
+        # US25: a lapsed hold frees its window before this request is checked against it (D103).
+        expire_lapsed_holds(db, now, notifier)
+        booking, event, venue = self._insert_with_retry(db, coordinator, body, now)
         result = VenueBookingCreatedOut(
             **_out(booking, event, venue).model_dump(), warnings=_warnings(booking, venue)
         )
         self._notify_staff(db, notifier, booking, event, venue)
         return result
 
-    def _insert(
-        self, db: Session, coordinator: User, body: VenueBookingWrite, now: datetime
+    def place_hold(
+        self, db: Session, staff: User, body: VenueHoldWrite, now: datetime, notifier: Notifier
+    ) -> VenueBookingCreatedOut:
+        """US25 (SCRUM-93) AC 1, 2: Venue staff hold a venue for an event and time until an expiry. Checked as a
+        request is (the event's schedule, capacity, opening hours, and live bookings, holds and blocks), and kept
+        out of the window by the same guard. The event's coordinator is told, and warned at once if it expires
+        within 24 hours (AC 4)."""
+        expiry = _hold_expiry(body.hold_expires_at, body.starts_at, now)
+        expire_lapsed_holds(db, now, notifier)
+        booking_body = VenueBookingWrite(**body.model_dump(exclude={"hold_expires_at"}))
+        booking, event, venue = self._insert_with_retry(db, staff, booking_body, now, hold_expires_at=expiry)
+        result = VenueBookingCreatedOut(
+            **_out(booking, event, venue).model_dump(), warnings=_warnings(booking, venue)
+        )
+        send(notifier, notice_for(db, booking, "placed"))
+        # DECISION-PENDING: D103 — a hold placed with less than 24 hours left warns at once (AC 4), once.
+        if expiry - HOLD_WARNING <= now:
+            booking.hold_warned_at = now
+            db.commit()
+            send(notifier, notice_for(db, booking, "expiring"))
+        return result
+
+    def _insert_with_retry(
+        self, db: Session, user: User, body: VenueBookingWrite, now: datetime, hold_expires_at: datetime | None = None
     ) -> tuple[VenueBooking, Event, Venue]:
-        """Checks and saves one request, committed. Raises the refusals in the order of §3."""
+        for _ in range(CREATE_ATTEMPTS):
+            try:
+                return self._insert(db, user, body, now, hold_expires_at)
+            except OperationalError as error:
+                if getattr(error.orig, "sqlstate", None) != DEADLOCK_DETECTED:
+                    raise
+                db.rollback()
+                logger.info("venue booking request deadlocked with another; trying once more")
+        raise _unavailable(None)
+
+    def _insert(
+        self, db: Session, user: User, body: VenueBookingWrite, now: datetime, hold_expires_at: datetime | None = None
+    ) -> tuple[VenueBooking, Event, Venue]:
+        """Checks and saves one request, or (US25) a hold when `hold_expires_at` is given, committed. Raises the
+        refusals in the order of §3."""
         values = body.model_dump()
         missing = [field for field in REQUIRED_FIELDS if values[field] is None]
         if missing:
@@ -404,8 +460,10 @@ class VenueBookingService:
         # its first, primary booking (D68); requests for other events don't. A status change waits too.
         # The overlap race is the exclusion constraint's job.
         event = db.scalars(select(Event).where(Event.id == cleaned["event_id"]).with_for_update()).one_or_none()
-        # A draft is owner-only (D11): refusing it with 409 would reveal that it exists.
-        if event is None or event.status == EventStatus.DRAFT or not may_book(event, coordinator):
+        # A draft is owner-only (D11): refusing it with 409 would reveal that it exists. A request is the event's
+        # coordinator's; a hold is any Venue staff member's (US25 AC 1), so their router decides who may.
+        holding = hold_expires_at is not None
+        if event is None or event.status == EventStatus.DRAFT or not (holding or may_book(event, user)):
             raise DomainError(404, "NOT_FOUND")
         if event.status not in BOOKABLE_STATUSES:
             raise DomainError(409, "EVENT_NOT_BOOKABLE", status=event.status.value)
@@ -446,12 +504,17 @@ class VenueBookingService:
             )
         )
         booking = VenueBooking(
-            requested_by_user_id=coordinator.id,
+            requested_by_user_id=user.id,
             occupied_starts_at=evaluation.occupied.starts_at,
             occupied_ends_at=evaluation.occupied.ends_at,
-            is_primary=not has_primary,
+            # DECISION-PENDING: D105 — a hold isn't one of the event's venues, so never its primary (AC 6).
+            is_primary=not has_primary and not holding,
             **cleaned,
         )
+        if holding:
+            booking.status = VenueBookingStatus.HELD
+            booking.held_by_user_id = user.id
+            booking.hold_expires_at = hold_expires_at
         db.add(booking)
         self._commit(db, venue, cleaned["starts_at"], cleaned["ends_at"])
         db.refresh(booking)
@@ -473,7 +536,8 @@ class VenueBookingService:
             raise DomainError(404, "NOT_FOUND")
         # DECISION-PENDING: D69 — withdraw, then request again, is how one venue is changed or cancelled.
         # Approved bookings can be withdrawn too, so the refusal says the booking isn't live (#100 review).
-        if booking.status not in LIVE_BOOKING_STATUSES:
+        # DECISION-PENDING: D104 — US25: declining a hold is withdrawing it (AC 7).
+        if booking.status not in BLOCKING_STATUSES:
             raise DomainError(409, "BOOKING_NOT_LIVE", status=booking.status.value)
         was_approved = booking.status == VenueBookingStatus.APPROVED
         booking.status = VenueBookingStatus.WITHDRAWN
@@ -486,6 +550,60 @@ class VenueBookingService:
         if was_approved:
             self._notify_staff_withdrawn(db, notifier, booking, event, venue)
         return result
+
+    def confirm_hold(
+        self, db: Session, coordinator: User, booking_id: uuid.UUID, now: datetime, notifier: Notifier
+    ) -> VenueBookingOut:
+        """US25 AC 5: the event's coordinator confirms a held venue, which becomes a request Venue staff then
+        approve, before the hold's expiry. Anyone else's booking is 404, as for withdraw."""
+        expire_lapsed_holds(db, now, notifier)
+        found = db.get(VenueBooking, booking_id)
+        if found is None:
+            raise DomainError(404, "NOT_FOUND")
+        # The event FOR UPDATE, as create locks it, so this and another request can't both make a primary (D68).
+        event = db.scalars(select(Event).where(Event.id == found.event_id).with_for_update()).one()
+        if not may_book(event, coordinator):
+            raise DomainError(404, "NOT_FOUND")
+        booking = db.scalars(
+            select(VenueBooking)
+            .where(VenueBooking.id == booking_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).one()
+        if booking.status != VenueBookingStatus.HELD:
+            raise DomainError(409, "HOLD_NOT_HELD", status=booking.status.value)
+        if event.status not in BOOKABLE_STATUSES:
+            raise DomainError(409, "EVENT_NOT_BOOKABLE", status=event.status.value)
+        has_primary = db.scalar(
+            select(
+                exists().where(
+                    VenueBooking.event_id == event.id,
+                    VenueBooking.is_primary.is_(True),
+                    VenueBooking.status.in_(LIVE_BOOKING_STATUSES),
+                )
+            )
+        )
+        # DECISION-PENDING: D105 — the coordinator becomes the requester, so Venue staff may approve it (D51); it
+        # keeps who held it and the expiry, which Venue staff must approve it by.
+        booking.status = VenueBookingStatus.REQUESTED
+        booking.requested_by_user_id = coordinator.id
+        booking.is_primary = not has_primary
+        booking.updated_at = now
+        db.commit()
+        db.refresh(booking)
+        venue = db.get(Venue, booking.venue_id)
+        result = _out(booking, event, venue)
+        self._notify_staff(db, notifier, booking, event, venue)
+        return result
+
+    def hold_events(self, db: Session) -> list[HoldEventOut]:
+        """US25 AC 1: the events Venue staff may hold a venue for, Approved or Planning, by name."""
+        # DECISION-PENDING: D106 — Venue staff read no event requests (D55), so this lists only what a hold needs:
+        # each bookable event's name, reference, status, schedule and expected attendance.
+        events = db.scalars(
+            select(Event).where(Event.status.in_(BOOKABLE_STATUSES)).order_by(Event.name, Event.id)
+        ).all()
+        return [HoldEventOut.model_validate(event) for event in events]
 
     def make_primary(self, db: Session, coordinator: User, booking_id: uuid.UUID, now: datetime) -> VenueBookingOut:
         """US24 AC 4: the event's coordinator makes one of its live bookings the venue attendees see.
@@ -551,8 +669,11 @@ class VenueBookingService:
         Refused, with no override, while the venue is booked or blocked for any part of the window
         with its buffers, once the start has passed, or above the venue's capacity; the request then
         stays pending, to be rejected or withdrawn."""
+        # US25 AC 5: a confirmed hold must be approved before its expiry; past it, the sweep expires it and the
+        # pending check below refuses it (BOOKING_NOT_PENDING, status expired).
+        expire_lapsed_holds(db, now, notifier)
         booking = self._lock_pending(db, booking_id, staff)
-        # Pending requests don't expire yet (US25), so one can still be waiting after its start;
+        # Other pending requests don't expire, so one can still be waiting after its start;
         # approving it would reserve a window that's gone. Create refuses a past start too.
         if booking.starts_at <= now:
             raise DomainError(
@@ -675,8 +796,10 @@ class VenueBookingService:
         except Exception:
             logger.exception("could not notify coordinators about venue booking %s", booking.id)
 
-    def pending(self, db: Session) -> list[VenueBookingOut]:
-        """Venue Staff's review queue (AC 4): Requested bookings, oldest first."""
+    def pending(self, db: Session, now: datetime, notifier: Notifier) -> list[VenueBookingOut]:
+        """Venue Staff's review queue (AC 4): Requested bookings, oldest first. A confirmed hold carries its
+        expiry, the time to approve it by (US25 AC 5)."""
+        expire_lapsed_holds(db, now, notifier)
         rows = db.execute(
             select(VenueBooking, Event, Venue)
             .join(Event, Event.id == VenueBooking.event_id)
@@ -694,10 +817,14 @@ class VenueBookingService:
             raise DomainError(404, "NOT_FOUND")
         return _evaluation_out(booking, evaluate_booking(db, booking))
 
-    def for_event(self, db: Session, reader: User, event_id: uuid.UUID) -> EventVenueBookingsOut:
+    def for_event(
+        self, db: Session, reader: User, event_id: uuid.UUID, now: datetime, notifier: Notifier
+    ) -> EventVenueBookingsOut:
         """An event's bookings in every status, soonest first, with whether its venues are arranged.
         Venue Staff see any event's; a coordinator only one they may book (D20); since US24 the
-        Organiser who created it, once the request is approved (D71). A draft is 404 to all (D11)."""
+        Organiser who created it, once the request is approved (D71). A draft is 404 to all (D11). Since US25 holds
+        are listed too, and lapse first (D103)."""
+        expire_lapsed_holds(db, now, notifier)
         event = db.get(Event, event_id)
         if event is None or event.status == EventStatus.DRAFT:
             raise DomainError(404, "NOT_FOUND")

@@ -17,16 +17,20 @@ from app.venue.schemas import (
     BookingPreparationWrite,
     BookingRejectWrite,
     EventVenueBookingsOut,
+    HoldEventsOut,
     VenueBookingCreatedOut,
     VenueBookingOut,
     VenueBookingsOut,
     VenueBookingWrite,
+    VenueHoldWrite,
 )
 from app.venue.service import VENUE_STAFF_ROLES
 
 router = APIRouter(prefix="/api/v1/venue-bookings", tags=["venue-bookings"])
 # An event's bookings hang off the event, like its registrations do.
 events_router = APIRouter(prefix="/api/v1/events", tags=["venue-bookings"])
+# US25 (SCRUM-93): Venue staff's holds, and the events they may hold a venue for.
+holds_router = APIRouter(prefix="/api/v1/venue-holds", tags=["venue-bookings"])
 
 Coordinator = Annotated[User, Depends(require_user_roles(UserRole.COORDINATOR))]
 VenueStaff = Annotated[User, Depends(require_user_roles(*VENUE_STAFF_ROLES))]
@@ -48,8 +52,13 @@ def request_venue(
 
 
 @router.get("/pending", response_model=VenueBookingsOut)
-def pending_bookings(_: VenueStaff, db: Session = Depends(get_db)) -> VenueBookingsOut:
-    return VenueBookingsOut(bookings=booking_service.pending(db))
+def pending_bookings(
+    _: VenueStaff,
+    db: Session = Depends(get_db),
+    now: datetime = Depends(get_now),
+    notifier: Notifier = Depends(get_notifier),
+) -> VenueBookingsOut:
+    return VenueBookingsOut(bookings=booking_service.pending(db, now, notifier))
 
 
 @router.get("/{booking_id}/evaluation", response_model=BookingEvaluationOut)
@@ -119,5 +128,41 @@ def reject_booking(
 
 
 @events_router.get("/{event_id}/venue-bookings", response_model=EventVenueBookingsOut)
-def event_bookings(event_id: uuid.UUID, reader: BookingReader, db: Session = Depends(get_db)) -> EventVenueBookingsOut:
-    return booking_service.for_event(db, reader, event_id)
+def event_bookings(
+    event_id: uuid.UUID,
+    reader: BookingReader,
+    db: Session = Depends(get_db),
+    now: datetime = Depends(get_now),
+    notifier: Notifier = Depends(get_notifier),
+) -> EventVenueBookingsOut:
+    return booking_service.for_event(db, reader, event_id, now, notifier)
+
+
+# US25 (SCRUM-93) AC 5: the event's coordinator confirms a held venue into a request for Venue staff to approve.
+# Declining one is withdraw (AC 7, D104).
+@router.post("/{booking_id}/confirm", response_model=VenueBookingOut)
+def confirm_hold(
+    booking_id: uuid.UUID,
+    coordinator: Coordinator,
+    db: Session = Depends(get_db),
+    now: datetime = Depends(get_now),
+    notifier: Notifier = Depends(get_notifier),
+) -> VenueBookingOut:
+    return booking_service.confirm_hold(db, coordinator, booking_id, now, notifier)
+
+
+# US25 AC 1: Venue staff hold a venue for an event and time, until an expiry.
+@holds_router.post("", status_code=201, response_model=VenueBookingCreatedOut)
+def place_hold(
+    body: VenueHoldWrite,
+    staff: VenueStaff,
+    db: Session = Depends(get_db),
+    now: datetime = Depends(get_now),
+    notifier: Notifier = Depends(get_notifier),
+) -> VenueBookingCreatedOut:
+    return booking_service.place_hold(db, staff, body, now, notifier)
+
+
+@holds_router.get("/events", response_model=HoldEventsOut)
+def hold_events(_: VenueStaff, db: Session = Depends(get_db)) -> HoldEventsOut:
+    return HoldEventsOut(events=booking_service.hold_events(db))
