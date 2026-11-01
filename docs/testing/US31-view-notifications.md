@@ -114,6 +114,6 @@ TC-US31-01 fails until each of the 19 `Notifier` methods is in the recorder's te
 
 | Date | Where | Result |
 |---|---|---|
-| 1 Nov 2026 | Backend, `pytest`, rebased onto `main` at SCRUM-139 | 1619 passed |
-| 1 Nov 2026 | Frontend, Vitest, lint, build | 478 passed; lint and build clean |
-| 1 Nov 2026 | E2E, the full suite against a fresh local database | 51 passed, 10 skipped (the Supabase login and sign-up cases, which need credentials), 0 failed |
+| 1 Nov 2026 | Backend, `pytest`, rebased onto `main` at SCRUM-12 | 1621 passed |
+| 1 Nov 2026 | Frontend, Vitest, lint, build | 485 passed; lint and build clean |
+| 1 Nov 2026 | E2E, the full suite against a fresh local database | 52 passed, 10 skipped (the Supabase login and sign-up cases, which need credentials), 0 failed |
