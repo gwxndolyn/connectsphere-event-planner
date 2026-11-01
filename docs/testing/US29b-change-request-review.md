@@ -105,3 +105,10 @@ SCRUM-142 (PR 2), 1 Nov 2026, branch `feat(SCRUM-142)Change-Request-Decision-API
 - Races 16 and 17 run on two committed connections held at a barrier before the event lock, as TC-US27-11.
 - Backend: `pytest`: 1625 passed (1587, plus 30 new tests and 8 role-matrix cases for the six routes).
 - Local check: approving Change Request Demo's seeded request moved it to Planning, flagged its booking and projector, cleared its safety approval (state `pending`, review kept), and left readiness waiting on the safety check and the flags; the demo was reseeded afterwards.
+
+SCRUM-143 (PR 3), 1 Nov 2026, branch `feat(SCRUM-143)Change-Request-Review-Screen` (from SCRUM-142's), local Postgres 16:
+
+- TC-US29B-26 to 32 written first in `frontend/src/features/changeRequest/changeRequestReview.integration.test.tsx` (12 failed: no fake routes, no screens), and TC-US29B-33 in `e2e/tests/change-request-review.spec.ts` (failed: no Change requests to review on the coordinator's screen).
+- TC-US29B-33 asks for expected attendance and equipment needs, fields the seeded start-and-end request doesn't touch, so that request stays pending and not stale; equipment is there for the projector flag (attendance flags bookings and registrations only, D104).
+- Frontend: `npm run lint` clean, `tsc -b` clean, `npm run build` passes; Vitest 486 passed (45 files).
+- E2E, freshly seeded, backend without `--reload`: 53 passed, 10 skipped (the login and sign-up cases without their secrets), 63 in all; reseeded afterwards.
