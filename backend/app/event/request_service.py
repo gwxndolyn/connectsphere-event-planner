@@ -195,6 +195,10 @@ class EventRequestService:
             raise DomainError(404, "NOT_FOUND")
         return event
 
+    def can_read(self, event: Event, reader: User) -> bool:
+        """Whether `reader` may open this event as a request (D11, D47, D48); the Notifications screen asks."""
+        return self._can_read(event, reader)
+
     def _can_read(self, event: Event, reader: User) -> bool:
         if event.created_by_user_id == reader.id:
             return True
