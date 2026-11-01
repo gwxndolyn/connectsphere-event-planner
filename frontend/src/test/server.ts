@@ -932,14 +932,30 @@ function changeView(request: FakeChangeRequest): ChangeRequestReview {
 }
 
 /** The change request this coordinator decides (D102: their event, not their own request), or the refusal. */
+/** D102: the event's coordinator decides what they didn't make; a Lead (SCRUM-144) decides the coordinator's own edit. */
+function decides(role: string, userId: string | null, request: FakeChangeRequest, event: EventRequest): boolean {
+  const requester = requesterOf(request, event);
+  if (role === "coordinator") return event.coordinator?.id === userId && requester !== userId;
+  return requester !== event.created_by_user_id && requester === event.coordinator?.id && requester !== userId;
+}
+
 function decidableBy(request: Request, id: string): FakeChangeRequest | Response {
-  if (userRole(request) !== "coordinator") return error(403, "FORBIDDEN");
+  const role = userRole(request);
+  if (role !== "coordinator" && role !== "coordinator_lead") return error(403, "FORBIDDEN");
   const userId = request.headers.get("X-User-Id");
   const found = db.changeRequests.find((r) => r.id === id);
   const event = found && db.requests.find((r) => r.id === found.event_id);
-  if (!found || !event || event.coordinator?.id !== userId) return error(404, "NOT_FOUND");
-  if (requesterOf(found, event) === userId) return error(403, "SELF_DECISION_NOT_ALLOWED");
+  if (!found || !event) return error(404, "NOT_FOUND");
+  const own = requesterOf(found, event) === userId && (event.coordinator?.id === userId || role === "coordinator_lead");
+  if (own) return error(403, "SELF_DECISION_NOT_ALLOWED");
+  if (!decides(role, userId, found, event)) return error(404, "NOT_FOUND");
   return found;
+}
+
+/** Who a decision names: the Lead when a Lead decided (SCRUM-144), otherwise the coordinator. */
+function deciderOf(request: Request) {
+  const person = userRole(request) === "coordinator_lead" ? LEAD_PERSON : COORDINATOR_PERSON;
+  return { id: person.id, name: person.name };
 }
 
 function historyEntry(request: FakeChangeRequest, action: string, field: string, previous: unknown, next: unknown): AuditEntry {
@@ -1927,7 +1943,8 @@ const handlers = [
 
   // US29b (SCRUM-143): the coordinator's change requests and their decisions, and the review flags (rules above).
   route("get", "/api/v1/change-requests", ({ request }) => {
-    if (userRole(request) !== "coordinator") return error(403, "FORBIDDEN");
+    const role = userRole(request);
+    if (role !== "coordinator" && role !== "coordinator_lead") return error(403, "FORBIDDEN");
     const userId = request.headers.get("X-User-Id");
     const url = new URL(request.url);
     const status = url.searchParams.get("status") ?? "pending_approval";
@@ -1935,7 +1952,7 @@ const handlers = [
     const mine = db.changeRequests
       .filter((r) => {
         const event = db.requests.find((e) => e.id === r.event_id);
-        return event !== undefined && event.coordinator?.id === userId && requesterOf(r, event) !== userId;
+        return event !== undefined && decides(role, userId, r, event);
       })
       .filter((r) => !eventId || r.event_id === eventId)
       .filter((r) => status === "all" || (status === "decided" ? r.status !== "pending_approval" : r.status === "pending_approval"))
@@ -1964,7 +1981,7 @@ const handlers = [
     }
     found.status = "approved";
     found.decided_at = DECIDED_AT;
-    found.decided_by = { id: COORDINATOR_PERSON.id, name: COORDINATOR_PERSON.name };
+    found.decided_by = deciderOf(request);
     const entries = found.changes.map((c) => historyEntry(found, "applied", c.field, current[c.field] ?? null, c.new_value));
     for (const c of found.changes) current[c.field] = c.new_value;
     entries.push(historyEntry(found, "decided", "change_request", "pending_approval", { decision: "approved" }));
@@ -2006,7 +2023,7 @@ const handlers = [
     if (text.length > 1000) return error(422, "INVALID_CHANGE_DECISION", { fields: ["reason"], errors: { reason: "Too long." } });
     const event = db.requests.find((r) => r.id === found.event_id)!;
     Object.assign(found, { status: "rejected", decided_at: DECIDED_AT, rejection_reason: text });
-    found.decided_by = { id: COORDINATOR_PERSON.id, name: COORDINATOR_PERSON.name };
+    found.decided_by = deciderOf(request);
     db.history[event.id] = [
       historyEntry(found, "decided", "change_request", "pending_approval", { decision: "rejected", reason: text }),
       ...(db.history[event.id] ?? []),
