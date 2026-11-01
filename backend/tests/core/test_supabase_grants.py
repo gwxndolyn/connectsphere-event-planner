@@ -87,3 +87,15 @@ def test_tc_sec_04_the_function_has_a_fixed_search_path(db: Session) -> None:
     # The part of the Security Advisor check (TC-SEC-04, manual on Supabase) a test can make.
     config = db.scalar(text("SELECT proconfig FROM pg_proc WHERE oid = 'next_venue_booking_reference()'::regprocedure"))
     assert config == ["search_path=public"]
+
+
+def test_tc_sec_05_every_table_has_row_level_security(db: Session) -> None:
+    """RLS on, with no policies, is what keeps the anon and authenticated roles out of a table (claude_instructions
+    §1a), so every table a migration creates needs it. `safety_reviews` went to Supabase without it (US30a)."""
+    without = db.scalars(
+        text(
+            "SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+            "WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p') AND NOT c.relrowsecurity ORDER BY 1"
+        )
+    ).all()
+    assert without == []
