@@ -13,6 +13,7 @@ from app.notification.models import Notification
 from app.notification.service import (
     AssignmentRecipient,
     BookingDecision,
+    CancellationRecipient,
     LoggingNotifier,
     Notifier,
     ReassignmentRecipient,
@@ -552,6 +553,54 @@ class RecordingNotifier:
             email=email,
             event_name=event_name,
             message=f"{organiser_name} asked to change {', '.join(fields)}. Reason: {reason}",
+            event_id=event_id,
+        )
+
+    def cancellation_requested(
+        self, *, email: str, event_id: uuid.UUID, event_name: str, organiser_name: str, reason: str
+    ) -> None:
+        self._delegate.cancellation_requested(
+            email=email, event_id=event_id, event_name=event_name, organiser_name=organiser_name, reason=reason
+        )
+        self._record(
+            "cancellation_requested",
+            email=email,
+            event_name=event_name,
+            message=f"{organiser_name} asked to cancel the event. Reason: {reason}",
+            event_id=event_id,
+        )
+
+    def cancellation_rejected(
+        self, *, email: str, event_id: uuid.UUID, event_name: str, reason: str, rejection_reason: str
+    ) -> None:
+        self._delegate.cancellation_rejected(
+            email=email, event_id=event_id, event_name=event_name, reason=reason, rejection_reason=rejection_reason
+        )
+        self._record(
+            "cancellation_rejected",
+            email=email,
+            event_name=event_name,
+            message=f"Your request to cancel the event was rejected, so it goes ahead. Reason: {rejection_reason}",
+            event_id=event_id,
+        )
+
+    def event_cancelled(
+        self,
+        *,
+        email: str,
+        event_id: uuid.UUID,
+        event_name: str,
+        reason: str,
+        recipient: CancellationRecipient,
+    ) -> None:
+        self._delegate.event_cancelled(
+            email=email, event_id=event_id, event_name=event_name, reason=reason, recipient=recipient
+        )
+        self._record(
+            "event_cancelled",
+            email=email,
+            event_name=event_name,
+            message=f"The event was cancelled. Reason: {reason}",
             event_id=event_id,
         )
 

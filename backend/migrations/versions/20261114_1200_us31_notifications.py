@@ -1,7 +1,7 @@
 """keep the notices the system raises, one row per recipient, so each user can read their own
 
 Revision ID: 20261114_1200_us31_notifications
-Revises: 20261113_1200_us30b_changes
+Revises: 20261114_1200_us30a_rls
 Create Date: 2026-11-14
 
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 revision: str = "20261114_1200_us31_notifications"
-down_revision: Union[str, None] = "20261113_1200_us30b_changes"
+down_revision: Union[str, None] = "20261114_1200_us30a_rls"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -36,6 +36,9 @@ def upgrade() -> None:
             "btrim(kind) <> '' AND btrim(message) <> ''", name="notifications_kind_and_message_not_blank"
         ),
     )
+    # Every public table has row level security on, with no policies, so Supabase's anon and authenticated roles
+    # can't read it (claude_instructions §1a). The API reads it as the app's own database role.
+    op.execute("ALTER TABLE notifications ENABLE ROW LEVEL SECURITY")
     op.create_index(
         "ix_notifications_user_id_created_at", "notifications", ["user_id", sa.text("created_at DESC")]
     )

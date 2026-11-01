@@ -78,6 +78,9 @@ CALLS = [
     ("event_confirmed", lambda c: dict(request_reference=REFERENCE, event_name="Alumni night", starts_at=STARTS, ends_at=ENDS, venues=["SCIS Room"]), "The event is confirmed for Fri 13 Nov 2026, 06:00 UTC", "reference"),
     ("safety_review_decided", lambda c: dict(request_reference=REFERENCE, event_name="Alumni night", outcome="rejected", comments="Add an exit", issues=["Emergency access"]), "rejected the safety arrangement. Flagged: Emergency access. Comments: Add an exit", "reference"),
     ("safety_changes_requested", lambda c: dict(request_reference=REFERENCE, event_name="Alumni night", comments="Widen the aisles", areas=["Venue", "Layout"], issues=[]), "asked for changes to Venue, Layout. Comments: Widen the aisles", "reference"),
+    ("cancellation_requested", lambda c: dict(event_id=c.event.id, event_name="Alumni night", organiser_name="Olivia", reason="Speaker unwell"), "Olivia asked to cancel the event. Reason: Speaker unwell", "id"),
+    ("cancellation_rejected", lambda c: dict(event_id=c.event.id, event_name="Alumni night", reason="Speaker unwell", rejection_reason="Find a stand-in"), "was rejected, so it goes ahead. Reason: Find a stand-in", "id"),
+    ("event_cancelled", lambda c: dict(event_id=c.event.id, event_name="Alumni night", reason="Venue closed", recipient="organiser"), "The event was cancelled. Reason: Venue closed", "id"),
     ("change_requested", lambda c: dict(event_id=c.event.id, event_name="Alumni night", organiser_name="Olivia", fields=["capacity"], reason="Bigger room", to_lead=False), "Olivia asked to change capacity. Reason: Bigger room", "id"),
 ]
 
