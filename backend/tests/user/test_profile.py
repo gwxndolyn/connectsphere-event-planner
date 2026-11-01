@@ -86,7 +86,7 @@ async def test_tc_us16a_19_an_attendee_profile_gets_its_attendees_row(client: As
     assert attendee is not None and attendee.email == email
     registrations = await client.get("/api/v1/me/registrations", headers=bearer(token))
     assert registrations.status_code == 200
-    assert registrations.json() == {"confirmed": [], "waitlisted": [], "offered": []}
+    assert registrations.json() == {"confirmed": [], "waitlisted": [], "offered": [], "expired": []}
 
 
 @pytest.mark.parametrize("role", ["coordinator", "operations_manager", "venue_staff", "admin"])

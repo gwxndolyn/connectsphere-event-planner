@@ -293,7 +293,7 @@ async def test_tc_us16a_16_an_attendee_token_reads_their_registrations(
     )
 
     assert response.status_code == 200
-    assert response.json() == {"confirmed": [], "waitlisted": [], "offered": []}
+    assert response.json() == {"confirmed": [], "waitlisted": [], "offered": [], "expired": []}
 
 
 async def test_tc_us16a_17_an_organiser_token_on_an_attendee_route_is_unauthenticated(

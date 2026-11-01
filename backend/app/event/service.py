@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.event.models import Event, EventRegistrationField, EventStatus
 from app.event.schemas import AvailableEventOut, AvailableEventsResponse, RegistrationFieldOut
+from app.notification.service import Notifier
 from app.registration.models import ACTIVE_STATUSES, Registration
 from app.registration.service import registration_service
 from app.user.models import Attendee
@@ -15,7 +16,9 @@ class EventService:
     def health(self) -> str:
         return "event service is up"
 
-    def list_available(self, db: Session, attendee: Attendee, now: datetime) -> AvailableEventsResponse:
+    def list_available(
+        self, db: Session, attendee: Attendee, now: datetime, notifier: Notifier
+    ) -> AvailableEventsResponse:
         """SCRUM-25: events an attendee may register for right now (TC-US3-01)."""
         events = db.scalars(
             select(Event)
@@ -33,6 +36,9 @@ class EventService:
             return AvailableEventsResponse(events=[])
 
         event_ids = [event.id for event in events]
+        # D2 (SCRUM-137): lapsed offers expire and pass on before the seats are counted. One cheap
+        # query for the whole board; only an event with a lapsed offer is locked, one at a time.
+        registration_service.expire_lapsed_offers(db, event_ids, now, notifier)
 
         fields_by_event: dict[object, list[EventRegistrationField]] = {}
         for field in db.scalars(

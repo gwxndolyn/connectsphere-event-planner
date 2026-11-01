@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.clock import get_now
 from app.core.database import get_db
+from app.notification.service import Notifier, get_notifier
 from app.registration.models import RegistrationStatus
 from app.registration.roster_service import registration_roster_service
 from app.registration.schemas import EventRegistrationsResponse, ManagedEventsResponse
@@ -35,5 +36,6 @@ def list_event_registrations(
     show_all: bool = False,
     db: Session = Depends(get_db),
     now: datetime = Depends(get_now),
+    notifier: Notifier = Depends(get_notifier),
 ) -> EventRegistrationsResponse:
-    return registration_roster_service.list_registrations(db, event_id, manager, now, status, show_all)
+    return registration_roster_service.list_registrations(db, event_id, manager, now, notifier, status, show_all)

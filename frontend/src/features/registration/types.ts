@@ -50,7 +50,7 @@ export interface WaitlistConfirmation {
   position: number;
 }
 
-export type MyRegistrationStatus = "confirmed" | "waitlisted" | "offered";
+export type MyRegistrationStatus = "confirmed" | "waitlisted" | "offered" | "expired";
 
 /** One row of `GET /me/registrations`, rendered as-is (§3). */
 export interface MyRegistration {
@@ -67,7 +67,8 @@ export interface MyRegistration {
   // Room number in person, join link online (TC-US11-02, 03).
   joiningInfo: string;
   waitlistPosition?: number;
-  // US6b: the place is held until then; My events offers "Accept place" (SCRUM-76).
+  // US6b: the place is held until then; My events offers "Accept place" (SCRUM-76). On an expired
+  // offer, when it ended (SCRUM-137).
   offerExpiresAt?: string;
 }
 
@@ -75,6 +76,8 @@ export interface MyRegistrations {
   confirmed: MyRegistration[];
   waitlisted: MyRegistration[];
   offered: MyRegistration[];
+  // Offers that lapsed, shown to their holder as expired (SCRUM-137).
+  expired: MyRegistration[];
 }
 
 export interface WithdrawalResult {
