@@ -18,7 +18,7 @@
 
 | PR | Work | Tests |
 | --- | --- | --- |
-| 1 | `held` and `expired` booking statuses (the type rebuilt, as US16b did); `hold_expires_at`, `held_by_user_id`, `hold_warned_at`, `expired_at`; the overlap guard covers holds. Migration `20261115_1200_us25_holds` | `backend/tests/venue/test_hold_schema.py` (TC-US25-01 to 05) |
+| 1 | `held` and `expired` booking statuses (the type rebuilt, as US16b did); `hold_expires_at`, `held_by_user_id`, `hold_warned_at`, `expired_at`; the overlap guard covers holds, and so do the app's copies of its rule (the availability check, US2's search, the buffer-edit recompute). Migration `20261115_1200_us25_holds` | `backend/tests/venue/test_hold_schema.py` (TC-US25-01 to 06) |
 | 2 | Place, confirm, decline; expiry on read; the notices; holds in search, the availability check, the calendar and a cancel | Not built yet |
 | 3 | Venue staff's hold form and the coordinator's held venues with a countdown | Not built yet |
 
@@ -36,12 +36,13 @@
 | --- | --- | --- | --- | --- |
 | TC-US25-01 | 1 | Migrations applied | Inspect the schema | `venue_booking_status` gains `held` and `expired`; holds are blocking but not live; one migration head |
 | TC-US25-02 | 2, 3 | A hold; an expired hold | Store an overlapping request at the same venue | Refused (`venue_bookings_no_overlap`); allowed |
-| TC-US25-03 | 1, 3, 4 | | A hold without an expiry; an expiry without who placed it; a warning without a hold; expired without a time, or a time while held | Each refused (`venue_bookings_hold_consistent`, `venue_bookings_expired_consistent`) |
+| TC-US25-03 | 1, 3, 4 | | A hold without an expiry; an expiry without who placed it; a warning without a hold, or at the expiry; a hold requested by someone other than who placed it; expired without a time, a time while held, or before the expiry | Each refused (`venue_bookings_hold_consistent`, `venue_bookings_expired_consistent`) |
 | TC-US25-04 | 6 | | A primary hold; a hold with a decision | Refused (`venue_bookings_hold_not_primary`, `venue_bookings_decided_consistent`) |
-| TC-US25-05 | 5 | A hold | Confirm it into a request | It keeps its expiry and who placed it |
+| TC-US25-05 | 5 | A hold | Confirm it into a request | It keeps its expiry and who placed it, read back from the database |
+| TC-US25-06 | 2 | A hold; an expired hold at another venue | The availability check over each window | The hold is the conflict, by its reference; the expired one is no conflict. Fails without `BLOCKING_STATUSES` in the check |
 
 ## Results
 
 | Date | Suite | Result |
 | --- | --- | --- |
-| 1 Nov | Backend (`pytest`), PR 1 | 1559 passed, including TC-US25-01 to 05; the migration upgrades, downgrades and upgrades again on a local database |
+| 1 Nov | Backend (`pytest`), PR 1 | 1563 passed, including TC-US25-01 to 06; the migration upgrades, downgrades and upgrades again on a local database |
