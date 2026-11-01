@@ -149,6 +149,17 @@ class Notifier(Protocol):
         equipment_needs: str | None,
     ) -> None: ...
 
+    def event_confirmed(
+        self,
+        *,
+        email: str,
+        request_reference: str,
+        event_name: str,
+        starts_at: datetime,
+        ends_at: datetime,
+        venues: list[str],
+    ) -> None: ...
+
 
 class LoggingNotifier:
     """Sprint 1 stand-in: no mail is sent, the call is logged (spec §7)."""
@@ -404,6 +415,27 @@ class LoggingNotifier:
             location or "no location",
             ", ".join(equipment) or "none",
             equipment_needs or "none",
+        )
+
+    def event_confirmed(
+        self,
+        *,
+        email: str,
+        request_reference: str,
+        event_name: str,
+        starts_at: datetime,
+        ends_at: datetime,
+        venues: list[str],
+    ) -> None:
+        # SCRUM-85 AC 4: the organiser hears the event is confirmed, with its date, time and venue(s).
+        logger.info(
+            "event confirmed: %s, %s (%s) from %s to %s at %s",
+            email,
+            request_reference,
+            event_name,
+            starts_at.isoformat(),
+            ends_at.isoformat(),
+            ", ".join(venues),
         )
 
 

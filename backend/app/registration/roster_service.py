@@ -23,6 +23,7 @@ from app.user.models import User, UserRole
 MANAGED_EVENT_STATUSES = (
     EventStatus.PLANNING,
     EventStatus.CONFIRMED,
+    EventStatus.PREPARATION,
     EventStatus.CANCELLED,
     EventStatus.COMPLETED,
 )

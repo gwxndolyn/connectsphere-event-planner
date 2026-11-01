@@ -23,7 +23,8 @@ class EventService:
         events = db.scalars(
             select(Event)
             .where(
-                Event.status == EventStatus.CONFIRMED,
+                # SCRUM-85: Preparation follows Confirmed and registration stays open through it.
+                Event.status.in_((EventStatus.CONFIRMED, EventStatus.PREPARATION)),
                 Event.registration_enabled.is_(True),
                 or_(Event.registration_opens_at.is_(None), Event.registration_opens_at <= now),
                 or_(Event.registration_closes_at.is_(None), Event.registration_closes_at > now),

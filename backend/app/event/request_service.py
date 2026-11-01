@@ -25,6 +25,10 @@ SUBMITTED_REQUEST_STATUSES = (
     EventStatus.REJECTED,
 )
 
+# SCRUM-85 (widens D11): past the request stage an event's assigned coordinator still works it, so they
+# can open it and see its readiness list and Request venue. Nobody else reads it through these routes.
+COORDINATOR_EVENT_STATUSES = (EventStatus.PLANNING, EventStatus.CONFIRMED, EventStatus.PREPARATION)
+
 REQUIRED_FIELDS = (
     "name",
     "event_category",
@@ -74,7 +78,10 @@ class EventRequestService:
         """The review queue: submitted requests still at the request stage (D11), oldest submission
         first so nothing waits behind newer work. A Lead sees every one; a coordinator only those
         assigned to them (D48)."""
-        query = select(Event).where(Event.status.in_(SUBMITTED_REQUEST_STATUSES))
+        statuses = SUBMITTED_REQUEST_STATUSES
+        if not reviewer.holds(UserRole.COORDINATOR_LEAD):
+            statuses = SUBMITTED_REQUEST_STATUSES + COORDINATOR_EVENT_STATUSES
+        query = select(Event).where(Event.status.in_(statuses))
         if not reviewer.holds(UserRole.COORDINATOR_LEAD):
             query = query.where(Event.coordinator_id == reviewer.id)
         events = db.scalars(query.order_by(Event.submitted_at, Event.id)).all()
@@ -186,6 +193,8 @@ class EventRequestService:
             return True
         if event.status == EventStatus.DRAFT:
             return False
+        if event.status in COORDINATOR_EVENT_STATUSES:
+            return is_assigned_coordinator(event, reader)
         if event.status not in SUBMITTED_REQUEST_STATUSES:
             return False
         # DECISION-PENDING: D48 — Leads read every submitted request (they assign from the queue); a

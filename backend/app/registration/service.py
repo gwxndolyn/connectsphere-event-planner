@@ -495,8 +495,9 @@ class RegistrationService:
         return self._confirmation(db, registration, event)
 
     def _check_registration_open(self, event: Event, now: datetime) -> None:
-        """The two gates (spec §2): a confirmed event with registration enabled, inside its window."""
-        if event.status != EventStatus.CONFIRMED or not event.registration_enabled:
+        """The two gates (spec §2): a confirmed event (or one in Preparation, SCRUM-85) with registration
+        enabled, inside its window."""
+        if event.status not in (EventStatus.CONFIRMED, EventStatus.PREPARATION) or not event.registration_enabled:
             raise DomainError(403, "REGISTRATION_NOT_ENABLED")
         if event.registration_opens_at is not None and now < event.registration_opens_at:
             raise DomainError(403, "REGISTRATION_CLOSED")

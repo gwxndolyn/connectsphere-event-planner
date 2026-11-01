@@ -11,7 +11,7 @@ interface Props {
 }
 
 // SCRUM-83 AC 1: an event with a coordinator can move unless it is Cancelled, Completed or Rejected.
-const REASSIGNABLE = ["under_review", "awaiting_clarification", "approved", "planning", "confirmed"];
+const REASSIGNABLE = ["under_review", "awaiting_clarification", "approved", "planning", "confirmed", "preparation"];
 
 function value(text: string | number | null | undefined): string {
   return text === null || text === undefined || text === "" ? "Not set" : String(text);
