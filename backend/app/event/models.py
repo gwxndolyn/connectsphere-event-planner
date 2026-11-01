@@ -273,12 +273,14 @@ class EventChangeRequest(Base):
 class EventCancellation(Base):
     """US9 (SCRUM-12) AC 8: a cancellation with who asked, why and when, and who decided and when. An organiser's
     request is pending until the assigned coordinator approves or rejects it (AC 1, 2); a coordinator's direct
-    cancel (AC 3) is one approved row, requested and decided by them at the same moment. The table's CHECKs and
+    cancel (AC 3) is one approved, `direct` row, requested and decided by them at the same moment. The table's CHECKs and
     partial unique index (one pending or approved row per event) are the source of truth."""
 
     __tablename__ = "event_cancellations"
     __table_args__ = (
-        CheckConstraint("btrim(reason) <> ''", name="event_cancellations_reason_not_blank"),
+        CheckConstraint(
+            "btrim(reason) <> '' AND char_length(reason) <= 1000", name="event_cancellations_reason_not_blank"
+        ),
         CheckConstraint(
             "(status = 'pending') = (decided_at IS NULL) AND (decided_at IS NULL) = (decided_by_user_id IS NULL) "
             "AND (decided_at IS NULL OR decided_at >= requested_at)",
@@ -286,8 +288,13 @@ class EventCancellation(Base):
         ),
         CheckConstraint(
             "(status = 'rejected') = (rejection_reason IS NOT NULL) "
-            "AND (rejection_reason IS NULL OR btrim(rejection_reason) <> '')",
+            "AND (rejection_reason IS NULL OR (btrim(rejection_reason) <> '' AND char_length(rejection_reason) <= 1000))",
             name="event_cancellations_rejection_reason_only_when_rejected",
+        ),
+        CheckConstraint(
+            "(NOT direct OR status = 'approved') "
+            "AND (decided_by_user_id IS NULL OR direct = (decided_by_user_id = requested_by_user_id))",
+            name="event_cancellations_direct_consistent",
         ),
         Index(
             "event_cancellations_one_open",
@@ -308,6 +315,8 @@ class EventCancellation(Base):
     decided_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     rejection_reason: Mapped[str | None] = mapped_column(Text)
+    # AC 3: the coordinator cancelled it themselves. True exactly when the decider is the requester.
+    direct: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
 
     requested_by: Mapped["User"] = relationship(foreign_keys=[requested_by_user_id])
     decided_by: Mapped["User | None"] = relationship(foreign_keys=[decided_by_user_id])

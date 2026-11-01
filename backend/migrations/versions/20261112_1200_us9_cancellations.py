@@ -39,11 +39,14 @@ def upgrade() -> None:
             server_default="pending",
             nullable=False,
         ),
+        # The service always sets it from the same clock as decided_at; the default is for hand-written rows.
         sa.Column("requested_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
         sa.Column("decided_by_user_id", sa.Uuid(), nullable=True),
         sa.Column("decided_at", sa.DateTime(timezone=True), nullable=True),
         # The coordinator's reason for rejecting a request; required then, and only then.
         sa.Column("rejection_reason", sa.Text(), nullable=True),
+        # AC 3: the coordinator cancelled it themselves, rather than deciding an organiser's request.
+        sa.Column("direct", sa.Boolean(), server_default=sa.text("false"), nullable=False),
         sa.PrimaryKeyConstraint("id"),
         sa.ForeignKeyConstraint(["event_id"], ["events.id"], name="fk_event_cancellations_event_id_events"),
         sa.ForeignKeyConstraint(
@@ -52,7 +55,9 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["decided_by_user_id"], ["users.id"], name="fk_event_cancellations_decided_by_user_id_users"
         ),
-        sa.CheckConstraint("btrim(reason) <> ''", name="event_cancellations_reason_not_blank"),
+        sa.CheckConstraint(
+            "btrim(reason) <> '' AND char_length(reason) <= 1000", name="event_cancellations_reason_not_blank"
+        ),
         sa.CheckConstraint(
             "(status = 'pending') = (decided_at IS NULL) AND (decided_at IS NULL) = (decided_by_user_id IS NULL) "
             "AND (decided_at IS NULL OR decided_at >= requested_at)",
@@ -60,8 +65,14 @@ def upgrade() -> None:
         ),
         sa.CheckConstraint(
             "(status = 'rejected') = (rejection_reason IS NOT NULL) "
-            "AND (rejection_reason IS NULL OR btrim(rejection_reason) <> '')",
+            "AND (rejection_reason IS NULL OR (btrim(rejection_reason) <> '' AND char_length(rejection_reason) <= 1000))",
             name="event_cancellations_rejection_reason_only_when_rejected",
+        ),
+        # A direct cancel is approved at once, by whoever asked; a decided organiser request had another decider (D51).
+        sa.CheckConstraint(
+            "(NOT direct OR status = 'approved') "
+            "AND (decided_by_user_id IS NULL OR direct = (decided_by_user_id = requested_by_user_id))",
+            name="event_cancellations_direct_consistent",
         ),
     )
     op.create_index("ix_event_cancellations_event_id", "event_cancellations", ["event_id"])
