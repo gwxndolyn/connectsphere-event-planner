@@ -196,4 +196,20 @@ describe("cancel an event (US9)", () => {
     expect(await cancellation.findByRole("alert")).toHaveTextContent("This event has already started, so it can't be cancelled.");
     expect(db.requests[0].status).toBe("planning");
   });
+
+  it("TC-US9-31: if the history can't be loaded, nothing is offered, since a request may already be waiting", async () => {
+    const user = userEvent.setup();
+    const event = plannedEvent();
+    server.use(
+      http.get(`http://api.test/api/v1/event-requests/${event.id}/cancellations`, () =>
+        HttpResponse.json({ code: "INTERNAL" }, { status: 500 }),
+      ),
+    );
+    await open(user, "coordinator", "Alumni night");
+    const cancellation = await panel();
+
+    expect(await cancellation.findByRole("alert")).toHaveTextContent("Check the backend connection");
+    expect(cancellation.queryByRole("button", { name: "Cancel event" })).not.toBeInTheDocument();
+    expect(cancellation.queryByText("No cancellation requests for this event.")).not.toBeInTheDocument();
+  });
 });
