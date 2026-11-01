@@ -152,6 +152,23 @@ async def test_tc_us14_07_staff_on_an_overlapping_event_are_unavailable(
     assert assignment_count(db, event) == 0
 
 
+async def test_tc_us14_07_a_cancelled_events_staff_are_free(client: AsyncClient, db: Session, event: Event) -> None:
+    # D81 (decided by the acting PO, 1 Nov): as for equipment (D75), a cancelled event's assignments
+    # stop counting, so its staff are free for overlapping events. Nothing cancels an event yet (US9).
+    released = tech(db)
+    cancelled = assigned_elsewhere(db, released, STARTS, ENDS)
+    cancelled.status = EventStatus.CANCELLED
+    db.flush()
+    coordinator = coordinator_of(db, event)
+
+    available = ids((await client.get(staff_url(event.id), headers=auth(coordinator))).json()["available"])
+    response = await client.post(staff_url(event.id), headers=auth(coordinator), json={"staff_user_ids": [str(released.id)]})
+
+    assert str(released.id) in available
+    assert response.status_code == 201, response.text
+    assert assignment_count(db, event) == 1
+
+
 async def test_tc_us14_08_several_staff_are_assigned_at_once(client: AsyncClient, db: Session, event: Event) -> None:
     first, second = tech(db), tech(db)
     coordinator = coordinator_of(db, event)
