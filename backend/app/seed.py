@@ -49,7 +49,7 @@ from app.event.models import (
     EventReviewFlag,
     EventStatus,
 )
-from app.safety.models import SafetyReview
+from app.safety.models import CHECKLIST_KEYS, SafetyReview
 from app.registration.models import ACTIVE_STATUSES, Registration, RegistrationStatus
 from app.user.models import Attendee, User, UserRole
 from app.user.supabase_admin import SupabaseAdmin, SupabaseAdminError
@@ -526,7 +526,9 @@ SAFETY_REVIEW_IN_DAYS = 12
 # US29b (SCRUM-141): the dev coordinator reviews the seeded organiser's change to it (TC-US29B-33). It's
 # Confirmed and safety-approved, with an approved venue booking, a reserved projector and Terry Ong
 # assigned, so approving the seeded time change moves it back to Planning, flags its booking and
-# reservation, and needs a new safety review (D100 to D103). A reseed puts it back, request pending.
+# reservation, and needs a new safety review (D100 to D103). Its safety approval has an approved review by
+# the seeded Safety officer, which the screens name and which stays when a change clears the approval. A
+# reseed puts it back, request pending.
 CHANGE_REQUEST_EVENT = BookableEventSpec(slug="change-request-demo", name="Change Request Demo", expected_attendees=20)
 CHANGE_REQUEST_IN_DAYS = 16
 CHANGE_REQUEST_EQUIPMENT = "Projector"
@@ -1000,6 +1002,18 @@ def upsert_change_request_event(
     })
     # An approved line needs Tech support assigned for the event to be ready (D80).
     db.add(TechStaffAssignment(event_id=event.id, staff_user_id=tech_support_id, assigned_by_user_id=coordinator.id, assigned_at=now))
+    # The review behind its safety approval (US30a), at the same instant. upsert_arranged_event has just
+    # deleted the reviews a run left, so there is exactly one.
+    db.add(
+        SafetyReview(
+            event_id=event.id,
+            reviewer_id=event.safety_approved_by_user_id,
+            outcome="approved",
+            checklist={key: {"result": "satisfactory", "comment": None} for key in CHECKLIST_KEYS},
+            comments="The arrangement is safe as booked.",
+            created_at=event.safety_approved_at,
+        )
+    )
 
     later = timedelta(hours=1)
     _upsert(db, EventChangeRequest, request_id, {
