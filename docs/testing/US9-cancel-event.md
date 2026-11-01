@@ -20,7 +20,7 @@
 | PR | Work | Tests |
 | --- | --- | --- |
 | 1 | `event_cancellations` and `cancellation_status`; a cancelled event may lack its date and capacity, not its name (D93), and the Planning-onwards lists leave such an event out. Migration `20261112_1200_us9_cancellations` | `backend/tests/event/test_cancellation_schema.py` (TC-US9-01 to 08), `test_cancelled_event_reads.py` (TC-US9-08, every read route) |
-| 2 | Ask, approve, reject and cancel; reading the record; releasing venues and equipment; the notices; no waitlist offers on a cancelled event | `backend/tests/event/test_cancellations.py` (TC-US9-09 to 23), `test_cancellation_race.py` (TC-US9-24); `backend/tests/user/test_role_scope.py` (the routes' roles and D51) |
+| 2 | Ask, approve, reject and cancel; reading the record; releasing venues and equipment; the notices; no waitlist offers on a cancelled event | `backend/tests/event/test_cancellations.py` (TC-US9-09 to 23, 25), `test_cancellation_race.py` (TC-US9-24); `backend/tests/user/test_role_scope.py` (the routes' roles and D51) |
 | 3 | Organiser's and coordinator's screens | Not built yet |
 
 ## Decisions for this story
@@ -61,7 +61,8 @@
 | TC-US9-19 | 6 | Organiser, active and inactive Venue staff, an approved booking, an assigned, an unassigned and a deactivated Tech support member, registered, wait-listed, offered, lapsed-offer and withdrawn attendees | Cancel; with only a requested booking; with the notifier failing | One notice each to the organiser, the active Venue staff, the active assigned Tech support member and the three attendees holding or awaiting a place, with the name and reason; no Venue staff when no approved venue was released; the cancel stands |
 | TC-US9-20 | 7 | An event that has started; a request approved after the start; Approved events: one with a later preferred date ahead, one with every date passed, one whose venue booking has started | Ask, cancel, approve | `409 EVENT_STARTED`, nothing changes and the request stays pending; the first Approved one may be cancelled, the other two are `EVENT_STARTED` (D95) |
 | TC-US9-21 | 4 | A cancelled event | Cancel again, ask | `409 CANCELLATION_NOT_ALLOWED`, `status: cancelled` |
-| TC-US9-22 | 8 | A rejected request and a newer waiting one | The organiser and the coordinator read; another organiser and coordinator | Both newest first; `404` |
+| TC-US9-22 | 8 | A rejected request and a newer waiting one; two cancelled events, one dateless | The organiser and the coordinator read; another organiser and coordinator; the coordinator opens their queue and each event | Both newest first; `404`; both cancelled events in the queue and open, `200`, to them only |
+| TC-US9-25 | 4, 8 | Events cancelled by request and directly, one with a rejected request, one untouched; a second cancel refused | Compare event statuses with approved rows | Exactly the cancelled events have an approved row, one each; only the direct cancel is `direct` |
 | TC-US9-23 | 6 | An offer made before the cancel; a full event with a queue | The attendee accepts; a registered attendee withdraws after the cancel | `409 EVENT_CANCELLED`, the offer unchanged; no place offered, nobody told |
 | TC-US9-24 | 5 | A requested booking, committed | Venue staff approve it (locking the booking, then pausing) while the coordinator cancels the event, on two connections | Both succeed in turn: the booking is approved, then withdrawn with its decision kept; the event Cancelled. Locking the event first deadlocked (`DeadlockDetected`) |
 
@@ -72,4 +73,4 @@
 | 1 Nov | Backend (`pytest`), PR 1 | 1411 passed, including TC-US9-01 to 08; the migration upgrades, downgrades and upgrades again on a local database. Without the list fix TC-US9-08 fails with a `ValidationError` (the `500`) |
 | 1 Nov | Backend (`pytest`), PR 1 after merging `main` (#114, US30a) | 1454 passed; the migration now follows `20261110_1200_us30a_safety` and upgrades, downgrades and upgrades again |
 | 1 Nov | Backend (`pytest`), PR 1 after Matt's review | 1460 passed: `direct` and the reason caps (TC-US9-04, 05), and every GET route as every role on a dateless cancelled event (TC-US9-08), which fails with a `ValidationError` without the list fix |
-| 1 Nov | Backend (`pytest`), PR 2 | 1498 passed, including TC-US9-09 to 24 and the new routes in `test_role_scope.py`; TC-US9-24 fails with `DeadlockDetected` without the lock order |
+| 1 Nov | Backend (`pytest`), PR 2 on PR 1 after Matt's review | 1506 passed, including TC-US9-09 to 25 and the new routes in `test_role_scope.py`; TC-US9-24 fails with `DeadlockDetected` without the lock order |
