@@ -15,7 +15,9 @@ SCRUM-133); other events' lines are untouched.
 Likewise it deletes every venue booking on Multi-Venue Conference Demo that the seed didn't make, such as
 the Breakout C each E2E run of TC-US24-26 adds and withdraws (SCRUM-129); other events' bookings are
 untouched. And it deletes Agenda Demo's sessions (SCRUM-138), so TC-US15-15 reruns start with an empty
-agenda.
+agenda. And it puts Change Request Demo back as it was (SCRUM-141): its change requests, their history and
+review flags are deleted and its one seeded request is pending again, so TC-US29B-33 reruns start the same;
+review flags on the other demos are deleted with them.
 It puts Cancellation Demo back in Planning and deletes its cancellation record, so TC-US9-32 reruns start from the
 same event (SCRUM-12). Every seeded event goes back to its own status, so one cancelled in the app loses its approved
 cancellation too; other events' cancellations are untouched.
@@ -34,17 +36,25 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.agenda.models import EventSession
 from app.core.database import SessionLocal
-from app.equipment.models import EquipmentRequestLine, EquipmentReservation, EquipmentType, TechStaffAssignment
+from app.equipment.models import (
+    EquipmentLineStatus,
+    EquipmentRequestLine,
+    EquipmentReservation,
+    EquipmentType,
+    TechStaffAssignment,
+)
 from app.event.models import (
     CancellationStatus,
+    ChangeRequestStatus,
     DeliveryMode,
     Event,
     EventAuditEntry,
     EventCancellation,
     EventChangeRequest,
+    EventReviewFlag,
     EventStatus,
 )
-from app.safety.models import SafetyReview
+from app.safety.models import CHECKLIST_KEYS, SafetyReview
 from app.registration.models import ACTIVE_STATUSES, Registration, RegistrationStatus
 from app.user.models import Attendee, User, UserRole
 from app.user.supabase_admin import SupabaseAdmin, SupabaseAdminError
@@ -518,6 +528,16 @@ CONFIRMATION_EVENT = BookableEventSpec(slug="confirmation-demo", name="Confirmat
 # safety review yet, so it is in the Safety Officer's queue; after approving it the coordinator can confirm it.
 SAFETY_REVIEW_EVENT = BookableEventSpec(slug="safety-review-demo", name="Safety Review Demo", expected_attendees=30)
 SAFETY_REVIEW_IN_DAYS = 12
+# US29b (SCRUM-141): the dev coordinator reviews the seeded organiser's change to it (TC-US29B-33). It's
+# Confirmed and safety-approved, with an approved venue booking, a reserved projector and Terry Ong
+# assigned, so approving the seeded time change moves it back to Planning, flags its booking and
+# reservation, and needs a new safety review (D103 to D106). Its safety approval has an approved review by
+# the seeded Safety officer, which the screens name and which stays when a change clears the approval. A
+# reseed puts it back, request pending.
+CHANGE_REQUEST_EVENT = BookableEventSpec(slug="change-request-demo", name="Change Request Demo", expected_attendees=20)
+CHANGE_REQUEST_IN_DAYS = 16
+CHANGE_REQUEST_EQUIPMENT = "Projector"
+CHANGE_REQUEST_REASON = "Our keynote speaker's flight now lands later, so we'd like to start an hour later."
 ARRANGED_VENUE_SLUG = "lks-library-seminar-3-4"
 CONFIRMATION_IN_DAYS = 10  # not the US2 search slot (VENUE_SLOT_IN_DAYS), which expects its venues free
 
@@ -877,7 +897,9 @@ def upsert_equipment_event(
     Their reservations go too (US27, SCRUM-130), and its Tech support staff assignments (US14, SCRUM-133)."""
     event = upsert_event(db, spec, now, organiser)
     event.coordinator_id = coordinator.id
-    # Its reservations first: each points at one of its lines (US27, SCRUM-130).
+    # Its review flags first: some point at its lines (US29b, SCRUM-141). Then its reservations: each points
+    # at one of its lines (US27, SCRUM-130).
+    db.execute(delete(EventReviewFlag).where(EventReviewFlag.event_id == event.id))
     db.execute(delete(EquipmentReservation).where(EquipmentReservation.event_id == event.id))
     # And its Tech support staff (US14, SCRUM-133), so E2E reruns (TC-US14-17) start with nobody assigned.
     db.execute(delete(TechStaffAssignment).where(TechStaffAssignment.event_id == event.id))
@@ -930,9 +952,113 @@ def upsert_planning_event(
     event.room_layout_preference = "Classroom"
     event.accessibility_needs = None
     event.equipment_needs = None
+    # Review flags first: each points at one of its change requests (US29b, SCRUM-141).
+    db.execute(delete(EventReviewFlag).where(EventReviewFlag.event_id == event.id))
     db.execute(delete(EventAuditEntry).where(EventAuditEntry.event_id == event.id))
     db.execute(delete(EventChangeRequest).where(EventChangeRequest.event_id == event.id))
     return event
+
+
+def upsert_change_request_event(
+    db: Session, spec: BookableEventSpec, organiser: User, coordinator: User, now: datetime
+) -> Event:
+    """Change Request Demo (US29b, SCRUM-141): a confirmed, safety-approved event whose seeded organiser has
+    asked to move it an hour later, for the coordinator to review. Run after the equipment catalogue, for
+    its projector. A reseed deletes the app's decisions, history, flags and other requests on it and puts
+    the event, its arrangements and its one request back."""
+    event = upsert_arranged_event(db, spec, organiser, coordinator, now, in_days=CHANGE_REQUEST_IN_DAYS, safety_approved=True)
+    db.flush()
+    booking = db.get(VenueBooking, seed_id("venue-booking", spec.slug))
+    db.flush()
+    # Confirmed through US18, as the coordinator would have: its date and capacity from its booking (D86).
+    event.status = EventStatus.CONFIRMED
+    event.purpose = "Seeded for reviewing an organiser's change request (US29b)"
+    event.start_at, event.end_at = booking.starts_at, booking.ends_at
+    event.capacity = spec.expected_attendees
+    event.delivery_mode = DeliveryMode.IN_PERSON
+    event.registration_enabled = False  # off the attendees' board, like the other demos
+    event.confirmed_at = now
+    event.confirmed_by_user_id = coordinator.id
+
+    # What the app left: flags first (they point at its booking, line and requests), then history and requests.
+    db.execute(delete(EventReviewFlag).where(EventReviewFlag.event_id == event.id))
+    db.execute(delete(EventAuditEntry).where(EventAuditEntry.event_id == event.id))
+    request_id = seed_id("change-request", spec.slug)
+    db.execute(delete(EventChangeRequest).where(EventChangeRequest.event_id == event.id, EventChangeRequest.id != request_id))
+    line_id = seed_id("equipment-line", spec.slug)
+    db.execute(delete(EquipmentReservation).where(EquipmentReservation.event_id == event.id, EquipmentReservation.request_line_id != line_id))
+    db.execute(delete(EquipmentRequestLine).where(EquipmentRequestLine.event_id == event.id, EquipmentRequestLine.id != line_id))
+    db.execute(delete(TechStaffAssignment).where(TechStaffAssignment.event_id == event.id))
+    db.flush()
+
+    tech_support_id = seed_id("user", "tech-support")
+    projector_id = seed_id("equipment-type", CHANGE_REQUEST_EQUIPMENT)
+    _upsert(db, EquipmentRequestLine, line_id, {
+        "event_id": event.id,
+        "equipment_type_id": projector_id,
+        "quantity": 1,
+        "notes": None,
+        "status": EquipmentLineStatus.APPROVED,
+        "review_note": None,
+        "requested_by_user_id": coordinator.id,
+        "reviewed_by_user_id": tech_support_id,
+        "reviewed_at": now,
+        "availability_checked_at": None,
+        "availability_checked_by_user_id": None,
+        "availability_sufficient": None,
+        "availability_shortfall": None,
+    })
+    db.flush()
+    _upsert(db, EquipmentReservation, seed_id("equipment-reservation", spec.slug), {
+        "request_line_id": line_id,
+        "event_id": event.id,
+        "equipment_type_id": projector_id,
+        "quantity": 1,
+        "reserved_by_user_id": tech_support_id,
+    })
+    # An approved line needs Tech support assigned for the event to be ready (D80).
+    db.add(TechStaffAssignment(event_id=event.id, staff_user_id=tech_support_id, assigned_by_user_id=coordinator.id, assigned_at=now))
+    # The review behind its safety approval (US30a), at the same instant. upsert_arranged_event has just
+    # deleted the reviews a run left, so there is exactly one.
+    db.add(
+        SafetyReview(
+            event_id=event.id,
+            reviewer_id=event.safety_approved_by_user_id,
+            outcome="approved",
+            checklist={key: {"result": "satisfactory", "comment": None} for key in CHECKLIST_KEYS},
+            comments="The arrangement is safe as booked.",
+            created_at=event.safety_approved_at,
+        )
+    )
+
+    later = timedelta(hours=1)
+    _upsert(db, EventChangeRequest, request_id, {
+        "event_id": event.id,
+        "requested_by_user_id": organiser.id,
+        "status": ChangeRequestStatus.PENDING_APPROVAL,
+        # As US29a writes them: each field's value then, and the one asked for (+08:00, D9).
+        "changes": [
+            {"field": "start_at", "old_value": booking.starts_at.isoformat(), "new_value": (booking.starts_at + later).isoformat()},
+            {"field": "end_at", "old_value": booking.ends_at.isoformat(), "new_value": (booking.ends_at + later).isoformat()},
+        ],
+        "reason": CHANGE_REQUEST_REASON,
+        "created_at": now,
+        "decided_at": None,
+        "decided_by_user_id": None,
+        "rejection_reason": None,
+    })
+    return event
+
+
+def _upsert(db: Session, model: type, row_id: uuid.UUID, values: dict[str, object]) -> object:
+    row = db.get(model, row_id)
+    if row is None:
+        row = model(id=row_id, **values)
+        db.add(row)
+    else:
+        for key, value in values.items():
+            setattr(row, key, value)
+    return row
 
 
 def upsert_cancellation_event(
@@ -1072,6 +1198,8 @@ def upsert_multi_venue_event(
             setattr(event, key, value)
     db.flush()
     seeded = [seed_id("venue-booking", booking_spec.slug) for booking_spec in spec.bookings]
+    # Its review flags first: some may point at the bookings about to go (US29b, SCRUM-141).
+    db.execute(delete(EventReviewFlag).where(EventReviewFlag.event_id == event.id))
     db.execute(delete(VenueBooking).where(VenueBooking.event_id == event.id, VenueBooking.id.not_in(seeded)))
     # Non-primary ones first, so the main hall takes the flag last.
     for booking_spec in sorted(spec.bookings, key=lambda b: b.is_primary):
@@ -1105,10 +1233,10 @@ def upsert_multi_venue_event(
 
 def seeded_booking_count() -> int:
     """Every booking the seed owns: US2's slot, each in-person event's primary and the multi-venue
-    demo event's venues (US24), US18's Confirmation Demo's booking and US30a's Safety Review Demo's. Bookings made in the app aren't
-    counted."""
+    demo event's venues (US24), US18's Confirmation Demo's booking, US30a's Safety Review Demo's and US29b's
+    Change Request Demo's. Bookings made in the app aren't counted."""
     primaries = sum(1 for spec in [*EVENTS, EQUIPMENT_EVENT] if spec.venue_slug)
-    return len(VENUE_BOOKINGS) + primaries + len(MULTI_VENUE_EVENT.bookings) + 2
+    return len(VENUE_BOOKINGS) + primaries + len(MULTI_VENUE_EVENT.bookings) + 3
 
 
 def upsert_venue_block(db: Session, spec: VenueBlockSpec, now: datetime) -> VenueBlock:
@@ -1233,6 +1361,8 @@ def seed(db: Session, now: datetime | None = None) -> None:
     for name, stock in EQUIPMENT_STOCK.items():
         upsert_equipment_type(db, name, stock)
     db.flush()
+    upsert_change_request_event(db, CHANGE_REQUEST_EVENT, organiser, coordinator, now)
+    db.flush()
     # US9 (SCRUM-12): the upserts above put each seeded event back in its own status, so one cancelled in the app is
     # no longer cancelled. Its approved cancellation goes with it, keeping one approved row exactly when an event is
     # cancelled (TC-US9-25); otherwise the next cancel would break event_cancellations_one_open.
@@ -1308,10 +1438,12 @@ def admin_from_settings() -> SupabaseAdmin | None:
 REMOTE_RESEED_WARNING = (
     "Reseeding also deletes every equipment line on Equipment Request Demo, approved ones included, "
     "every venue booking on Multi-Venue Conference Demo that the seed didn't make, "
-    "and every session on Agenda Demo's agenda. "
+    "every session on Agenda Demo's agenda, "
+    "and every change request, decision, history entry and review flag on Change Request Demo, "
+    "whose seeded request is pending again. "
     "It puts Cancellation Demo back in Planning with no cancellation record, and drops the approved cancellation "
     "of any other seeded event that was cancelled in the app, which the reseed puts back in its own status. "
-    "Other events' lines, bookings, sessions and cancellations are untouched."
+    "Other events' lines, bookings, sessions, change requests and cancellations are untouched."
 )
 
 

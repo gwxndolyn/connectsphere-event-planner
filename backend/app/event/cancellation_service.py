@@ -27,6 +27,9 @@ from app.venue.models import LIVE_BOOKING_STATUSES, VenueBooking, VenueBookingSt
 
 logger = logging.getLogger(__name__)
 
+# US29b: the reason a pending change request gets when its event is cancelled.
+CANCELLED_REQUEST_REASON = "The event was cancelled."
+
 # AC 1: from approval until the start. Approved counts as well as Planning because nothing moves an approved event
 # on to Planning (D53), as US18 found (D86). Before approval a request is rejected (US17), not cancelled; Rejected,
 # Cancelled (AC 4) and Completed (AC 7) are over.
@@ -296,16 +299,25 @@ class CancellationService:
         # D75 (Calvin's ask on SCRUM-12): releasing a reservation is deleting it.
         db.execute(delete(EquipmentReservation).where(EquipmentReservation.event_id == event.id))
         # Work still open on the event can't go ahead (AC 4): its pending change requests (US12, US29a) are rejected
-        # here, so US29b never approves a change to a cancelled event. Equipment lines awaiting Tech support can't be
-        # (D51 bars the coordinator as their reviewer), so Tech support's queue and review refuse a cancelled event's
-        # instead; safety reviews already take only Approved and Planning events (US30a).
+        # here, so US29b never approves a change to a cancelled event. Each is a whole decision, as US29b's
+        # event_change_requests_decision_consistent and _rejection_reason_only_when_rejected require: by whoever
+        # cancelled the event or approved its cancellation (set on `row` before this runs), the coordinator's own US12
+        # edit included, since event_change_requests_decider_not_requester bars only approvals (D102). Equipment lines
+        # awaiting Tech support can't be (D51 bars the coordinator as their reviewer), so Tech support's queue and
+        # review refuse a cancelled event's instead; safety reviews already take only Approved and Planning events
+        # (US30a).
         db.execute(
             update(EventChangeRequest)
             .where(
                 EventChangeRequest.event_id == event.id,
                 EventChangeRequest.status == ChangeRequestStatus.PENDING_APPROVAL,
             )
-            .values(status=ChangeRequestStatus.REJECTED)
+            .values(
+                status=ChangeRequestStatus.REJECTED,
+                decided_at=now,
+                decided_by_user_id=row.decided_by_user_id,
+                rejection_reason=CANCELLED_REQUEST_REASON,
+            )
         )
         # TODO(US25): release the event's tentative venue holds here (SCRUM-93 AC 7).
         # Tech support assignments stay (the story owner's choice): D81 already frees the staff of a cancelled event.
