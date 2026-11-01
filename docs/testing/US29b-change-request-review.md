@@ -105,3 +105,5 @@ SCRUM-142 (PR 2), 1 Nov 2026, branch `feat(SCRUM-142)Change-Request-Decision-API
 - Races 16 and 17 run on two committed connections held at a barrier before the event lock, as TC-US27-11.
 - Backend: `pytest`: 1625 passed (1587, plus 30 new tests and 8 role-matrix cases for the six routes).
 - Local check: approving Change Request Demo's seeded request moved it to Planning, flagged its booking and projector, cleared its safety approval (state `pending`, review kept), and left readiness waiting on the safety check and the flags; the demo was reseeded afterwards.
+
+Calvin's #125 review, note 1, 1 Nov 2026: who decides and who clears are checked again on the locked event. Three tests on two committed connections, reassigning the event just before the lock, failed first (the old coordinator's approve, reject and clear all succeeded) and pass now: `pytest`: 1628 passed.
