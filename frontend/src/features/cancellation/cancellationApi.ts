@@ -46,6 +46,10 @@ export function cancellationErrorMessage(error: unknown): string {
       return "You can't decide a cancellation request you made.";
     case "NOT_FOUND":
       return "This event isn't yours, or it no longer exists.";
+    case "UNAUTHENTICATED":
+      return "Your session has ended. Log in again and try again.";
+    case "FORBIDDEN":
+      return "Your role can't do this. Switch to the event's organiser or coordinator.";
     default:
       return FALLBACK;
   }
@@ -58,5 +62,5 @@ const STATUS: Record<Cancellation["status"], string> = {
 };
 
 export function cancellationStatusLabel(status: Cancellation["status"]): string {
-  return STATUS[status] ?? status;
+  return STATUS[status];
 }

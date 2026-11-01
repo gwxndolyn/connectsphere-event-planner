@@ -20,8 +20,8 @@ type Step = "closed" | "ask" | "reject" | "cancel" | "confirm-cancel";
 interface EventCancellationProps {
   event: EventRequest;
   role: "organiser" | "coordinator";
-  // The event's status after a change, so the page can show it Cancelled.
-  onChanged?: (status: EventRequestStatus) => void;
+  // The event's status after a change: the page updates `event`, which this panel reads its status from.
+  onChanged: (status: EventRequestStatus) => void;
 }
 
 /**
@@ -31,13 +31,15 @@ interface EventCancellationProps {
  */
 export function EventCancellation({ event, role, onChanged }: EventCancellationProps) {
   const [records, setRecords] = useState<Cancellation[] | null>(null);
+  // The history couldn't be loaded, so whether a request is waiting is unknown: no actions are offered.
+  const [loadFailed, setLoadFailed] = useState(false);
   const [step, setStep] = useState<Step>("closed");
   const [reason, setReason] = useState("");
   const [reasonInvalid, setReasonInvalid] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [status, setStatus] = useState<EventRequestStatus>(event.status);
+  const status = event.status;
 
   useEffect(() => {
     let current = true;
@@ -48,7 +50,7 @@ export function EventCancellation({ event, role, onChanged }: EventCancellationP
       })
       .catch((failure: unknown) => {
         if (current) {
-          setRecords([]);
+          setLoadFailed(true);
           setError(cancellationErrorMessage(failure));
         }
       });
@@ -81,11 +83,10 @@ export function EventCancellation({ event, role, onChanged }: EventCancellationP
     try {
       const result = await action();
       setRecords((current) => [result, ...(current ?? []).filter((record) => record.id !== result.id)]);
-      setStatus(result.event_status);
       setStep("closed");
       setReason("");
       setNotice(done);
-      onChanged?.(result.event_status);
+      onChanged(result.event_status);
     } catch (failure) {
       setError(cancellationErrorMessage(failure));
       if (failure instanceof ApiError && failure.fields.includes("reason")) setReasonInvalid(true);
@@ -166,7 +167,7 @@ export function EventCancellation({ event, role, onChanged }: EventCancellationP
           </p>
           {reasonField("Reason for cancelling")}
           {actions("Back", "Send cancellation request", "Sending…", () => {
-            if (!needsReason()) void run(() => cancellationApi.request(event.id, reason), "Cancellation request sent.");
+            if (!needsReason()) void run(() => cancellationApi.request(event.id, reason.trim()), "Cancellation request sent.");
           })}
         </div>
       )}
@@ -191,7 +192,7 @@ export function EventCancellation({ event, role, onChanged }: EventCancellationP
             <strong>Reason:</strong> {reason.trim()}
           </p>
           {actions("Back", "Cancel event", "Cancelling…", () => {
-            void run(() => cancellationApi.cancel(event.id, reason), "The event is cancelled.");
+            void run(() => cancellationApi.cancel(event.id, reason.trim()), "The event is cancelled.");
           }, true)}
         </div>
       )}
@@ -221,7 +222,7 @@ export function EventCancellation({ event, role, onChanged }: EventCancellationP
         <div className="event-cancellation__form">
           {reasonField("Reason for rejecting")}
           {actions("Back", "Reject cancellation", "Rejecting…", () => {
-            if (!needsReason()) void run(() => cancellationApi.reject(pending.id, reason), "Cancellation request rejected.");
+            if (!needsReason()) void run(() => cancellationApi.reject(pending.id, reason.trim()), "Cancellation request rejected.");
           })}
         </div>
       )}
@@ -230,7 +231,7 @@ export function EventCancellation({ event, role, onChanged }: EventCancellationP
         <p className="event-cancellation__hint">Your cancellation request is waiting for your coordinator's decision.</p>
       )}
 
-      {records === null ? (
+      {loadFailed ? null : records === null ? (
         <p className="request-empty">Loading cancellation history…</p>
       ) : records.length === 0 ? (
         step === "closed" && <p className="request-empty">No cancellation requests for this event.</p>
