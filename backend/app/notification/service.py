@@ -161,6 +161,18 @@ class Notifier(Protocol):
     ) -> None: ...
 
 
+    def change_requested(
+        self,
+        *,
+        email: str,
+        event_id: uuid.UUID,
+        event_name: str,
+        organiser_name: str,
+        fields: list[str],
+        reason: str,
+        to_lead: bool,
+    ) -> None: ...
+
 class LoggingNotifier:
     """Sprint 1 stand-in: no mail is sent, the call is logged (spec §7)."""
 
@@ -438,6 +450,30 @@ class LoggingNotifier:
             ", ".join(venues),
         )
 
+
+    def change_requested(
+        self,
+        *,
+        email: str,
+        event_id: uuid.UUID,
+        event_name: str,
+        organiser_name: str,
+        fields: list[str],
+        reason: str,
+        to_lead: bool,
+    ) -> None:
+        # US29a (SCRUM-97) AC 5: the event's coordinator hears an organiser asked for a change; a Lead when
+        # nobody is assigned yet (D91).
+        logger.info(
+            "change requested: %s%s, %r (%s) by %s, fields %s; reason: %s",
+            email,
+            " (Lead, unassigned)" if to_lead else "",
+            event_name,
+            event_id,
+            organiser_name,
+            ", ".join(fields),
+            reason,
+        )
 
 notifier = LoggingNotifier()
 

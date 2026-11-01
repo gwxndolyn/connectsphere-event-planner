@@ -30,8 +30,8 @@ from tests.factories import NOW, make_attendee, make_event, make_registration, m
 
 pytestmark = pytest.mark.anyio
 
-# The newest migration: TC-US16B-29 checks it is the only head (SCRUM-85 added it).
-REVISION = "20261109_1200_us18_confirm"
+# The newest migration: TC-US16B-29 checks it is the only head (SCRUM-97 added it, after SCRUM-85's).
+REVISION = "20261110_1200_us29a_change_reqs"
 QUESTION = {"sections": ["attendance"], "comment": "How many people are coming?"}
 FORBIDDEN = {"code": "FORBIDDEN"}
 NOT_FOUND = {"code": "NOT_FOUND"}
@@ -297,6 +297,9 @@ ROUTES = [
     ("GET", "/api/v1/events/{event_id}", {COORDINATOR}),
     ("PATCH", "/api/v1/events/{event_id}", {COORDINATOR}),
     ("GET", "/api/v1/events/{event_id}/history", {COORDINATOR}),
+    # SCRUM-97 (US29a): the organiser asks for a change to their own event and follows it.
+    ("POST", "/api/v1/event-requests/{request_id}/change-requests", {ORGANISER}),
+    ("GET", "/api/v1/me/change-requests", {ORGANISER}),
 ]
 # Every other route, by who may call it, so that a new route fails the test below until someone decides
 # which list it belongs in (PR #88 review).

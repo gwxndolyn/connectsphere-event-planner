@@ -1,0 +1,60 @@
+/* US29a (SCRUM-97): the organiser's change requests on their submitted request. */
+.change-requests {
+  margin: 32px 0 8px;
+  text-align: left;
+}
+
+.change-requests__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.change-requests__heading h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.change-requests__hint,
+.change-review__reason {
+  margin: 12px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.change-review {
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.change-review h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.change-table {
+  width: 100%;
+  margin-top: 8px;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.change-table th,
+.change-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.change-table th {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.change-request-row .venue-booking-row__main {
+  flex: 1;
+}

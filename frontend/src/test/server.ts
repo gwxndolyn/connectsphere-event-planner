@@ -3,6 +3,7 @@ import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll } from "vitest";
 import type { EventRegistrations } from "../features/eventRegistrations/types";
 import type { AuditEntry, EventDetails } from "../features/eventEdit/types";
+import type { OrganiserChangeRequest } from "../features/changeRequest/types";
 import type { AssignmentRecord, Clarification, EventRequest, EventRequestWrite } from "../features/eventRequest/types";
 import type { BookingEvaluation, VenueBooking } from "../features/venue/bookingTypes";
 import type { Venue } from "../features/venue/types";
@@ -191,6 +192,8 @@ interface Db {
   // US12 (SCRUM-15): the coordinator's events and each one's History, newest first.
   coordinatedEvents: EventDetails[];
   history: Record<string, AuditEntry[]>;
+  // US29a (SCRUM-97): organisers' change requests, newest first.
+  changeRequests: OrganiserChangeRequest[];
   calls: RecordedCall[];
   nextId: number;
   nextReference: number;
@@ -210,6 +213,7 @@ function emptyDb(): Db {
     managedEvents: { organiser: [], coordinator: [] },
     coordinatedEvents: [],
     history: {},
+    changeRequests: [],
     bookings: [],
     blocks: [],
     evaluations: {},
@@ -1430,6 +1434,38 @@ const handlers = [
   }),
 
   // Event requests (US1, US8), identified by X-User-Id.
+  // US29a (SCRUM-97), identified by X-User-Id. Which fields a stage takes and each value's rules are the API's
+  // (backend/tests/event/test_change_requests.py); this keeps the request Pending and the event unchanged, and
+  // refuses a missing reason, so a flow sees its own writes. A test queues other refusals with server.use(...).
+  route("post", "/api/v1/event-requests/:id/change-requests", ({ request, params, body }) => {
+    if (userRole(request) !== "organiser") return error(403, "FORBIDDEN");
+    const event = db.requests.find((r) => r.id === params.id && r.created_by_user_id === request.headers.get("X-User-Id"));
+    if (!event || event.status === "draft") return error(404, "NOT_FOUND");
+    if (["rejected", "cancelled", "completed"].includes(event.status)) return error(409, "CHANGE_NOT_ALLOWED", { status: event.status });
+    const { changes = {}, reason } = (body ?? {}) as { changes?: Record<string, unknown>; reason?: string };
+    if (!reason?.trim()) return error(422, "MISSING_REQUIRED_FIELD", { fields: ["reason"] });
+    const current = event as unknown as Record<string, unknown>;
+    const created: OrganiserChangeRequest = {
+      id: newId("change-request"),
+      event_id: event.id,
+      event_name: event.name,
+      request_reference: event.request_reference,
+      status: "pending_approval",
+      reason: reason.trim(),
+      changes: Object.entries(changes).map(([field, new_value]) => ({ field, old_value: current[field] ?? null, new_value })),
+      created_at: new Date(Date.UTC(2026, 9, 1, 1, db.nextId)).toISOString(),
+    };
+    db.changeRequests.unshift(created);
+    return HttpResponse.json(created as unknown as JsonBodyType, { status: 201 });
+  }),
+
+  route("get", "/api/v1/me/change-requests", ({ request }) => {
+    if (userRole(request) !== "organiser") return error(403, "FORBIDDEN");
+    const eventId = new URL(request.url).searchParams.get("event_id");
+    const mine = db.changeRequests.filter((r) => !eventId || r.event_id === eventId);
+    return HttpResponse.json({ change_requests: mine } as unknown as JsonBodyType);
+  }),
+
   route("get", "/api/v1/me/event-requests", ({ request }) => {
     const role = userRole(request);
     if (!role) return error(401, "UNAUTHENTICATED");

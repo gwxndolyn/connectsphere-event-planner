@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { ApiError, apiClient } from "../../api/client";
+import { EventChangeRequests } from "../changeRequest/EventChangeRequests";
 import { EventVenuesOverview } from "../venue/EventVenuesOverview";
 import { ClarificationThreadView } from "./ClarificationThreadView";
 import { DecisionOutcome } from "./RequestDecision";
@@ -560,6 +561,8 @@ export function EventRequestsPage() {
           </div>
         </form>
       )}
+      {/* US29a (SCRUM-97): an awaiting-clarification request opens here, so its change requests show here too. */}
+      {screen === "respond" && activeRequest && <EventChangeRequests event={activeRequest} />}
 
       {screen === "responded" && activeRequest && responded && (
         <section className="request-confirmation" aria-labelledby="response-sent-title">
@@ -587,6 +590,7 @@ export function EventRequestsPage() {
           </div>
           <DecisionOutcome request={activeRequest} />
           {VENUES_VISIBLE.includes(activeRequest.status) && <EventVenuesOverview event={activeRequest} />}
+          <EventChangeRequests event={activeRequest} />
           <button className="request-button request-button--primary" type="button" onClick={backToList}>
             Back to my requests
           </button>

@@ -14,6 +14,8 @@ from app.event.clarification_schemas import (
     ClarificationThreadOut,
 )
 from app.event.clarification_service import clarification_service
+from app.event.change_request_schemas import ChangeRequestWrite, OrganiserChangeRequestOut, OrganiserChangeRequestsOut
+from app.event.change_request_service import change_request_service
 from app.event.confirmation_service import confirmation_service
 from app.event.assignment_service import assignment_service
 from app.event.decision_service import request_decision_service
@@ -263,3 +265,25 @@ def respond_to_clarification(
     now: datetime = Depends(get_now),
 ) -> ClarificationSentOut:
     return clarification_service.send_response(db, request_id, organiser, body, now)
+
+
+# US29a (SCRUM-97): the organiser asks for a change to their own submitted event; nothing on it changes yet (AC 4).
+@router.post("/{request_id}/change-requests", status_code=201, response_model=OrganiserChangeRequestOut)
+def request_change(
+    request_id: uuid.UUID,
+    body: ChangeRequestWrite,
+    organiser: Organiser,
+    db: Session = Depends(get_db),
+    now: datetime = Depends(get_now),
+    notifier: Notifier = Depends(get_notifier),
+) -> OrganiserChangeRequestOut:
+    return change_request_service.create(db, organiser, request_id, body, now, notifier)
+
+
+@me_router.get("/change-requests", response_model=OrganiserChangeRequestsOut)
+def my_change_requests(
+    organiser: Organiser,
+    event_id: uuid.UUID | None = None,
+    db: Session = Depends(get_db),
+) -> OrganiserChangeRequestsOut:
+    return OrganiserChangeRequestsOut(change_requests=change_request_service.list_mine(db, organiser, event_id))
