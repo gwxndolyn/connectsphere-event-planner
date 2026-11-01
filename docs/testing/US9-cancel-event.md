@@ -20,7 +20,7 @@
 | PR | Work | Tests |
 | --- | --- | --- |
 | 1 | `event_cancellations` and `cancellation_status`; a cancelled event may lack its date and capacity, not its name (D98), and the Planning-onwards lists leave such an event out. Migration `20261112_1200_us9_cancellations` | `backend/tests/event/test_cancellation_schema.py` (TC-US9-01 to 08), `test_cancelled_event_reads.py` (TC-US9-08, every read route) |
-| 2 | Endpoints, releases, notices | Not built yet |
+| 2 | Ask, approve, reject and cancel; reading the record; releasing venues and equipment; the notices; no waitlist offers on a cancelled event | `backend/tests/event/test_cancellations.py` (TC-US9-09 to 23, 25, 33 to 35), `test_cancellation_race.py` (TC-US9-24); `backend/tests/user/test_role_scope.py` (the routes' roles and D51) |
 | 3 | Organiser's and coordinator's screens | Not built yet |
 
 ## Decisions for this story
@@ -30,6 +30,12 @@
 - **Where the record shows** (AC 8): `GET /api/v1/event-requests/{id}/cancellations` (PR 2) answers the organiser and the assigned coordinator at any status, a dateless cancelled event included. On screen (PR 3): the organiser's own request, which they can open at any status; for the coordinator, PR 2 lets the assigned coordinator open a cancelled request too, since the request routes stop at Rejected (D11) and the Planning-onwards routes leave out an event cancelled before it had a date.
 - **A rejection needs a reason** (the story owner's choice, 1 Nov), as US17's does: the organiser is told why their event goes ahead.
 - **Cancellable from Approved, Planning, Confirmed and Preparation, until the start.** Approved is included because nothing moves an event on to Planning (D53), as US18 found (D86). An Approved event may have no date or capacity yet, so a cancelled event no longer needs its date, capacity or delivery mode, though it keeps its name for the notices (D98, `DECISION-PENDING`). The coordinator's Events list and the managed-events list are for events from Planning on, so they leave out one cancelled before it had a date.
+- **Venue staff told** (D100, `DECISION-PENDING`): Venue staff aren't assigned to events, so every active Venue staff member hears, and only when an approved venue was released, as for a withdrawn approved booking (D69).
+- **When an Approved event starts** (D101, `DECISION-PENDING`): it has no `start_at` yet, so AC 7 uses its earliest approved venue booking (a pending one may never be approved), else its last preferred date at its preferred start time, by when it has surely started.
+- **A waiting request blocks a direct cancel** (`CANCELLATION_PENDING`): the coordinator decides the organiser's request instead, so the record keeps who asked (AC 8).
+- **Open work on a cancelled event** (Matt's review of #117): pending change requests are rejected in the same transaction; pending equipment lines leave Tech support's queue and review refuses them (D51 bars the coordinator from closing them); safety reviews already refuse anything but Approved and Planning.
+- **Nobody active to decide:** the request's notice goes to every active Lead instead, who can reassign the event (US10e), as for a change request (D91). Leads also read the record.
+- **Registrations stay as they are.** Everyone registered, offered or waiting is told (AC 6); a cancelled event offers no freed place, and an offer made before the cancel can't be accepted (`EVENT_CANCELLED`).
 - **Tech support assignments are kept** (the story owner's choice, 1 Nov). D81 already frees a cancelled event's staff for overlapping events, and the assignment log stays as it was. They are notified (AC 6).
 
 ## Test cases
@@ -44,6 +50,26 @@
 | TC-US9-06 | 2 | | Rejected without a reason or with a blank one; approved with one | Each refused (`event_cancellations_rejection_reason_only_when_rejected`) |
 | TC-US9-07 | 1 | An Approved event with no date or capacity; one with no name; a Planning event | Cancel the first two; clear the third's start | Allowed (D98); refused; refused (`events_final_fields_required`) |
 | TC-US9-08 | 1 | An event cancelled while Approved, with no date, capacity or delivery mode, a released venue, an approved equipment line, a Tech support assignment and its cancellation | Its coordinator lists and opens their Events; its organiser lists managed events and opens its registrations; **every GET route, as every role** (the eight roles' users) | Left out of both lists, `404` when opened; no route answers `5xx` for anyone (Matt's review of #115) |
+| TC-US9-09 | 1, 2 | The organiser's event, Approved, Planning, Confirmed or Preparation | They ask, with a padded reason | `201`, pending, the reason trimmed; the event unchanged; the coordinator told |
+| TC-US9-10 | 1, 4, 7 | Submitted, Under Review, Awaiting Clarification, Rejected, Cancelled, Completed | They ask | `409 CANCELLATION_NOT_ALLOWED` with `status`; nothing stored or told |
+| TC-US9-11 | 1 | A draft, another organiser's event, an unknown id | They ask | `404 NOT_FOUND` |
+| TC-US9-12 | 1 | | No reason, a blank one, over 1,000 characters; an unknown field | `422 MISSING_REQUIRED_FIELD` / `INVALID_CANCELLATION` on `reason`; `422`; nothing stored |
+| TC-US9-13 | 1 | A request waiting | They ask again | `409 CANCELLATION_PENDING` with its id |
+| TC-US9-14 | 2, 4 | A waiting request | The coordinator approves | `200`; approved, with decider and time; the event Cancelled; the organiser told, with the reason |
+| TC-US9-15 | 2 | A waiting request | Reject without a reason; with one | `422`; `200`, rejected with the reason, the event still Planning, the organiser told why, nobody told of a cancel; the organiser can ask again |
+| TC-US9-16 | 2 | A request | Another coordinator, an unknown id; decide twice | `404`; `409 CANCELLATION_NOT_PENDING` |
+| TC-US9-17 | 3 | The coordinator's event; one with a request waiting | Cancel with a reason; without; by another coordinator; beside the waiting request | `200`, approved, `direct`, them as requester and decider; `422`; `404`; `409 CANCELLATION_PENDING` |
+| TC-US9-18 | 5 | Approved, requested and rejected bookings at three venues; a reservation; another event's; a Tech support assignment | Cancel; a refused cancel | The two live bookings withdrawn (the approved one keeps its decision), the rejected one untouched; the event's reservation deleted, the other kept; the assignment kept. A refused cancel changes nothing |
+| TC-US9-19 | 6 | Organiser, active and inactive Venue staff, an approved booking, an assigned, an unassigned and a deactivated Tech support member, registered, wait-listed, offered, lapsed-offer and withdrawn attendees | Cancel; with only a requested booking; with the notifier failing | One notice each to the organiser, the active Venue staff, the active assigned Tech support member and the three attendees holding or awaiting a place, with the name and reason; no Venue staff when no approved venue was released; the cancel stands |
+| TC-US9-20 | 7 | An event that has started; a request approved after the start; Approved events: one with a later preferred date ahead, one with every date passed, one whose venue booking has started | Ask, cancel, approve | `409 EVENT_STARTED`, nothing changes and the request stays pending; the first Approved one may be cancelled, the other two are `EVENT_STARTED` (D101) |
+| TC-US9-21 | 4 | A cancelled event | Cancel again, ask | `409 CANCELLATION_NOT_ALLOWED`, `status: cancelled` |
+| TC-US9-22 | 8 | A rejected request and a newer waiting one; two cancelled events, one dateless | The organiser, the coordinator and a Lead read; another organiser and coordinator; the coordinator opens their queue and each event | Both newest first; `404`; both cancelled events in the queue and open, `200`, to them only |
+| TC-US9-25 | 4, 8 | Events cancelled by request and directly, one with a rejected request, one untouched; a second cancel refused | Compare event statuses with approved rows | Exactly the cancelled events have an approved row, one each; only the direct cancel is `direct` |
+| TC-US9-33 | 4 | A pending change request on the event and one on another; a pending equipment line; a Safety Officer | Cancel; Tech support lists pending lines and reviews this one; the Safety Officer lists and reviews | This event's change request rejected, the other's still pending; the line not listed and `409 EVENT_NOT_ELIGIBLE`, still pending; the event not queued and `409 SAFETY_REVIEW_NOT_ALLOWED` (`status`), no review stored |
+| TC-US9-34 | 2 | The event's coordinator deactivated; two active Leads and an inactive one | The organiser asks | `201`; both active Leads told, nobody else |
+| TC-US9-35 | 7 | An Approved request with a pending booking whose start has passed | The organiser asks | `201`: a booking never approved doesn't place the event (D101) |
+| TC-US9-23 | 6 | An offer made before the cancel; a full event with a queue | The attendee accepts; a registered attendee withdraws after the cancel | `409 EVENT_CANCELLED`, the offer unchanged; no place offered, nobody told |
+| TC-US9-24 | 5 | A requested booking, committed | Venue staff approve it (locking the booking, then pausing) while the coordinator cancels the event, on two connections | Both succeed in turn: the booking is approved, then withdrawn with its decision kept; the event Cancelled. Locking the event first deadlocked (`DeadlockDetected`) |
 
 ## Results
 
@@ -52,4 +78,8 @@
 | 1 Nov | Backend (`pytest`), PR 1 | 1411 passed, including TC-US9-01 to 08; the migration upgrades, downgrades and upgrades again on a local database. Without the list fix TC-US9-08 fails with a `ValidationError` (the `500`) |
 | 1 Nov | Backend (`pytest`), PR 1 after merging `main` (#114, US30a) | 1454 passed; the migration now follows `20261110_1200_us30a_safety` and upgrades, downgrades and upgrades again |
 | 1 Nov | Backend (`pytest`), PR 1 after Matt's review | 1460 passed: `direct` and the reason caps (TC-US9-04, 05), and every GET route as every role on a dateless cancelled event (TC-US9-08), which fails with a `ValidationError` without the list fix |
-| 1 Nov | Backend (`pytest`), PR 1 after merging `main` (#113, US15) | 1472 passed; the migration now follows `20261111_1200_us15_sessions`; D93 renumbered to D98 (#113 took D93 to D97); the read-route sweep (TC-US9-08) covers US15's agenda routes too |
+| 1 Nov | Backend (`pytest`), PR 1 after merging `main` (#113, US15) | 1472 passed; the migration now follows `20261111_1200_us15_sessions`; D98 renumbered to D98 (#113 took D98 to D97); the read-route sweep (TC-US9-08) covers US15's agenda routes too |
+| 1 Nov | Backend (`pytest`), PR 2 on PR 1 after Matt's review | 1506 passed, including TC-US9-09 to 25 and the new routes in `test_role_scope.py`; TC-US9-24 fails with `DeadlockDetected` without the lock order |
+| 1 Nov | Backend (`pytest`), PR 2 after merging PR 1 (with #113) | 1518 passed; D94 and D95 renumbered to D99 and D100 (#113 took D93 to D97) |
+| 1 Nov | Backend (`pytest`), PR 2 after merging `main` (#116, US30b) | 1541 passed; D99 and D100 renumbered to D100 and D101, deviation 64 to 65 (#116 took D99 and deviation 64) |
+| 1 Nov | Backend (`pytest`), PR 2 after Matt's review | 1546 passed, including TC-US9-33 to 35; `POST …/cancellation` renamed `…/cancel` |

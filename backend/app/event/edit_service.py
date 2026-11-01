@@ -17,6 +17,7 @@ from app.event.edit_schemas import (
     FieldChangeOut,
 )
 from app.event.models import (
+    AuditAction,
     ChangeRequestStatus,
     DeliveryMode,
     Event,
@@ -235,6 +236,8 @@ class EventEditService:
                     previous_value=_json(old),
                     new_value=_json(new),
                     change_request_id=request.id if request else None,
+                    # US29b (Calvin's #121 review): a held edit is the request; the event didn't change yet.
+                    action=AuditAction.REQUESTED if request else AuditAction.SAVED,
                     created_at=now,
                 )
             )

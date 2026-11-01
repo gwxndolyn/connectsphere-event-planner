@@ -48,7 +48,7 @@ class AssignmentKind(enum.StrEnum):
 
 class ChangeRequestStatus(enum.StrEnum):
     """A change request's state (US12, SCRUM-15; US29a, SCRUM-97). It's `pending_approval` until decided;
-    who decides is D89, settled by US29b's D100 (SCRUM-98)."""
+    who decides is D89, settled by US29b's D102 (SCRUM-98)."""
 
     PENDING_APPROVAL = "pending_approval"
     APPROVED = "approved"
@@ -268,10 +268,11 @@ class EventChangeRequest(Base):
             "rejection_reason IS NULL OR btrim(rejection_reason) <> ''",
             name="event_change_requests_rejection_reason_not_blank",
         ),
-        # DECISION-PENDING: D100 — no one decides a request they made (D51), so a coordinator's own US12 edit
-        # goes to a Coordinator Lead.
+        # DECISION-PENDING: D102 — no one approves a request they made (D51), so a coordinator's own US12 edit
+        # goes to a Coordinator Lead. Rejecting is allowed: cancelling an event rejects all its pending requests,
+        # the canceller's own too (US9).
         CheckConstraint(
-            "decided_by_user_id IS NULL OR decided_by_user_id <> requested_by_user_id",
+            "status::text <> 'approved' OR decided_by_user_id <> requested_by_user_id",
             name="event_change_requests_decider_not_requester",
         ),
         Index("ix_event_change_requests_pending", "event_id", postgresql_where=text("status = 'pending_approval'")),
@@ -303,9 +304,9 @@ class AuditAction(enum.StrEnum):
     REQUESTED = "requested"  # a critical save held in a change request (US12 AC 3, D89)
     APPLIED = "applied"  # a field an approved change request changed
     DECIDED = "decided"  # the approval or rejection itself
-    STATUS_CHANGED = "status_changed"  # a significant change moved the event back to Planning (D103)
-    CONFIRMATION_CLEARED = "confirmation_cleared"  # ...so it's no longer confirmed (D103)
-    SAFETY_APPROVAL_CLEARED = "safety_approval_cleared"  # ...and needs a new safety review (AC 6, D104)
+    STATUS_CHANGED = "status_changed"  # a significant change moved the event back to Planning (D105)
+    CONFIRMATION_CLEARED = "confirmation_cleared"  # ...so it's no longer confirmed (D105)
+    SAFETY_APPROVAL_CLEARED = "safety_approval_cleared"  # ...and needs a new safety review (AC 6, D106)
 
 
 class EventCancellation(Base):
@@ -374,6 +375,10 @@ class EventAuditEntry(Base):
             " 'safety_approval_cleared')",
             name="event_audit_entries_action_known",
         ),
+        # Calvin's #121 review: an entry tied to a change request is never a plain save.
+        CheckConstraint(
+            "change_request_id IS NULL OR action <> 'saved'", name="event_audit_entries_request_entry_not_saved"
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, server_default=text("gen_random_uuid()"))
@@ -400,7 +405,7 @@ class ReviewFlagKind(enum.StrEnum):
 class EventReviewFlag(Base):
     """An arrangement an approved significant change may have overtaken (US29b AC 3, SCRUM-98), for the
     event's coordinator to review. Nothing on the booking, reservation or registrations changes.
-    DECISION-PENDING: D102 — one row per affected item, one open flag per item (a later change adds its
+    DECISION-PENDING: D104 — one row per affected item, one open flag per item (a later change adds its
     fields to it), cleared by the coordinator with an optional note. An equipment flag points at the line,
     not its reservation, because releasing a reservation deletes it (D74)."""
 

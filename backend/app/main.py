@@ -14,6 +14,7 @@ from app.event.router import router as event_router
 from app.event.router import v1_router as event_v1_router
 from app.event.edit_router import me_router as event_edit_me_router
 from app.event.edit_router import router as event_edit_router
+from app.event.request_router import cancellations_router as event_cancellations_router
 from app.event.request_router import coordinators_router as event_request_coordinators_router
 from app.event.request_router import me_router as event_request_me_router
 from app.event.request_router import router as event_request_router
@@ -61,6 +62,7 @@ app.include_router(roster_me_router)
 app.include_router(event_request_router)
 app.include_router(event_request_me_router)
 app.include_router(event_request_coordinators_router)
+app.include_router(event_cancellations_router)
 app.include_router(venue_router)
 app.include_router(venue_booking_router)
 app.include_router(venue_booking_events_router)

@@ -1,6 +1,6 @@
 """US29b review an event change request, PR 1 (SCRUM-141, story SCRUM-98): a change request records its
 decision (who, when, and a rejection's reason), the event's history says what each entry is, and a
-significant change flags the event's affected arrangements for review (D102) without touching them. The
+significant change flags the event's affected arrangements for review (D104) without touching them. The
 seed adds Change Request Demo. The endpoints come in PR 2 (SCRUM-142). See
 docs/testing/US29b-change-request-review.md."""
 
@@ -27,7 +27,7 @@ from app.venue.models import VenueBooking, VenueBookingStatus
 from tests.conftest import BACKEND_DIR
 from tests.factories import NOW, make_event, make_user, make_venue, make_venue_booking
 
-REVISION = "20261114_1200_us29b_decisions"
+REVISION = "20261115_1200_us29b_decisions"
 PREVIOUS_REVISION = "20261114_1200_us30a_rls"
 CHANGE = [{"field": "start_at", "old_value": "2026-10-02T09:00:00+08:00", "new_value": "2026-10-02T10:00:00+08:00"}]
 
@@ -160,10 +160,15 @@ def test_tc_us29b_02_a_rejection_needs_a_reason_and_nothing_else_has_one(
 # --- TC-US29B-03 no one decides their own request (D51) ---
 
 
-def test_tc_us29b_03_the_requester_cannot_be_the_decider(db: Session, event: Event, coordinator: User) -> None:
+def test_tc_us29b_03_the_requester_cannot_approve_their_own_request(db: Session, event: Event, coordinator: User) -> None:
     assert (
         refused(db, lambda: insert_request(db, event, coordinator, status="approved", decided_at=NOW, decided_by_user_id=coordinator.id))
         == "event_change_requests_decider_not_requester"
+    )
+    # Rejecting it is allowed: cancelling the event rejects every pending request, the canceller's own too (US9).
+    insert_request(
+        db, event, coordinator, status="rejected", decided_at=NOW, decided_by_user_id=coordinator.id,
+        rejection_reason="The event was cancelled.",
     )
 
 
@@ -279,6 +284,21 @@ def test_tc_us29b_06_audit_entries_carry_a_known_action(
     for action in ("saved", "requested", "applied", "decided", "status_changed", "confirmation_cleared", "safety_approval_cleared"):
         write(action)
 
+    # Calvin's #121 review: an entry tied to a change request is never a plain save.
+    request = insert_request(db, event, coordinator)
+
+    def write_for_request(action: str) -> None:
+        db.execute(
+            text(
+                "insert into event_audit_entries (event_id, user_id, field_name, previous_value, new_value, "
+                "change_request_id, action) values (:event, :user, 'capacity', '80', '90', :request, :action)"
+            ),
+            {"event": event.id, "user": coordinator.id, "request": request, "action": action},
+        )
+
+    assert refused(db, lambda: write_for_request("saved")) == "event_audit_entries_request_entry_not_saved"
+    write_for_request("requested")
+
 
 def alembic_config(connection: Connection) -> Config:
     config = Config(str(BACKEND_DIR / "alembic.ini"))
@@ -323,6 +343,36 @@ def insert_old_rows(connection: Connection) -> tuple[uuid.UUID, uuid.UUID, uuid.
             {"event": event_id, "user": coordinator_id, "field": field, "request": request},
         )
     return event_id, coordinator_id, organiser_id, request_id
+
+
+def test_tc_us29b_06_the_upgrade_gives_a_cancelled_events_rejected_requests_the_cancellations_decision(
+    migration_connection: Connection,
+) -> None:
+    """#117 (US9) rejected a cancelled event's pending requests with no decision; the upgrade fills it in from
+    the approved cancellation, so the decision CHECKs hold."""
+    config = alembic_config(migration_connection)
+    command.downgrade(config, PREVIOUS_REVISION)
+    event_id, coordinator_id, organiser_id, request_id = insert_old_rows(migration_connection)
+    decided = NOW - timedelta(hours=1)
+    migration_connection.execute(
+        text("update events set status = 'cancelled', name = 'Cancelled workshop' where id = :event"), {"event": event_id}
+    )
+    migration_connection.execute(
+        text(
+            "insert into event_cancellations (event_id, requested_by_user_id, reason, status, requested_at, "
+            "decided_by_user_id, decided_at, direct) values (:event, :c, 'Speaker unavailable', 'approved', :at, :c, :at, true)"
+        ),
+        {"event": event_id, "c": coordinator_id, "at": decided},
+    )
+    migration_connection.execute(text("update event_change_requests set status = 'rejected' where id = :r"), {"r": request_id})
+
+    command.upgrade(config, REVISION)
+
+    row = migration_connection.execute(
+        text("select decided_at, decided_by_user_id, rejection_reason from event_change_requests where id = :r"),
+        {"r": request_id},
+    ).one()
+    assert (row.decided_at, row.decided_by_user_id, row.rejection_reason) == (decided, coordinator_id, "The event was cancelled.")
 
 
 def test_tc_us29b_06_the_upgrade_marks_existing_entries_and_the_downgrade_refuses_to_lose_decisions(
@@ -393,7 +443,7 @@ def test_tc_us29b_07_seed_has_a_change_request_demo_and_a_reseed_resets_it(db: S
         assert demo.confirmed_at is not None and demo.confirmed_by_user_id == coordinator_id
         assert demo.safety_approved_at is not None and demo.safety_approved_by_user_id == safety_officer_id
         # The approval has its review (US30a), so the screens name the officer and a later significant change
-        # can clear the approval while the review stays (D104, TC-US29B-12).
+        # can clear the approval while the review stays (D106, TC-US29B-12).
         reviews = db.execute(
             text("select reviewer_id, outcome, created_at from safety_reviews where event_id = :e"), {"e": demo.id}
         ).all()
@@ -420,7 +470,7 @@ def test_tc_us29b_07_seed_has_a_change_request_demo_and_a_reseed_resets_it(db: S
     check_seeded()
 
     # What the app would do: approve a significant change, which moves the event back to Planning,
-    # clears its safety approval and flags its booking, its reservation and its registrations (D102-D104).
+    # clears its safety approval and flags its booking, its reservation and its registrations (D104-D106).
     request = db.scalars(select(EventChangeRequest).where(EventChangeRequest.event_id == demo.id)).one()
     db.execute(
         text(
