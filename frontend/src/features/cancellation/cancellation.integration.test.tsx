@@ -105,6 +105,12 @@ describe("cancel an event (US9)", () => {
     expect(await cancellation.findByText(/asked to cancel this event: The keynote speaker can't travel./)).toBeInTheDocument();
     expect(cancellation.queryByRole("button", { name: "Cancel event" })).not.toBeInTheDocument();
     await user.click(cancellation.getByRole("button", { name: "Approve cancellation" }));
+    // A confirm step, as Cancel event has: approving can't be undone either (PR #119 review).
+    const confirm = within(cancellation.getByRole("group", { name: "Confirm cancellation" }));
+    expect(confirm.getByText(/Approving Olivia Organiser's request cancels the event/)).toBeInTheDocument();
+    expect(confirm.getByText(/This can't be undone./)).toBeInTheDocument();
+    expect(callsTo("POST", /\/approve$/)).toHaveLength(0);
+    await user.click(confirm.getByRole("button", { name: "Approve cancellation" }));
 
     expect(await cancellation.findByRole("status")).toHaveTextContent("The event is cancelled.");
     expect(cancellation.getByText("This event is cancelled.")).toBeInTheDocument();
@@ -168,6 +174,7 @@ describe("cancel an event (US9)", () => {
     const confirm = within(cancellation.getByRole("group", { name: "Confirm cancellation" }));
     expect(confirm.getByRole("heading", { name: "Cancel Alumni night?" })).toBeInTheDocument();
     expect(confirm.getByText(/This can't be undone./)).toBeInTheDocument();
+    expect(confirm.getByText(/any venue or technical support staff involved are told/)).toBeInTheDocument();
     expect(confirm.getByText(/The venue flooded./)).toBeInTheDocument();
     expect(callsTo("POST", /\/cancel$/)).toHaveLength(0);
 

@@ -15,7 +15,7 @@ import "../venue/venues.css";
 import "./cancellation.css";
 
 // What the open form is for: the organiser asking, the coordinator rejecting a request or cancelling directly.
-type Step = "closed" | "ask" | "reject" | "cancel" | "confirm-cancel";
+type Step = "closed" | "ask" | "reject" | "cancel" | "confirm-cancel" | "confirm-approve";
 
 interface EventCancellationProps {
   event: EventRequest;
@@ -186,8 +186,9 @@ export function EventCancellation({ event, role, onChanged }: EventCancellationP
         <div className="event-cancellation__form event-cancellation__confirm" role="group" aria-label="Confirm cancellation">
           <h3>Cancel {event.name || "this event"}?</h3>
           <p>
-            Its venue bookings and reserved equipment are released, and the organiser, venue and technical support staff
-            and everyone registered or waiting are told, with your reason. <strong>This can't be undone.</strong>
+            Its venue bookings and reserved equipment are released, and the organiser, everyone registered or waiting,
+            and any venue or technical support staff involved are told, with your reason.{" "}
+            <strong>This can't be undone.</strong>
           </p>
           <p className="change-review__reason">
             <strong>Reason:</strong> {reason.trim()}
@@ -198,7 +199,7 @@ export function EventCancellation({ event, role, onChanged }: EventCancellationP
         </div>
       )}
 
-      {pending && role === "coordinator" && step !== "reject" && (
+      {pending && role === "coordinator" && step !== "reject" && step !== "confirm-approve" && (
         <div className="event-cancellation__pending">
           <p>
             <strong>{pending.requested_by.name}</strong> asked to cancel this event: {pending.reason}
@@ -211,11 +212,29 @@ export function EventCancellation({ event, role, onChanged }: EventCancellationP
               type="button"
               className="request-button request-button--danger"
               disabled={saving}
-              onClick={() => void run(() => cancellationApi.approve(pending.id), "The event is cancelled.")}
+              onClick={() => open("confirm-approve")}
             >
-              {saving ? "Cancelling…" : "Approve cancellation"}
+              Approve cancellation
             </button>
           </div>
+        </div>
+      )}
+
+      {/* As Cancel event's: approving releases the same things and can't be undone either (PR #119 review). */}
+      {pending && step === "confirm-approve" && (
+        <div className="event-cancellation__form event-cancellation__confirm" role="group" aria-label="Confirm cancellation">
+          <h3>Cancel {event.name || "this event"}?</h3>
+          <p>
+            Approving {pending.requested_by.name}'s request cancels the event: its venue bookings and reserved equipment
+            are released, and the organiser, everyone registered or waiting, and any venue or technical support staff
+            involved are told, with their reason. <strong>This can't be undone.</strong>
+          </p>
+          <p className="change-review__reason">
+            <strong>Reason:</strong> {pending.reason}
+          </p>
+          {actions("Back", "Approve cancellation", "Cancelling…", () => {
+            void run(() => cancellationApi.approve(pending.id), "The event is cancelled.");
+          }, true)}
         </div>
       )}
 
