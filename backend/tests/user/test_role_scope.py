@@ -18,7 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.equipment.models import EquipmentLineStatus
-from app.event.models import Event, EventRequestClarification, EventStatus
+from app.event.models import Event, EventChangeRequest, EventRequestClarification, EventStatus
 from app.main import app
 from app.seed import seed
 from app.user.models import User, UserRole
@@ -318,6 +318,14 @@ ROUTES = [
     ("POST", "/api/v1/event-requests/{request_id}/sessions", {ORGANISER}),
     ("PATCH", "/api/v1/event-sessions/{session_id}", {ORGANISER}),
     ("DELETE", "/api/v1/event-sessions/{session_id}", {ORGANISER}),
+    # SCRUM-142 (US29b): the event's coordinator decides change requests, a Lead a coordinator's own US12 edit
+    # (D102); only the coordinator reviews and clears the flags a significant change raises (D104).
+    ("GET", "/api/v1/change-requests", {COORDINATOR, LEAD}),
+    ("GET", "/api/v1/change-requests/{request_id}", {COORDINATOR, LEAD}),
+    ("POST", "/api/v1/change-requests/{request_id}/approve", {COORDINATOR, LEAD}),
+    ("POST", "/api/v1/change-requests/{request_id}/reject", {COORDINATOR, LEAD}),
+    ("GET", "/api/v1/events/{event_id}/review-flags", {COORDINATOR}),
+    ("POST", "/api/v1/review-flags/{flag_id}/clear", {COORDINATOR}),
 ]
 # Every other route, by who may call it, so that a new route fails the test below until someone decides
 # which list it belongs in (PR #88 review).
@@ -592,6 +600,19 @@ async def cancellation_by_its_coordinator(client: AsyncClient, db: Session) -> t
     return both, uuid.UUID(asked.json()["id"]), {"reason": "Not for us."}
 
 
+async def change_by_its_coordinator(client: AsyncClient, db: Session) -> tuple[User, uuid.UUID, dict]:
+    """US29b (SCRUM-142) D102: a coordinator's own US12 critical edit, on the event they coordinate."""
+    coordinator = make_user(db, UserRole.COORDINATOR)
+    event = make_event(db, status=EventStatus.PLANNING, coordinator_id=coordinator.id)
+    request = EventChangeRequest(
+        event_id=event.id, requested_by_user_id=coordinator.id,
+        changes=[{"field": "capacity", "old_value": event.capacity, "new_value": event.capacity + 10}],
+    )
+    db.add(request)
+    db.flush()
+    return coordinator, request.id, {"reason": "Not for us."}
+
+
 DECISIONS = {
     ("POST", "/api/v1/venue-bookings/{booking_id}/approve"): booking_by_its_decider,
     ("POST", "/api/v1/venue-bookings/{booking_id}/reject"): booking_by_its_decider,
@@ -602,6 +623,8 @@ DECISIONS = {
     ("POST", "/api/v1/event-requests/{request_id}/reject"): request_by_its_coordinator,
     ("POST", "/api/v1/event-cancellations/{cancellation_id}/approve"): cancellation_by_its_coordinator,
     ("POST", "/api/v1/event-cancellations/{cancellation_id}/reject"): cancellation_by_its_coordinator,
+    ("POST", "/api/v1/change-requests/{request_id}/approve"): change_by_its_coordinator,
+    ("POST", "/api/v1/change-requests/{request_id}/reject"): change_by_its_coordinator,
 }
 
 
