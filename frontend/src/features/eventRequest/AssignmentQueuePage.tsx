@@ -396,7 +396,9 @@ export function AssignmentQueuePage() {
                 <li className="assign-history__entry" key={entry.id}>
                   <strong>{entry.kind === "reassignment" ? "Reassignment" : "Assignment"}</strong>
                   <span>
-                    {entry.assigned_by.name} assigned <strong>{entry.coordinator.name}</strong>
+                    {/* SCRUM-69 AC 3: the verb says which it was, like the label above. */}
+                    {entry.assigned_by.name} {entry.kind === "reassignment" ? "reassigned the event to" : "assigned"}{" "}
+                    <strong>{entry.coordinator.name}</strong>
                     {entry.reason && <em className="assign-history__reason">Reason: {entry.reason}</em>}
                   </span>
                   <time dateTime={entry.created_at}>{when(entry.created_at)}</time>
