@@ -32,7 +32,15 @@ from app.core.config import settings
 from app.agenda.models import EventSession
 from app.core.database import SessionLocal
 from app.equipment.models import EquipmentRequestLine, EquipmentReservation, EquipmentType, TechStaffAssignment
-from app.event.models import DeliveryMode, Event, EventAuditEntry, EventCancellation, EventChangeRequest, EventStatus
+from app.event.models import (
+    CancellationStatus,
+    DeliveryMode,
+    Event,
+    EventAuditEntry,
+    EventCancellation,
+    EventChangeRequest,
+    EventStatus,
+)
 from app.safety.models import SafetyReview
 from app.registration.models import ACTIVE_STATUSES, Registration, RegistrationStatus
 from app.user.models import Attendee, User, UserRole
@@ -1222,6 +1230,15 @@ def seed(db: Session, now: datetime | None = None) -> None:
     for name, stock in EQUIPMENT_STOCK.items():
         upsert_equipment_type(db, name, stock)
     db.flush()
+    # US9 (SCRUM-12): the upserts above put each seeded event back in its own status, so one cancelled in the app is
+    # no longer cancelled. Its approved cancellation goes with it, keeping one approved row exactly when an event is
+    # cancelled (TC-US9-25); otherwise the next cancel would break event_cancellations_one_open.
+    db.execute(
+        delete(EventCancellation).where(
+            EventCancellation.status == CancellationStatus.APPROVED,
+            EventCancellation.event_id.in_(select(Event.id).where(Event.status != EventStatus.CANCELLED)),
+        )
+    )
 
     db.commit()
 
