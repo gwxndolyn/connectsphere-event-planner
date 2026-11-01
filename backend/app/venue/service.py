@@ -16,6 +16,7 @@ from app.venue.availability import Window, hours_breach
 from app.venue.models import (
     ACCESSIBILITY_FEATURES,
     FACILITIES,
+    BLOCKING_STATUSES,
     LIVE_BOOKING_STATUSES,
     ROOM_LAYOUTS,
     Venue,
@@ -229,7 +230,8 @@ class VenueService:
             select(VenueBooking.id)
             .where(
                 VenueBooking.venue_id == Venue.id,
-                VenueBooking.status.in_(LIVE_BOOKING_STATUSES),
+                # US25 (SCRUM-93): a held venue isn't free either (US2 AC 5's "tentatively held").
+                VenueBooking.status.in_(BLOCKING_STATUSES),
                 _occupied_slot().op("&&")(window),
             )
             .offset(0)
@@ -403,12 +405,15 @@ class VenueService:
         another live booking or run outside opening hours (AC 3, 5). Past bookings keep their windows.
         The venue row is already locked FOR UPDATE, so no request can slip in meanwhile."""
         changed = SimpleNamespace(**after)  # occupied_window and hours_breach read only the buffers and hours
+        # US25 (SCRUM-93): holds block the window too, and a future one is re-measured like a request.
         live = db.scalars(
             select(VenueBooking)
-            .where(VenueBooking.venue_id == venue.id, VenueBooking.status.in_(LIVE_BOOKING_STATUSES))
+            .where(VenueBooking.venue_id == venue.id, VenueBooking.status.in_(BLOCKING_STATUSES))
             .with_for_update()
         ).all()
-        affected = [b for b in live if b.status == VenueBookingStatus.REQUESTED and b.ends_at > now]
+        affected = [
+            b for b in live if b.status in (VenueBookingStatus.REQUESTED, VenueBookingStatus.HELD) and b.ends_at > now
+        ]
         windows = {b: occupied_window(changed, b.starts_at, b.ends_at) for b in affected}
         current = {b: (b.occupied_starts_at, b.occupied_ends_at) for b in live if b not in windows}
         every = {**current, **windows}
