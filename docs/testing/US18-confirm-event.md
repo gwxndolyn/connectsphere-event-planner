@@ -4,7 +4,7 @@
 
 **Source of truth:** the acceptance criteria in Jira SCRUM-85 (customer session 3, 13 Oct).
 
-**Delivery:** one PR. It adds the migration `20261108_1200_us18_confirm` (the `preparation` status, the safety approval and confirmation columns on `events`), `GET /api/v1/event-requests/{id}/readiness`, `POST …/confirmation` and `POST …/preparation`, `Notifier.event_confirmed`, the readiness panel on the coordinator's review screen, and the seeded **Confirmation Demo**. US30a (SCRUM-99) is stacked on it and sets the safety approval.
+**Delivery:** one PR. It adds the migration `20261109_1200_us18_confirm` (the `preparation` status, the safety approval and confirmation columns on `events`), `GET /api/v1/event-requests/{id}/readiness`, `POST …/confirmation` and `POST …/preparation`, `Notifier.event_confirmed`, the readiness panel on the coordinator's review screen, and the seeded **Confirmation Demo**. US30a (SCRUM-99) is stacked on it and sets the safety approval.
 
 **Tests:**
 
@@ -23,7 +23,7 @@
 
 ## Decisions
 
-- **D84: what can be confirmed, and what is "ready".** `approved` or `planning`; venues arranged as US24 defines it (D72), equipment approved and reserved, Tech support staff assigned once the event has an approved equipment line (D80), and the Safety Officer's approval. See `claude_instructions.md`
+- **D86: what can be confirmed, and what is "ready".** `approved` or `planning`; venues arranged as US24 defines it (D72), equipment approved and reserved, Tech support staff assigned once the event has an approved equipment line (D80), and the Safety Officer's approval. See `claude_instructions.md`
 - **Order of checks:** not the assigned coordinator, unassigned, a draft or unknown → `404`; a status that can't be confirmed → `409 CONFIRMATION_NOT_ALLOWED`; an arrangement outstanding → `409 EVENT_NOT_READY` with the outstanding items. On any refusal nothing changes and nobody is notified
 
 ## Test cases
@@ -31,8 +31,8 @@
 | ID | Given | When | Then |
 |---|---|---|---|
 | TC-US18-01 | Approved event, every arrangement complete | Coordinator confirms | `200`, `confirmed`, `confirmed_at` and `confirmed_by_user_id` set (AC 3) |
-| TC-US18-02, 03 | Two approved bookings; an event with its own date and capacity | Confirm | Date span, capacity (expected attendance) and in-person filled, `venue_name` left alone (D70); existing values kept (D84) |
-| TC-US18-04 | Planning event | Confirm | `200` (D84) |
+| TC-US18-02, 03 | Two approved bookings; an event with its own date and capacity | Confirm | Date span, capacity (expected attendance) and in-person filled, `venue_name` left alone (D70); existing values kept (D86) |
+| TC-US18-04 | Planning event | Confirm | `200` (D86) |
 | TC-US18-05 to 07 | A requested booking; no venue; rejected and withdrawn bookings | Confirm | `409 EVENT_NOT_READY` naming the venue; "No venue has been requested yet."; the rejected and withdrawn are ignored (AC 1) |
 | TC-US18-08, 09 | A pending equipment line (one approved); none requested | Confirm | `409` naming "1 of 2 equipment lines" and technical support; a rejected line stops blocking, the approved one still needs reserving and staff; no equipment does not block (AC 1) |
 | TC-US18-10, 11 | No safety approval; venue, equipment and safety all outstanding | Confirm | `409`; all three listed with the complete ones too (AC 1, 2) |
@@ -117,6 +117,6 @@ Equipment Request Demo is already Confirmed: the panel offers no Confirm event, 
 
 | Date | Where | Result |
 |---|---|---|
-| 1 Nov 2026 | Backend, `pytest` | 1290 passed |
-| 1 Nov 2026 | Frontend, Vitest, lint, build | 428 passed; lint and build clean |
-| 1 Nov 2026 | E2E, TC-US18-30 with the US17 and equipment journeys, fresh local database | passed; the rest of the suite was not run |
+| 1 Nov 2026 | Backend, `pytest`, rebased onto `main` at #107 | 1331 passed |
+| 1 Nov 2026 | Frontend, Vitest, lint, build | 434 passed; lint and build clean |
+| 1 Nov 2026 | E2E, TC-US18-30 with the US12, US17 and equipment journeys, fresh local database | 12 passed; the rest of the suite was not run |

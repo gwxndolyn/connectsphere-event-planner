@@ -30,7 +30,8 @@ from tests.factories import NOW, make_attendee, make_event, make_registration, m
 
 pytestmark = pytest.mark.anyio
 
-REVISION = "20261108_1200_us18_confirm"
+# The newest migration: TC-US16B-29 checks it is the only head (SCRUM-85 added it).
+REVISION = "20261109_1200_us18_confirm"
 QUESTION = {"sections": ["attendance"], "comment": "How many people are coming?"}
 FORBIDDEN = {"code": "FORBIDDEN"}
 NOT_FOUND = {"code": "NOT_FOUND"}

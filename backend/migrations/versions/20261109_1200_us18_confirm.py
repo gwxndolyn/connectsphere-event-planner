@@ -1,8 +1,8 @@
 """add the Preparation status and what confirming an event records
 
-Revision ID: 20261108_1200_us18_confirm
-Revises: 20261107_1200_us14_tech_staff
-Create Date: 2026-11-08
+Revision ID: 20261109_1200_us18_confirm
+Revises: 20261108_1200_us12_event_edits
+Create Date: 2026-11-09
 
 """
 from typing import Sequence, Union
@@ -11,8 +11,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "20261108_1200_us18_confirm"
-down_revision: Union[str, None] = "20261107_1200_us14_tech_staff"
+revision: str = "20261109_1200_us18_confirm"
+down_revision: Union[str, None] = "20261108_1200_us12_event_edits"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
