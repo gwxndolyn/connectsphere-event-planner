@@ -93,6 +93,10 @@ class FakeNotifier:
         # US14 (SCRUM-134): each Tech support staff member assigned to an event.
         self.tech_staff_assignments: list[dict[str, object]] = []
         self.change_requests: list[dict[str, object]] = []
+        # US9 (SCRUM-12): a cancellation asked for, a request rejected, and the event cancelled (one per recipient).
+        self.cancellation_requests: list[dict[str, object]] = []
+        self.cancellation_rejections: list[dict[str, object]] = []
+        self.cancellations: list[dict[str, object]] = []
         self.confirmations: list[dict[str, object]] = []
         self.safety_reviews: list[dict[str, object]] = []
         self.fail = False
@@ -296,6 +300,21 @@ class FakeNotifier:
         if self.fail:
             raise RuntimeError("mail server unavailable")
         self.safety_reviews.append(call)
+
+    def cancellation_requested(self, **call: object) -> None:
+        if self.fail:
+            raise RuntimeError("mail server unavailable")
+        self.cancellation_requests.append(call)
+
+    def cancellation_rejected(self, **call: object) -> None:
+        if self.fail:
+            raise RuntimeError("mail server unavailable")
+        self.cancellation_rejections.append(call)
+
+    def event_cancelled(self, **call: object) -> None:
+        if self.fail:
+            raise RuntimeError("mail server unavailable")
+        self.cancellations.append(call)
 
 
 @pytest.fixture
