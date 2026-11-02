@@ -820,6 +820,21 @@ function visibleTo(request: EventRequest, role: string, userId: string) {
   return request.status !== "draft";
 }
 
+// GET /event-requests/{id}'s own rule (request_service._can_read): its creator; past the request stage
+// (COORDINATOR_EVENT_STATUSES) only its assigned coordinator, so a Lead gets 404 on a Planning or Confirmed event;
+// at the request stage a Lead or its assigned coordinator.
+const COORDINATOR_EVENT_STATUSES = new Set(["planning", "confirmed", "preparation", "cancelled"]);
+const SUBMITTED_REQUEST_STATUSES = new Set(["submitted", "under_review", "awaiting_clarification", "approved", "rejected"]);
+
+function readableBy(request: EventRequest, role: string, userId: string) {
+  if (request.created_by_user_id === userId) return true;
+  if (request.status === "draft") return false;
+  const assigned = request.coordinator?.id === userId;
+  if (COORDINATOR_EVENT_STATUSES.has(request.status)) return assigned;
+  if (!SUBMITTED_REQUEST_STATUSES.has(request.status)) return false;
+  return role === "coordinator_lead" || (role === "coordinator" && assigned);
+}
+
 // Who may open a request and its thread at all (SCRUM-120, D54): other roles get 403.
 const REQUEST_READERS = new Set(["organiser", "coordinator", "coordinator_lead"]);
 
@@ -2360,7 +2375,7 @@ const handlers = [
     if (!role) return error(401, "UNAUTHENTICATED");
     if (!REQUEST_READERS.has(role)) return error(403, "FORBIDDEN");
     const found = db.requests.find((r) => r.id === params.id);
-    if (!found || !visibleTo(found, role, request.headers.get("X-User-Id")!)) return error(404, "NOT_FOUND");
+    if (!found || !readableBy(found, role, request.headers.get("X-User-Id")!)) return error(404, "NOT_FOUND");
     return HttpResponse.json(found);
   }),
 

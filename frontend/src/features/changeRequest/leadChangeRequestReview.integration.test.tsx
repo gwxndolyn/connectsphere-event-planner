@@ -152,4 +152,27 @@ describe("the Lead decides a coordinator's own edit (US29b, SCRUM-144)", () => {
     expect(screen.queryByRole("region", { name: /Coordinator edits to approve/ })).not.toBeInTheDocument();
     expect(screen.queryByText("A clearer title.")).not.toBeInTheDocument();
   });
+
+  it("TC-US29B-39: opens an edit on a Planning event the Lead can't read, from the change request alone, and approves it", async () => {
+    const user = userEvent.setup();
+    const { event, edit } = seedHeldEdit();
+
+    const panel = await reviewEdit(user);
+
+    // The event itself is the coordinator's past the request stage (_can_read): the screen never asks for it.
+    expect(callsTo("GET", `/api/v1/event-requests/${event.id}`)).toHaveLength(0);
+    const loads = callsTo("GET", `/api/v1/change-requests/${edit.id}`);
+    expect(loads.length).toBeGreaterThan(0);
+    expect(loads.every((call) => call.url.searchParams.get("acting_as") === "coordinator_lead")).toBe(true);
+    expect(screen.queryByText("This request is no longer available.")).not.toBeInTheDocument();
+    expect(panel).toHaveTextContent("Data Science Workshop");
+    const rows = within(within(panel).getByRole("table", { name: "Requested changes" })).getAllByRole("row").slice(1);
+    expect(rows.map((row) => within(row).getAllByRole("cell").map((cell) => cell.textContent))).toEqual([["Capacity", "60", "80"]]);
+
+    await user.click(within(panel).getByRole("button", { name: "Approve" }));
+    await user.click(within(panel).getByRole("button", { name: "Approve change" }));
+    expect(await within(panel).findByRole("status")).toHaveTextContent("Approved. The event is now Planning.");
+    expect(capacityOf(event.id)).toBe(80);
+    expect(within(panel).queryByRole("article")).not.toBeInTheDocument();
+  });
 });
