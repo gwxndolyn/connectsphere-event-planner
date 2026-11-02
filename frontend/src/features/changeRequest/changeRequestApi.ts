@@ -199,8 +199,8 @@ export const changeReviewApi = {
     const body = await apiClient.get<{ change_requests: ChangeRequestReview[] }>(`/api/v1/change-requests?${query}`);
     return body.change_requests;
   },
-  one: (id: string, actingAs: DecidingRole) =>
-    apiClient.get<ChangeRequestReview>(`/api/v1/change-requests/${id}?${new URLSearchParams({ acting_as: actingAs })}`),
+  // No acting_as: only the list takes it; the single read is the decider's either way (D102).
+  one: (id: string) => apiClient.get<ChangeRequestReview>(`/api/v1/change-requests/${id}`),
   approve: (id: string) => apiClient.post<ChangeDecision>(`/api/v1/change-requests/${id}/approve`, {}),
   reject: (id: string, reason: string) => apiClient.post<ChangeDecision>(`/api/v1/change-requests/${id}/reject`, { reason }),
   async flags(eventId: string): Promise<ReviewFlag[]> {
@@ -271,15 +271,19 @@ const STALE_REASONS: Record<string, string> = {
   invalid: "no longer valid",
 };
 
-/** Why a decision was refused, in words (deviation 68's codes). */
-export function decisionErrorMessage(error: unknown): string {
+/**
+ * Why a decision was refused, in words (deviation 68's codes). `source` words a stale request by who asks again:
+ * the organiser for their request, the coordinator for their own US12 edit (Calvin's #130 review).
+ */
+export function decisionErrorMessage(error: unknown, source: ChangeRequestReview["source"] = "organiser"): string {
   if (!(error instanceof ApiError)) return FALLBACK;
   const status = typeof error.body.status === "string" ? error.body.status : "";
   switch (error.code) {
     case "CHANGE_REQUEST_STALE": {
       const fields = Array.isArray(error.body.fields) ? (error.body.fields as { field: string; reason: string }[]) : [];
       const named = fields.map((f) => `${reviewLabel(f.field)} (${STALE_REASONS[f.reason] ?? f.reason})`).join(", ");
-      return `The event has changed since this was asked: ${named}. Reject it with a reason, and the organiser can ask again.`;
+      const again = source === "coordinator" ? "the coordinator can make the edit again" : "the organiser can ask again";
+      return `The event has changed since this was asked: ${named}. Reject it with a reason, and ${again}.`;
     }
     case "CHANGE_REQUEST_NOT_PENDING":
       return `This request was already ${status === "rejected" ? "rejected" : "approved"}.`;

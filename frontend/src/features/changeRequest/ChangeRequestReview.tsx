@@ -122,7 +122,7 @@ export function RequestToDecide({ request, eventStatus, onDecided, onRefused }: 
       const decided = await changeReviewApi.approve(request.id);
       onDecided(`Approved. The event is now ${statusWord(decided.event.status)}.`, decided);
     } catch (refusal) {
-      onRefused(decisionErrorMessage(refusal));
+      onRefused(decisionErrorMessage(refusal, request.source));
     } finally {
       setBusy(false);
     }
@@ -138,7 +138,7 @@ export function RequestToDecide({ request, eventStatus, onDecided, onRefused }: 
       const decided = await changeReviewApi.reject(request.id, text);
       onDecided("Rejected. The event keeps its current details.", decided);
     } catch (refusal) {
-      onRefused(decisionErrorMessage(refusal));
+      onRefused(decisionErrorMessage(refusal, request.source));
     } finally {
       setBusy(false);
     }

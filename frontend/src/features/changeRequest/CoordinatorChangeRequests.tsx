@@ -9,11 +9,9 @@ interface CoordinatorChangeRequestsProps {
   actingAs: DecidingRole;
   // Opens the event's review screen at its change requests.
   onReview: (eventId: string, requestId: string) => void;
-  // SCRUM-144: the Lead's list, "Coordinator edits to approve", of coordinators' own US12 edits only (D102).
+  // SCRUM-144: the Lead's list, "Coordinator edits to approve"; acting_as=coordinator_lead lists only coordinators'
+  // own US12 edits (D102).
   heading?: string;
-  source?: ChangeRequestReview["source"];
-  // Changed after a decision elsewhere, so the list reloads.
-  reloadKey?: number;
 }
 
 /**
@@ -25,8 +23,6 @@ export function CoordinatorChangeRequests({
   actingAs,
   onReview,
   heading = "Change requests to review",
-  source,
-  reloadKey = 0,
 }: CoordinatorChangeRequestsProps) {
   const [requests, setRequests] = useState<ChangeRequestReview[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -36,8 +32,8 @@ export function CoordinatorChangeRequests({
     changeReviewApi
       .pending(null, actingAs)
       .then((found) => {
-        // The API lists only what this user decides; a user holding both roles still sees one role's list.
-        if (current) setRequests(source ? found.filter((request) => request.source === source) : found);
+        // The API lists only what this user decides in the acting role.
+        if (current) setRequests(found);
       })
       .catch((reason: unknown) => {
         if (current) setError(decisionErrorMessage(reason));
@@ -45,7 +41,7 @@ export function CoordinatorChangeRequests({
     return () => {
       current = false;
     };
-  }, [actingAs, source, reloadKey]);
+  }, [actingAs]);
 
   if (error) return <div className="request-alert" role="alert">{error}</div>;
   if (!requests || requests.length === 0) return null;

@@ -95,9 +95,8 @@ export function AssignmentQueuePage() {
   const [filterOptions, setFilterOptions] = useState<{ id: string; name: string }[]>([]);
   // SCRUM-69: the history of the request being viewed.
   const [history, setHistory] = useState<AssignmentRecord[]>([]);
-  // SCRUM-144: the coordinator edit being decided, and a count that reloads the list after each decision.
+  // SCRUM-144: the coordinator edit being decided. The list unmounts on Review and reloads when Back remounts it.
   const [changeId, setChangeId] = useState<string | null>(null);
-  const [changesVersion, setChangesVersion] = useState(0);
 
   useEffect(() => {
     let current = true;
@@ -272,8 +271,6 @@ export function AssignmentQueuePage() {
         <CoordinatorChangeRequests
           actingAs="coordinator_lead"
           heading="Coordinator edits to approve"
-          source="coordinator"
-          reloadKey={changesVersion}
           onReview={(_eventId, requestId) => openChange(requestId)}
         />
       )}
@@ -413,10 +410,7 @@ export function AssignmentQueuePage() {
         <LeadChangeReview
           key={changeId}
           requestId={changeId}
-          onDecided={() => {
-            setChangesVersion((count) => count + 1);
-            setAssignedVersion((count) => count + 1);
-          }}
+          onDecided={() => setAssignedVersion((count) => count + 1)}
         />
       )}
 

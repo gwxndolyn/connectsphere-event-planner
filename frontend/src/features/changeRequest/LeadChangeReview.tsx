@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { formatInstantDateTime } from "../registration/datetime";
 import { RequestToDecide } from "./ChangeRequestReview";
 import { changeReviewApi, decisionErrorMessage, statusWord } from "./changeRequestApi";
 import type { ChangeRequestReview } from "./types";
@@ -25,7 +26,7 @@ export function LeadChangeReview({ requestId, onDecided }: LeadChangeReviewProps
   useEffect(() => {
     let current = true;
     changeReviewApi
-      .one(requestId, "coordinator_lead")
+      .one(requestId)
       .then((found) => {
         if (current) setRequest(found);
       })
@@ -47,6 +48,7 @@ export function LeadChangeReview({ requestId, onDecided }: LeadChangeReviewProps
       )}
       {outcome && <p className="request-notice" role="status">{outcome}</p>}
       {error && <div className="request-alert" role="alert">{error}</div>}
+      {request && request.status !== "pending_approval" && !outcome && !error && <AlreadyDecided request={request} />}
       {request === null && !error ? (
         <p className="request-empty">Loading the change request…</p>
       ) : (
@@ -55,9 +57,11 @@ export function LeadChangeReview({ requestId, onDecided }: LeadChangeReviewProps
           <RequestToDecide
             request={request}
             eventStatus={request.event_status}
-            onDecided={(message) => {
+            onDecided={(message, decision) => {
               setError(null);
               setOutcome(message);
+              // The decision's own read, so the header shows the status it left (e.g. Confirmed back to Planning).
+              setRequest({ ...decision.change_request, event_status: decision.event.status });
               onDecided();
             }}
             onRefused={(message) => {
@@ -68,5 +72,18 @@ export function LeadChangeReview({ requestId, onDecided }: LeadChangeReviewProps
         )
       )}
     </section>
+  );
+}
+
+/** Decided before the Lead opened it (another Lead, or since the list loaded), as CHANGE_REQUEST_NOT_PENDING says. */
+function AlreadyDecided({ request }: { request: ChangeRequestReview }) {
+  const word = request.status === "rejected" ? "rejected" : "approved";
+  return (
+    <p className="request-notice" role="note" aria-label="Already decided">
+      Already {word}
+      {request.decided_by && ` by ${request.decided_by.name}`}
+      {request.decided_at && ` on ${formatInstantDateTime(request.decided_at)}`}.
+      {request.rejection_reason && ` Why it was rejected: ${request.rejection_reason}`}
+    </p>
   );
 }
