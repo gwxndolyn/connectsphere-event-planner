@@ -11,7 +11,7 @@ interface CoordinatorChangeRequestsProps {
 
 /**
  * US29b AC 1 (SCRUM-143): above the coordinator's review queue, every pending change request on the events assigned
- * to them, oldest first. Nothing shows while none waits. Deviation 69: placed here, the coordinator's Event requests
+ * to them, oldest first. Nothing shows while none waits. Deviation 71: placed here, the coordinator's Event requests
  * screen, because every status a request can be decided in opens from it.
  */
 export function CoordinatorChangeRequests({ onReview }: CoordinatorChangeRequestsProps) {

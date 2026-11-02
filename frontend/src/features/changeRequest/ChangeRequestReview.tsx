@@ -23,7 +23,7 @@ interface ChangeRequestReviewProps {
 
 /**
  * US29b AC 1, 2 (SCRUM-143): the pending change requests on the event, for its assigned coordinator to approve or
- * reject. A significant one says what approving does (D103 to D106). Deviation 69: on the review screen between the
+ * reject. A significant one says what approving does (D103 to D106). Deviation 71: on the review screen between the
  * venue bookings and the safety review, next to the arrangements it affects; Approve takes a second click, and Reject
  * needs a reason first.
  */

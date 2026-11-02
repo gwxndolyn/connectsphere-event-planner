@@ -20,7 +20,7 @@ const RESOLVED: Record<ReviewFlag["kind"], string> = {
  * US29b AC 3 (SCRUM-143, D104): what an approved significant change flagged on the event, for its coordinator to
  * review. Nothing on the booking, reservation or registrations changed; Mark reviewed records that someone looked.
  * A flag whose booking was withdrawn or whose reservation was released reads as resolved. Confirming waits until
- * none is open (the readiness item). Deviation 69: under the readiness list, where confirming is decided.
+ * none is open (the readiness item). Deviation 71: under the readiness list, where confirming is decided.
  */
 export function ReviewFlags({ eventId, onChanged }: ReviewFlagsProps) {
   const [flags, setFlags] = useState<ReviewFlag[] | null>(null);

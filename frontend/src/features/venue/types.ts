@@ -99,10 +99,12 @@ export interface CalendarBooking {
   event: CalendarEvent;
   // US24 (D73, D78): how far Venue staff are with getting it ready; they set it in the dialog.
   preparation_status: PreparationStatus;
+  // US25 (SCRUM-93): until when a hold keeps the window; null for a booking.
+  hold_expires_at?: string | null;
 }
 
 export interface CalendarItem {
-  // "hold" is reserved until US25 (SCRUM-93) adds holds; none are returned yet (D59).
+  // US25 (SCRUM-93): a hold blocks the window until it's confirmed or expires; an expired one isn't listed.
   kind: "booking" | "block" | "hold";
   label: string;
   starts_at: string;

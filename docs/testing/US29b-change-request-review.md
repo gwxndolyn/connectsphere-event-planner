@@ -115,3 +115,4 @@ SCRUM-143 (PR 3), 1 Nov 2026, branch `feat(SCRUM-143)Change-Request-Review-Scree
 - Frontend: `npm run lint` clean, `tsc -b` clean, `npm run build` passes; Vitest 486 passed (45 files).
 - E2E, freshly seeded, backend without `--reload`: 53 passed, 10 skipped (the login and sign-up cases without their secrets), 63 in all; reseeded afterwards.
 - Seed fix: a reseed now resets Change Request Demo's equipment needs, so TC-US29B-33 reruns. It also resets room layout and accessibility needs, the other organiser-requestable fields (D90) the seed left alone; TC-US29B-07 sets them, with attendance 30 and "Two projectors", before the reseed and failed first on them.
+- Merged origin/main (#123, #129, US25): deviation 69 renumbered 71; counts Backend 1678 passed, Vitest 493 passed (46 files), E2E 64 (54 passed, 10 skipped; freshly seeded, backend without `--reload`, reseeded afterwards).

@@ -68,6 +68,34 @@ class VenueBookingWrite(BaseModel):
     purpose: str | None = None
 
 
+class VenueHoldWrite(VenueBookingWrite):
+    """US25 (SCRUM-93) AC 1: Venue staff hold a venue for an event and time, as a request would ask for it, until
+    `hold_expires_at`, which is required and in the future (at most 14 days ahead, D108)."""
+
+    hold_expires_at: datetime | None = None
+
+
+class HoldEventOut(BaseModel):
+    """An event Venue staff may hold a venue for (US25 AC 1): Approved or Planning, with its schedule."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str | None
+    request_reference: str | None
+    status: EventStatus
+    start_at: datetime | None
+    end_at: datetime | None
+    preferred_dates: list[date] | None
+    preferred_start_time: time | None
+    preferred_end_time: time | None
+    expected_attendees: int | None
+
+
+class HoldEventsOut(BaseModel):
+    events: list[HoldEventOut]
+
+
 class BookingEventOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -127,7 +155,12 @@ class VenueBookingOut(BaseModel):
     is_primary: bool
     preparation_status: str
     unavailability: BookingUnavailabilityOut | None
-    next_action: Literal["venue_staff_to_decide", "coordinator_to_rebook", "none"]
+    # US25 (SCRUM-93): a hold waits for the coordinator to confirm or decline it.
+    next_action: Literal["venue_staff_to_decide", "coordinator_to_rebook", "coordinator_to_confirm", "none"]
+    # US25: a hold's expiry (kept once it's confirmed, AC 5), who placed it, and when it lapsed. Null otherwise.
+    hold_expires_at: datetime | None = None
+    held_by_user_id: uuid.UUID | None = None
+    expired_at: datetime | None = None
 
 
 class BookingPreparationWrite(BaseModel):
@@ -271,18 +304,20 @@ class CalendarBookingOut(BaseModel):
     # DECISION-PENDING: D58 — null unless the reader is Venue Staff, a Lead or the event's
     # coordinator, as a coordinator's VENUE_UNAVAILABLE never names another booking (D35).
     reference: str | None
-    status: VenueBookingStatus  # requested or approved (D57)
+    status: VenueBookingStatus  # requested or approved (D57); held for a hold (US25)
     event: CalendarEventOut
     # US24 (SCRUM-129, D73, D78): how far Venue staff are with getting it ready; they set it from here.
     preparation_status: str
+    # US25 (SCRUM-93): until when a hold keeps the window. Null for a booking.
+    hold_expires_at: datetime | None = None
 
 
 class CalendarItemOut(BaseModel):
     """One thing occupying the venue (US21 AC 1). starts_at/ends_at are the booking's own times or
     the block's; `occupied` adds the booking's setup and turnaround (AC 2) and equals them for a block."""
 
-    kind: str  # "booking" or "block"; "hold" with US25 (D59)
-    label: str  # "Booking", "Unavailable"; "Hold" with US25
+    kind: str  # "booking", "block" or (US25) "hold"
+    label: str  # "Booking", "Unavailable" or "Hold"
     starts_at: datetime
     ends_at: datetime
     occupied: WindowOut

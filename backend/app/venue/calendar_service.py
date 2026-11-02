@@ -17,7 +17,7 @@ from app.core.exceptions import DomainError
 from app.event.models import Event
 from app.user.models import User, UserRole
 from app.venue.availability import VENUE_TIMEZONE, Window, block_conflicts
-from app.venue.models import LIVE_BOOKING_STATUSES, VenueBooking
+from app.venue.models import LIVE_BOOKING_STATUSES, VenueBooking, VenueBookingStatus
 from app.venue.schemas import (
     CalendarBookingOut,
     CalendarEventOut,
@@ -135,10 +135,50 @@ def _block_items(db: Session, venue_id: uuid.UUID, window: Window) -> list[tuple
     ]
 
 
-def _hold_items(db: Session, venue_id: uuid.UUID, window: Window) -> list[tuple[Window, CalendarItemOut]]:
-    # DECISION-PENDING: D59 — TODO(US25): tentative holds don't exist yet. SCRUM-93 adds them here,
-    # kind "hold", label "Hold", leaving out expired ones (AC 4).
-    return []
+def _hold_items(db: Session, venue_id: uuid.UUID, window: Window, reader: User) -> list[tuple[Window, CalendarItemOut]]:
+    """US25 (SCRUM-93): holds whose occupied window overlaps the range, kind "hold", label "Hold", with their
+    expiry. The route expires lapsed ones first, and an expired hold is never shown (AC 6)."""
+    rows = db.execute(
+        select(VenueBooking, Event)
+        .join(Event, Event.id == VenueBooking.event_id)
+        .where(
+            VenueBooking.venue_id == venue_id,
+            VenueBooking.status == VenueBookingStatus.HELD,
+            func.tstzrange(VenueBooking.occupied_starts_at, VenueBooking.occupied_ends_at, literal("[)")).op("&&")(
+                func.tstzrange(literal(window.starts_at), literal(window.ends_at), literal("[)"))
+            ),
+        )
+        .order_by(VenueBooking.occupied_starts_at, VenueBooking.id)
+    )
+    sees_every_reference = reader.holds(*REFERENCE_ROLES)
+    items = []
+    for booking, event in rows:
+        occupied = Window(booking.occupied_starts_at, booking.occupied_ends_at)
+        reference = booking.reference if sees_every_reference or event.coordinator_id == reader.id else None
+        items.append(
+            (
+                occupied,
+                CalendarItemOut(
+                    kind="hold",
+                    label="Hold",
+                    starts_at=booking.starts_at,
+                    ends_at=booking.ends_at,
+                    occupied=_window_out(occupied),
+                    booking=CalendarBookingOut(
+                        id=booking.id,
+                        reference=reference,
+                        status=booking.status,
+                        event=CalendarEventOut(
+                            name=event.name, request_reference=event.request_reference, status=event.status
+                        ),
+                        preparation_status=booking.preparation_status,
+                        hold_expires_at=booking.hold_expires_at,
+                    ),
+                    note=None,
+                ),
+            )
+        )
+    return items
 
 
 class CalendarService:
@@ -152,7 +192,7 @@ class CalendarService:
         items = (
             _booking_items(db, venue.id, window, reader)
             + _block_items(db, venue.id, window)
-            + _hold_items(db, venue.id, window)
+            + _hold_items(db, venue.id, window, reader)
         )
         # By occupied start; at the same start, bookings before blocks (the list's own order, stable sort).
         items.sort(key=lambda item: item[0].starts_at)

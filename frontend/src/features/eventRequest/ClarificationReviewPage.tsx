@@ -278,7 +278,7 @@ export function ClarificationReviewPage({ userId }: ClarificationReviewPageProps
       {screen === "review" && activeRequest && ["approved", "planning"].includes(activeRequest.status) && (
         <EventVenueBookings event={activeRequest} />
       )}
-      {/* US29b (SCRUM-143): the event's pending change requests, for its assigned coordinator (D102; deviation 69). */}
+      {/* US29b (SCRUM-143): the event's pending change requests, for its assigned coordinator (D102; deviation 71). */}
       {screen === "review" && activeRequest && activeRequest.coordinator?.id === userId && (
         <ChangeRequestReview
           key={`changes-${activeRequest.id}`}
