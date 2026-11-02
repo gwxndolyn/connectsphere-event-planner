@@ -199,6 +199,8 @@ export const changeReviewApi = {
     const body = await apiClient.get<{ change_requests: ChangeRequestReview[] }>(`/api/v1/change-requests?${query}`);
     return body.change_requests;
   },
+  one: (id: string, actingAs: DecidingRole) =>
+    apiClient.get<ChangeRequestReview>(`/api/v1/change-requests/${id}?${new URLSearchParams({ acting_as: actingAs })}`),
   approve: (id: string) => apiClient.post<ChangeDecision>(`/api/v1/change-requests/${id}/approve`, {}),
   reject: (id: string, reason: string) => apiClient.post<ChangeDecision>(`/api/v1/change-requests/${id}/reject`, { reason }),
   async flags(eventId: string): Promise<ReviewFlag[]> {

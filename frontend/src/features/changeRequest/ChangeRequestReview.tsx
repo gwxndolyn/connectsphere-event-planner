@@ -108,7 +108,8 @@ interface RequestToDecideProps {
   onRefused: (message: string) => void;
 }
 
-function RequestToDecide({ request, eventStatus, onDecided, onRefused }: RequestToDecideProps) {
+// Also the Lead's panel (SCRUM-144), which has only the change request, not the event.
+export function RequestToDecide({ request, eventStatus, onDecided, onRefused }: RequestToDecideProps) {
   const [step, setStep] = useState<"choose" | "approving" | "rejecting">("choose");
   const [reason, setReason] = useState("");
   const [reasonError, setReasonError] = useState<string | null>(null);

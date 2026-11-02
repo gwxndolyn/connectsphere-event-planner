@@ -13,7 +13,7 @@ import type {
   UnassignedRequestsResponse,
 } from "./types";
 import { LeadRequestDetail } from "./LeadRequestDetail";
-import { ChangeRequestReview } from "../changeRequest/ChangeRequestReview";
+import { LeadChangeReview } from "../changeRequest/LeadChangeReview";
 import { CoordinatorChangeRequests } from "../changeRequest/CoordinatorChangeRequests";
 import "./eventRequests.css";
 import "./assignments.css";
@@ -151,16 +151,12 @@ export function AssignmentQueuePage() {
     setScreen("detail");
   }
 
-  async function openChange(eventId: string, requestId: string) {
+  // Not the event: past the request stage only its assigned coordinator may read it, so the Lead's screen is built
+  // from the change request alone (LeadChangeReview).
+  function openChange(requestId: string) {
     setError(null);
-    try {
-      const event = await apiClient.get<EventRequest>(`/api/v1/event-requests/${eventId}`);
-      setActive(event as UnassignedRequest);
-      setChangeId(requestId);
-      setScreen("change");
-    } catch (reason) {
-      setError(errorMessage(reason));
-    }
+    setChangeId(requestId);
+    setScreen("change");
   }
 
   async function openHistory(request: EventRequest) {
@@ -278,7 +274,7 @@ export function AssignmentQueuePage() {
           heading="Coordinator edits to approve"
           source="coordinator"
           reloadKey={changesVersion}
-          onReview={(eventId, requestId) => void openChange(eventId, requestId)}
+          onReview={(_eventId, requestId) => openChange(requestId)}
         />
       )}
 
@@ -413,25 +409,15 @@ export function AssignmentQueuePage() {
         />
       )}
 
-      {screen === "change" && active && (
-        <>
-          <LeadRequestDetail
-            request={active}
-            onAssign={() => void startAssigning(active)}
-            onReassign={() => void startAssigning(active, true)}
-            onHistory={() => void openHistory(active)}
-          />
-          <ChangeRequestReview
-            event={active}
-            actingAs="coordinator_lead"
-            focusId={changeId}
-            onDecided={(decision) => {
-              setActive(decision.event as UnassignedRequest);
-              setChangesVersion((count) => count + 1);
-              setAssignedVersion((count) => count + 1);
-            }}
-          />
-        </>
+      {screen === "change" && changeId && (
+        <LeadChangeReview
+          key={changeId}
+          requestId={changeId}
+          onDecided={() => {
+            setChangesVersion((count) => count + 1);
+            setAssignedVersion((count) => count + 1);
+          }}
+        />
       )}
 
       {screen === "history" && active && (
