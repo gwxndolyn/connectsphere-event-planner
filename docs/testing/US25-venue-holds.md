@@ -43,12 +43,12 @@
 | TC-US25-05 | 5 | A hold | Confirm it into a request | It keeps its expiry and who placed it, read back from the database |
 | TC-US25-06 | 2 | A hold; an expired hold at another venue | The availability check over each window | The hold is the conflict, by its reference; the expired one is no conflict. Fails without `BLOCKING_STATUSES` in the check |
 | TC-US25-07 | 1, 4 | An Approved event and a venue | Venue staff place a hold | `201`, held, not primary, `coordinator_to_confirm`, the expiry and who placed it; the coordinator told (`placed`) |
-| TC-US25-08 | 1 | | No expiry; one in the past, over 14 days ahead, after the start, or with no offset; too many attendees; a draft; a Confirmed event | `MISSING_REQUIRED_FIELD` / `INVALID_HOLD` on `hold_expires_at`, nothing stored; `VENUE_CAPACITY_EXCEEDED`; `404`; `409 EVENT_NOT_BOOKABLE` |
-| TC-US25-09 | 1 | Approved, Planning and Under Review events | Venue staff list the events to hold for | The Approved and Planning ones, by name (D106) |
+| TC-US25-08 | 1 | | No expiry (alone, or with other missing fields); one in the past, over 14 days ahead, after the start, inside the venue's setup, or with no offset; too many attendees; a draft; a Confirmed event | `MISSING_REQUIRED_FIELD` naming every gap / `INVALID_HOLD` on `hold_expires_at`, nothing stored; `VENUE_CAPACITY_EXCEEDED`; `404`; `409 EVENT_NOT_BOOKABLE` |
+| TC-US25-09 | 1 | Approved and Planning events with a coordinator, an unassigned Approved one, an Under Review one | Venue staff list the events to hold for | The assigned Approved and Planning ones, by name (D106) |
 | TC-US25-10 | 2, 6 | A hold | Another event requests the same window; a coordinator searches it; the event's venues are read | `409 VENUE_UNAVAILABLE` naming the conflict; the venue not in the results; not arranged, no primary, nothing allocated |
 | TC-US25-11 | 5 | A hold | Its coordinator confirms; another coordinator; confirm twice | Requested, the coordinator the requester, primary, the expiry and placer kept, Venue staff told; `404`; `409 HOLD_NOT_HELD` |
 | TC-US25-12 | 5 | A confirmed hold | Venue staff approve before its expiry; at its expiry | Approved; `409 BOOKING_NOT_PENDING` (`expired`), the coordinator told |
-| TC-US25-13 | 7 | A hold | The coordinator declines it, then Venue staff hold the window again | Withdrawn; the new hold is placed |
+| TC-US25-13 | 7 | A hold; a hold past its expiry that nothing has read | The coordinator declines it, then Venue staff hold the window again; a stale screen declines the lapsed one | Withdrawn, then the new hold placed; `409 BOOKING_NOT_LIVE` (`expired`) and the coordinator told it expired |
 | TC-US25-14 | 3, 4 | A hold | The first read is at its expiry | Expired with `expired_at`; the window free; the event unchanged; the coordinator hears placed then expired, with no warning (D103) |
 | TC-US25-15 | 4 | A hold; one placed with 6 hours left | Reads 25 and 23 hours before expiry, twice; a read | One warning, inside the last 24 hours; the short one warned at once |
 | TC-US25-16 | 2, 6 | A hold | Read the calendar; read it after the expiry | Kind `hold`, label "Hold", with its expiry; then nothing |
@@ -56,7 +56,7 @@
 | TC-US25-18 | 1 | Venue staff on Venues | Place a hold: the event, venue, purpose, times, layout and expiry date | "Held Hall A for Alumni Night until …"; the body has the times and the expiry at 17:00 +08:00 |
 | TC-US25-19 | 1 | | Place a hold without an expiry | "Complete the fields marked below."; the expiry field marked |
 | TC-US25-20 | 4, 5 | A hold on the coordinator's event | They open it, then Confirm hold | Held, until when and the time left; then the confirmation notice, Requested, and the approve-by time |
-| TC-US25-21 | 7 | A hold | The coordinator declines it | "Hold on Hall A declined. The venue is free again."; Withdrawn |
+| TC-US25-21 | 7 | A hold | The coordinator presses Decline hold, then confirms | A confirm step saying the venue is free to anyone at once, nothing sent until confirmed; then "Hold on Hall A declined. The venue is free again."; Withdrawn |
 | TC-US25-22 | 4 | | The countdown at 3 days, 20 hours, 45 minutes and past | "expires in 3 days", "expires in 20 h", "expires in 45 min", "expiring now" |
 | TC-US25-23 | 2 | A hold in the calendar's week | Venue staff open it on the calendar | A "Hold" item; its details show Held and "Held until" |
 | TC-US25-24 | 1, 2, 4, 5 | The seeded Venue Hold Demo (E2E, real backend) | Venue staff hold a venue 400+ days ahead; the coordinator sees it and confirms it; then withdraws it | Each step's message, "From a hold: Venue staff must approve it by"; then Withdrawn. Passes twice without a reseed; a reseed clears the event's rows |
@@ -66,4 +66,4 @@
 | Date | Suite | Result |
 | --- | --- | --- |
 | 1 Nov | Backend (`pytest`), PR 1 | 1563 passed, including TC-US25-01 to 06; the migration upgrades, downgrades and upgrades again on a local database |
-| 2 Nov | PR 2: backend (`pytest`), frontend (Vitest), E2E (Playwright, local Postgres and the real backend) | Backend 1615 passed (TC-US25-07 to 17, 24); frontend 466 (TC-US25-18 to 23); E2E 50 passed and 11 skipped, TC-US25-24 included, which also passes twice in a row without a reseed |
+| 2 Nov | PR 2: backend (`pytest`), frontend (Vitest), E2E (Playwright, local Postgres and the real backend) | Backend 1618 passed (after the review fixes) (TC-US25-07 to 17, 24); frontend 466 (TC-US25-18 to 23); E2E 50 passed and 11 skipped, TC-US25-24 included, which also passes twice in a row without a reseed |
