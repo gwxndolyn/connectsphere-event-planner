@@ -132,11 +132,13 @@ export function VenueBookingForm({ event, onBooked, onCancel, hold = false }: Ve
   const missing = venue ? missingForVenue(form, venue) : [];
   const schedule = scheduleText(event);
 
+  function clearFieldErrors(...apiFields: string[]) {
+    setFieldErrors((current) => Object.fromEntries(Object.entries(current).filter(([field]) => !apiFields.includes(field))));
+  }
+
   function update<K extends keyof BookingFormValues>(key: K, value: BookingFormValues[K], ...apiFields: string[]) {
     setForm((current) => ({ ...current, [key]: value }));
-    if (apiFields.length > 0) {
-      setFieldErrors((current) => Object.fromEntries(Object.entries(current).filter(([field]) => !apiFields.includes(field))));
-    }
+    if (apiFields.length > 0) clearFieldErrors(...apiFields);
   }
 
   async function handleSubmit(submitted: FormEvent<HTMLFormElement>) {
@@ -331,7 +333,7 @@ export function VenueBookingForm({ event, onBooked, onCancel, hold = false }: Ve
                 value={expiryDate}
                 onChange={(changed) => {
                   setExpiryDate(changed.target.value);
-                  update("date", form.date, "hold_expires_at");
+                  clearFieldErrors("hold_expires_at");
                 }}
                 {...invalid("hold_expires_at")}
               />,
@@ -345,8 +347,9 @@ export function VenueBookingForm({ event, onBooked, onCancel, hold = false }: Ve
                 value={expiryTime}
                 onChange={(changed) => {
                   setExpiryTime(changed.target.value);
-                  update("date", form.date, "hold_expires_at");
+                  clearFieldErrors("hold_expires_at");
                 }}
+                {...invalid("hold_expires_at")}
               />,
             )}
           </>

@@ -54,6 +54,8 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
   const [notice, setNotice] = useState<Notice | null>(null);
   // The booking whose Withdraw is waiting for confirmation (PR #69 review).
   const [confirming, setConfirming] = useState<EventVenueBooking | null>(null);
+  // US25: the hold whose Decline is waiting for confirmation, as Withdraw does (PR review).
+  const [declining, setDeclining] = useState<string | null>(null);
   // The API refused this event's bookings (404): it's assigned to another coordinator (D20).
   const [notMine, setNotMine] = useState(false);
   const assigned = event.coordinator !== null;
@@ -121,6 +123,7 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
   async function decideHold(booking: EventVenueBooking, action: "confirmed" | "declined") {
     setError(null);
     setNotice(null);
+    setDeclining(null);
     try {
       const result = action === "confirmed" ? await bookingApi.confirmHold(booking.id) : await bookingApi.withdraw(booking.id);
       setNotice({ kind: action, booking: { ...booking, ...result } });
@@ -288,7 +291,7 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
                       Make primary
                     </button>
                   )}
-                  {booking.status === "held" && (
+                  {booking.status === "held" && declining !== booking.id && (
                     <>
                       <button
                         type="button"
@@ -297,14 +300,26 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
                       >
                         Confirm hold
                       </button>
+                      <button type="button" className="request-button request-button--quiet" onClick={() => setDeclining(booking.id)}>
+                        Decline hold
+                      </button>
+                    </>
+                  )}
+                  {/* Declining frees the window to anyone at once and can't be undone, so it asks first. */}
+                  {booking.status === "held" && declining === booking.id && (
+                    <div className="venue-booking-row__confirm" role="group" aria-label="Confirm declining the hold">
+                      <span>Decline the hold on {booking.venue.name}? The venue is free for anyone to book at once.</span>
+                      <button type="button" className="request-button request-button--quiet" onClick={() => setDeclining(null)}>
+                        Keep hold
+                      </button>
                       <button
                         type="button"
-                        className="request-button request-button--quiet"
+                        className="request-button request-button--secondary"
                         onClick={() => void decideHold(booking, "declined")}
                       >
                         Decline hold
                       </button>
-                    </>
+                    </div>
                   )}
                   {/* US24 (D69): an approved venue can be withdrawn too; Venue staff are told. */}
                   {live(booking) && (

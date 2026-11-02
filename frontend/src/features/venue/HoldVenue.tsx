@@ -55,6 +55,11 @@ export function HoldVenue() {
             onClick={() => {
               setOpen(true);
               setPlaced(null);
+              // After a failed load, opening again tries again (PR review).
+              if (error) {
+                setError(null);
+                setEvents(null);
+              }
             }}
           >
             Place a hold
