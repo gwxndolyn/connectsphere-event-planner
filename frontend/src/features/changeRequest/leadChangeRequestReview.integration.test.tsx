@@ -1,5 +1,6 @@
-import { render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { http, HttpResponse } from "msw";
 import { beforeEach, describe, expect, it } from "vitest";
 import App from "../../App";
 import { setDevRole } from "../../api/client";
@@ -11,6 +12,7 @@ import {
   seedChangeRequest,
   seedRequest,
   seedVenue,
+  server,
   startMockBackend,
 } from "../../test/server";
 
@@ -101,7 +103,7 @@ describe("the Lead decides a coordinator's own edit (US29b, SCRUM-144)", () => {
     await user.click(within(panel).getByRole("button", { name: "Approve" }));
     await user.click(within(panel).getByRole("button", { name: "Approve change" }));
     await within(panel).findByRole("status");
-    document.body.innerHTML = "";
+    cleanup();
 
     setDevRole("coordinator");
     render(<App />);
@@ -163,7 +165,8 @@ describe("the Lead decides a coordinator's own edit (US29b, SCRUM-144)", () => {
     expect(callsTo("GET", `/api/v1/event-requests/${event.id}`)).toHaveLength(0);
     const loads = callsTo("GET", `/api/v1/change-requests/${edit.id}`);
     expect(loads.length).toBeGreaterThan(0);
-    expect(loads.every((call) => call.url.searchParams.get("acting_as") === "coordinator_lead")).toBe(true);
+    // The single read takes no acting_as (the API's list does; GET /change-requests/{id} doesn't).
+    expect(loads.every((call) => !call.url.searchParams.has("acting_as"))).toBe(true);
     expect(screen.queryByText("This request is no longer available.")).not.toBeInTheDocument();
     expect(panel).toHaveTextContent("Data Science Workshop");
     const rows = within(within(panel).getByRole("table", { name: "Requested changes" })).getAllByRole("row").slice(1);
@@ -174,5 +177,66 @@ describe("the Lead decides a coordinator's own edit (US29b, SCRUM-144)", () => {
     expect(await within(panel).findByRole("status")).toHaveTextContent("Approved. The event is now Planning.");
     expect(capacityOf(event.id)).toBe(80);
     expect(within(panel).queryByRole("article")).not.toBeInTheDocument();
+  });
+
+  // --- Calvin's #130 review ---
+
+  it("TC-US29B-40: a stale edit tells the Lead the coordinator can make the edit again", async () => {
+    const user = userEvent.setup();
+    seedHeldEdit();
+    const panel = await reviewEdit(user);
+    server.use(
+      http.post("*/api/v1/change-requests/:id/approve", () =>
+        HttpResponse.json({ code: "CHANGE_REQUEST_STALE", fields: [{ field: "capacity", reason: "changed" }] }, { status: 409 }),
+      ),
+    );
+
+    await user.click(within(panel).getByRole("button", { name: "Approve" }));
+    await user.click(within(panel).getByRole("button", { name: "Approve change" }));
+
+    expect(await within(panel).findByRole("alert")).toHaveTextContent(
+      "The event has changed since this was asked: Capacity (changed since). Reject it with a reason, and the coordinator can make the edit again.",
+    );
+  });
+
+  it.each([
+    ["approved", null, "Already approved by Lena Lead on"],
+    ["rejected", "The bigger room has no projector.", "Already rejected by Lena Lead on"],
+  ] as const)("TC-US29B-41: an edit decided before the Lead opens it reads as %s, not as one to decide", async (status, reason, said) => {
+    const user = userEvent.setup();
+    const { edit } = seedHeldEdit();
+    await openLeadQueue(user);
+    const section = await screen.findByRole("region", { name: /Coordinator edits to approve/ });
+    // Another Lead decides it after the list loaded.
+    Object.assign(edit, {
+      status,
+      decided_at: "2026-10-02T02:00:00Z",
+      decided_by: { id: "lead-two", name: "Lena Lead" },
+      rejection_reason: reason,
+    });
+    await user.click(within(section).getByRole("button", { name: "Review" }));
+
+    const panel = await screen.findByRole("region", { name: "Change requests for this event" });
+    const decided = await within(panel).findByRole("note", { name: "Already decided" });
+    expect(decided).toHaveTextContent(said);
+    expect(decided).toHaveTextContent("Fri, Oct 2");
+    if (reason) expect(decided).toHaveTextContent(`Why it was rejected: ${reason}`);
+    expect(within(panel).queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
+    expect(within(panel).queryByRole("article")).not.toBeInTheDocument();
+  });
+
+  it("TC-US29B-42: after approving a significant edit on a Confirmed event, the header reads Planning", async () => {
+    const user = userEvent.setup();
+    const { event } = seedHeldEdit();
+    Object.assign(event, { status: "confirmed", confirmed_at: "2026-10-01T01:00:00Z" });
+    const panel = await reviewEdit(user);
+    expect(panel).toHaveTextContent("Data Science Workshop · Confirmed");
+
+    await user.click(within(panel).getByRole("button", { name: "Approve" }));
+    await user.click(within(panel).getByRole("button", { name: "Approve change" }));
+
+    expect(await within(panel).findByRole("status")).toHaveTextContent("Approved. The event is now Planning.");
+    expect(panel).toHaveTextContent("Data Science Workshop · Planning");
+    expect(panel).not.toHaveTextContent("Confirmed");
   });
 });

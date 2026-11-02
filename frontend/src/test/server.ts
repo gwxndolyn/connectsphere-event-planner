@@ -971,7 +971,6 @@ function changeView(request: FakeChangeRequest): ChangeRequestReview {
   };
 }
 
-/** The change request this coordinator decides (D102: their event, not their own request), or the refusal. */
 /** D102: the event's coordinator decides what they didn't make; a Lead (SCRUM-144) decides the coordinator's own edit. */
 function decides(role: string, userId: string | null, request: FakeChangeRequest, event: EventRequest): boolean {
   const requester = requesterOf(request, event);
@@ -979,6 +978,7 @@ function decides(role: string, userId: string | null, request: FakeChangeRequest
   return requester !== event.created_by_user_id && requester === event.coordinator?.id && requester !== userId;
 }
 
+/** The change request this user decides (D102), or the refusal. */
 function decidableBy(request: Request, id: string): FakeChangeRequest | Response {
   const role = userRole(request);
   if (role !== "coordinator" && role !== "coordinator_lead") return error(403, "FORBIDDEN");
