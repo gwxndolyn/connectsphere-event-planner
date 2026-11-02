@@ -161,6 +161,10 @@ export interface FakeVenueBlock {
   starts_at: string;
   ends_at: string;
   note: string | null;
+  // US23a (SCRUM-90): why the venue is out of use.
+  reason: string;
+  // The bookings and holds it marked as needing rearrangement (D113), by id.
+  affects: string[];
 }
 
 export interface RecordedCall {
@@ -464,6 +468,8 @@ export function seedBlock(venue: Venue, overrides: Partial<FakeVenueBlock> = {})
     starts_at: "2026-11-20T05:00:00Z",
     ends_at: "2026-11-20T07:00:00Z",
     note: "Aircon repair",
+    reason: "maintenance",
+    affects: [],
     ...overrides,
   };
   db.blocks.push(block);
@@ -1262,6 +1268,12 @@ function isLive(booking: VenueBooking): boolean {
   return booking.status === "requested" || booking.status === "approved";
 }
 
+/** US23a (SCRUM-90): the block that left this live booking or hold needing rearrangement, if any (D113). */
+function rearrangementOf(booking: VenueBooking): FakeVenueBlock | undefined {
+  if (!isLive(booking) && booking.status !== "held") return undefined;
+  return db.blocks.find((block) => block.affects.includes(booking.id));
+}
+
 const BOOKING_REQUIRED = ["event_id", "venue_id", "starts_at", "ends_at", "expected_attendees", "room_layout", "purpose"];
 const SECTION_ORDER = ["details", "schedule", "attendance", "layout", "accessibility", "equipment", "registration"];
 
@@ -1689,6 +1701,7 @@ const handlers = [
         occupied: { starts_at: block.starts_at, ends_at: block.ends_at },
         booking: null,
         note: block.note,
+        reason: block.reason,
       }));
     // By occupied start; a stable sort keeps bookings before blocks at the same start.
     const items = [...bookings, ...blocks].sort(
@@ -1857,12 +1870,21 @@ const handlers = [
       .sort((a, b) => a.starts_at.localeCompare(b.starts_at))
       .map((b) => {
         const active = db.venues.find((v) => v.id === b.venue.id)?.is_active ?? true;
+        const marked = rearrangementOf(b);
         const unavailability =
           b.status === "rejected"
             ? { kind: "rejected", reason: b.rejection_reason, alternative_suggestion: b.alternative_suggestion }
-            : isLive(b) && !active
-              ? { kind: "venue_inactive", reason: null, alternative_suggestion: null }
-              : null;
+            : marked
+              ? {
+                  kind: "venue_unavailable",
+                  reason: null,
+                  alternative_suggestion: null,
+                  block: { id: marked.id, starts_at: marked.starts_at, ends_at: marked.ends_at, reason: marked.reason, note: marked.note },
+                  flagged_at: "2026-11-02T01:00:00Z",
+                }
+              : isLive(b) && !active
+                ? { kind: "venue_inactive", reason: null, alternative_suggestion: null }
+                : null;
         const next_action = unavailability
           ? "coordinator_to_rebook"
           : b.status === "requested"
@@ -1880,7 +1902,7 @@ const handlers = [
       bookings,
       venues_arranged:
         live.length > 0 &&
-        live.every((b) => b.status === "approved") &&
+        live.every((b) => b.status === "approved" && !rearrangementOf(b)) &&
         live.filter((b) => b.is_primary).length === 1 &&
         (expected === null || allocated >= expected),
       primary_booking_id: primary?.id ?? null,
@@ -1893,6 +1915,62 @@ const handlers = [
   // US25 (SCRUM-93), identified by X-User-Id. The expiry's rules (future, 14 days, before the start) and the
   // conflict check are the API's (backend/tests/venue/test_holds.py); this stores the hold and needs an expiry,
   // so a flow sees its own writes. Other refusals: server.use(...).
+  // US23a (SCRUM-90): Venue staff mark a venue unavailable. The rules (AC 2's order, a period already over, the
+  // reasons) are the API's (backend/tests/venue/test_unavailability.py); this marks the live bookings and holds
+  // whose occupied window the period overlaps, so a flow sees its own writes.
+  route("post", "/api/v1/venues/:venueId/blocks", ({ request, params, body }) => {
+    if (userRole(request) !== "venue_staff") return error(403, "FORBIDDEN");
+    const sent = (body ?? {}) as Record<string, unknown>;
+    const missing = ["starts_at", "ends_at", "reason"].filter((field) => !sent[field]);
+    if (missing.length > 0) return error(422, "MISSING_REQUIRED_FIELD", { fields: missing });
+    const venue = db.venues.find((v) => v.id === params.venueId);
+    if (!venue) return error(404, "NOT_FOUND");
+    const startsAt = String(sent.starts_at);
+    const endsAt = String(sent.ends_at);
+    if (Date.parse(endsAt) <= Date.parse(startsAt)) {
+      return error(422, "INVALID_BLOCK", { fields: ["ends_at"], errors: { ends_at: "The end must be after the start." } });
+    }
+    const affected = db.bookings
+      .filter(
+        (b) =>
+          b.venue.id === venue.id &&
+          (isLive(b) || b.status === "held") &&
+          !rearrangementOf(b) &&
+          Date.parse(b.occupied_starts_at) < Date.parse(endsAt) &&
+          Date.parse(startsAt) < Date.parse(b.occupied_ends_at),
+      )
+      .sort((a, b) => a.starts_at.localeCompare(b.starts_at));
+    const block = seedBlock(venue, {
+      starts_at: startsAt,
+      ends_at: endsAt,
+      reason: String(sent.reason),
+      note: typeof sent.note === "string" ? sent.note : null,
+      affects: affected.map((b) => b.id),
+    });
+    const { id, name, location, capacity } = venue;
+    return HttpResponse.json(
+      {
+        id: block.id,
+        venue: { id, name, location, capacity },
+        starts_at: block.starts_at,
+        ends_at: block.ends_at,
+        reason: block.reason,
+        note: block.note,
+        created_by_user_id: request.headers.get("X-User-Id"),
+        created_at: "2026-11-02T01:00:00Z",
+        affected_bookings: affected.map((b) => ({
+          id: b.id,
+          reference: b.reference,
+          status: b.status,
+          event: b.event,
+          starts_at: b.starts_at,
+          ends_at: b.ends_at,
+        })),
+      },
+      { status: 201 },
+    );
+  }),
+
   route("get", "/api/v1/venue-holds/events", ({ request }) => {
     if (userRole(request) !== "venue_staff") return error(403, "FORBIDDEN");
     const events = db.requests
@@ -1944,6 +2022,12 @@ const handlers = [
     const event = booking && db.requests.find((r) => r.id === booking.event.id);
     if (!booking || !event || !assignedTo(event, request.headers.get("X-User-Id")!)) return error(404, "NOT_FOUND");
     if (booking.status !== "held") return error(409, "HOLD_NOT_HELD", { status: booking.status });
+    // US23a: a hold the venue's unavailability overlaps can't be confirmed.
+    if (rearrangementOf(booking)) {
+      return error(409, "VENUE_UNAVAILABLE", {
+        message: "This venue has become unavailable for part of the held time, so the hold can't be confirmed.",
+      });
+    }
     Object.assign(booking, {
       status: "requested",
       requested_by_user_id: request.headers.get("X-User-Id")!,

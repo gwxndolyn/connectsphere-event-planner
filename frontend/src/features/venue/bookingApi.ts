@@ -66,7 +66,7 @@ export const bookingApi = {
 // time without one (INVALID_BOOKING).
 const SINGAPORE_OFFSET = "+08:00";
 
-function singaporeInstant(date: string, time: string): string | undefined {
+export function singaporeInstant(date: string, time: string): string | undefined {
   return date && time ? `${date}T${time}:00${SINGAPORE_OFFSET}` : undefined;
 }
 
@@ -217,6 +217,9 @@ export function venuesMissing(venues: EventVenues, audience: "coordinator" | "or
   if (waiting > 0) missing.push(`${waiting} waiting for Venue staff`);
   const closed = live.filter((b) => b.unavailability?.kind === "venue_inactive").length;
   if (closed > 0) missing.push(`${closed} at a venue no longer available`);
+  // US23a (SCRUM-90): a venue that became unavailable for part of its booking.
+  const affected = live.filter((b) => b.unavailability?.kind === "venue_unavailable").length;
+  if (affected > 0) missing.push(`${affected} needing rearrangement: the venue became unavailable`);
   if (venues.next_action === "choose_primary") {
     missing.push(
       audience === "coordinator"

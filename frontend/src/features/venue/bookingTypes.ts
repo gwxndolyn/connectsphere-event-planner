@@ -60,11 +60,28 @@ export type PreparationStatus = "not_started" | "in_progress" | "ready";
 // US25: a hold waits for the coordinator to confirm or decline it.
 export type NextAction = "venue_staff_to_decide" | "coordinator_to_rebook" | "coordinator_to_confirm" | "none";
 
-/** Why a venue needs replacing: Venue staff rejected it, or the venue has been deactivated. */
+// US23a (SCRUM-90) AC 1: why a venue is out of use (VenueBlockReason in backend/app/venue/models.py).
+export type VenueBlockReason = "maintenance" | "equipment_failure" | "renovation" | "safety" | "other";
+
+/** US23a AC 3: the unavailability period that leaves a booking needing rearrangement. */
+export interface BlockSummary {
+  id: string;
+  starts_at: string;
+  ends_at: string;
+  reason: VenueBlockReason;
+  note: string | null;
+}
+
+/**
+ * Why a venue needs replacing: Venue staff rejected it, the venue has been deactivated, or (US23a) the venue is
+ * unavailable for part of the booking's window ("Needs rearrangement", with the period in `block`).
+ */
 export interface BookingUnavailability {
-  kind: "rejected" | "venue_inactive";
+  kind: "rejected" | "venue_inactive" | "venue_unavailable";
   reason: string | null;
   alternative_suggestion: string | null;
+  block?: BlockSummary | null;
+  flagged_at?: string | null;
 }
 
 /** A booking as GET /events/{id}/venue-bookings gives it (US24, SCRUM-128). */
@@ -185,4 +202,35 @@ export interface HoldEvent {
 /** POST /venue-holds: a booking request's fields plus the hold's expiry (+08:00). */
 export interface VenueHoldWrite extends VenueBookingWrite {
   hold_expires_at?: string;
+}
+
+/** POST /api/v1/venues/{id}/blocks body (US23a AC 1). Blank fields are left out, so the API names each one. */
+export interface VenueBlockWrite {
+  starts_at?: string;
+  ends_at?: string;
+  reason?: string;
+  note?: string;
+}
+
+/** A booking or hold the period overlaps, now needing rearrangement (US23a AC 3). */
+export interface AffectedBooking {
+  id: string;
+  reference: string;
+  status: VenueBookingStatus;
+  event: BookingEvent;
+  starts_at: string;
+  ends_at: string;
+}
+
+/** POST /api/v1/venues/{id}/blocks: the period recorded and the bookings it affects. */
+export interface VenueBlock {
+  id: string;
+  venue: BookingVenue;
+  starts_at: string;
+  ends_at: string;
+  reason: VenueBlockReason;
+  note: string | null;
+  created_by_user_id: string | null;
+  created_at: string;
+  affected_bookings: AffectedBooking[];
 }
