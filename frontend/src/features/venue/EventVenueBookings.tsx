@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import { ApiError } from "../../api/client";
 import type { EventRequest } from "../eventRequest/types";
+import { formatInstantDateTime } from "../registration/datetime";
 import {
   bookingApi,
   bookingErrorMessage,
   bookingStatusLabel,
   formatBookingWindow,
   formatOccupied,
+  holdCountdown,
   preparationLabel,
   primaryErrorMessage,
 } from "./bookingApi";
@@ -26,7 +28,11 @@ interface EventVenueBookingsProps {
 type Notice =
   | { kind: "booked"; booking: VenueBookingCreated }
   | { kind: "withdrawn"; booking: EventVenueBooking }
-  | { kind: "primary"; booking: EventVenueBooking };
+  | { kind: "primary"; booking: EventVenueBooking }
+  // US25 (SCRUM-93): a hold confirmed into a request (AC 5), or declined (AC 7).
+  | { kind: "confirmed"; booking: EventVenueBooking }
+  | { kind: "declined"; booking: EventVenueBooking };
+
 
 function live(booking: EventVenueBooking): boolean {
   return booking.status === "requested" || booking.status === "approved";
@@ -48,6 +54,8 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
   const [notice, setNotice] = useState<Notice | null>(null);
   // The booking whose Withdraw is waiting for confirmation (PR #69 review).
   const [confirming, setConfirming] = useState<EventVenueBooking | null>(null);
+  // US25: the hold whose Decline is waiting for confirmation, as Withdraw does (PR review).
+  const [declining, setDeclining] = useState<string | null>(null);
   // The API refused this event's bookings (404): it's assigned to another coordinator (D20).
   const [notMine, setNotMine] = useState(false);
   const assigned = event.coordinator !== null;
@@ -111,6 +119,20 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
     }
   }
 
+  /** US25 AC 5, 7: confirm a held venue into a request for Venue staff, or decline it (withdraw, D110). */
+  async function decideHold(booking: EventVenueBooking, action: "confirmed" | "declined") {
+    setError(null);
+    setNotice(null);
+    setDeclining(null);
+    try {
+      const result = action === "confirmed" ? await bookingApi.confirmHold(booking.id) : await bookingApi.withdraw(booking.id);
+      setNotice({ kind: action, booking: { ...booking, ...result } });
+    } catch (reason) {
+      setError(bookingErrorMessage(reason));
+    }
+    await reload();
+  }
+
   /** US24 AC 4 (D68): the venue attendees see, once it's approved (D70). */
   async function makePrimary(booking: EventVenueBooking) {
     setError(null);
@@ -159,6 +181,14 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
                 </ul>
               )}
             </>
+          ) : notice.kind === "confirmed" ? (
+            <p>
+              Hold confirmed: {notice.booking.venue.name} is now a request. Venue staff have been notified and must
+              approve it
+              {notice.booking.hold_expires_at ? ` by ${formatInstantDateTime(notice.booking.hold_expires_at)}` : ""}.
+            </p>
+          ) : notice.kind === "declined" ? (
+            <p>Hold on {notice.booking.venue.name} declined. The venue is free again.</p>
           ) : notice.kind === "primary" ? (
             <p>
               {notice.booking.venue.name} is now the primary venue.{" "}
@@ -227,6 +257,23 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
                         )}
                       </>
                     )}
+                    {/* US25 (SCRUM-93): until when the venue is held (AC 4), and the deadline once confirmed (AC 5). */}
+                    {booking.status === "held" && booking.hold_expires_at && (
+                      <span className="venue-booking-row__hold">
+                        Held for this event until {formatInstantDateTime(booking.hold_expires_at)} (
+                        {holdCountdown(booking.hold_expires_at)}). Confirm it to request it, or decline it.
+                      </span>
+                    )}
+                    {booking.status === "requested" && booking.hold_expires_at && (
+                      <span className="venue-booking-row__hold">
+                        From a hold: Venue staff must approve it by {formatInstantDateTime(booking.hold_expires_at)}.
+                      </span>
+                    )}
+                    {booking.status === "expired" && booking.expired_at && (
+                      <span className="venue-booking-row__decision">
+                        The hold expired on {formatInstantDateTime(booking.expired_at)}. The venue is free again.
+                      </span>
+                    )}
                     {booking.unavailability?.kind === "venue_inactive" && (
                       <span className="venue-booking-row__decision">This venue is no longer available.</span>
                     )}
@@ -243,6 +290,36 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
                     >
                       Make primary
                     </button>
+                  )}
+                  {booking.status === "held" && declining !== booking.id && (
+                    <>
+                      <button
+                        type="button"
+                        className="request-button request-button--primary"
+                        onClick={() => void decideHold(booking, "confirmed")}
+                      >
+                        Confirm hold
+                      </button>
+                      <button type="button" className="request-button request-button--quiet" onClick={() => setDeclining(booking.id)}>
+                        Decline hold
+                      </button>
+                    </>
+                  )}
+                  {/* Declining frees the window to anyone at once and can't be undone, so it asks first. */}
+                  {booking.status === "held" && declining === booking.id && (
+                    <div className="venue-booking-row__confirm" role="group" aria-label="Confirm declining the hold">
+                      <span>Decline the hold on {booking.venue.name}? The venue is free for anyone to book at once.</span>
+                      <button type="button" className="request-button request-button--quiet" onClick={() => setDeclining(null)}>
+                        Keep hold
+                      </button>
+                      <button
+                        type="button"
+                        className="request-button request-button--secondary"
+                        onClick={() => void decideHold(booking, "declined")}
+                      >
+                        Decline hold
+                      </button>
+                    </div>
                   )}
                   {/* US24 (D69): an approved venue can be withdrawn too; Venue staff are told. */}
                   {live(booking) && (

@@ -13,6 +13,7 @@ from app.seed import (
     CONFIRMATION_EVENT,
     EQUIPMENT_EVENT,
     EVENT_COORDINATOR_LEAD_EMAILS,
+    HOLD_EVENT,
     MULTI_VENUE_EVENT,
     PLANNING_EVENT,
     SAFETY_REVIEW_EVENT,
@@ -92,5 +93,6 @@ def test_tc_us10a_04_seed_adds_two_active_leads_and_leaves_events_unassigned(db:
             seed_id("event", PLANNING_EVENT.slug),
             seed_id("event", MULTI_VENUE_EVENT.slug),
             seed_id("event", CANCELLATION_EVENT.slug),
+            seed_id("event", HOLD_EVENT.slug),  # US25 (SCRUM-93): the hold E2E's event
         ]
     )
