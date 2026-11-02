@@ -85,9 +85,10 @@ def make_primary(
     coordinator: Coordinator,
     db: Session = Depends(get_db),
     now: datetime = Depends(get_now),
+    notifier: Notifier = Depends(get_notifier),
 ) -> VenueBookingOut:
     # US24 AC 4 (D68): the venue attendees see.
-    return booking_service.make_primary(db, coordinator, booking_id, now)
+    return booking_service.make_primary(db, coordinator, booking_id, now, notifier)
 
 
 @router.post("/{booking_id}/preparation", response_model=VenueBookingOut)
