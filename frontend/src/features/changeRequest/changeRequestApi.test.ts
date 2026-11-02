@@ -13,6 +13,12 @@ describe("changeRequestApi wording (US29b)", () => {
     expect(impactParts({ ...impact, venue_bookings: 0 }, "planning")).toEqual(["flags the event's registrations (45) for review"]);
   });
 
+  it("TC-US29B-40: words a stale request by who asked (Calvin's #130 review)", () => {
+    const stale = new ApiError(409, "CHANGE_REQUEST_STALE", [], { fields: [{ field: "capacity", reason: "changed" }] });
+    expect(decisionErrorMessage(stale, "organiser")).toMatch(/Reject it with a reason, and the organiser can ask again\.$/);
+    expect(decisionErrorMessage(stale, "coordinator")).toMatch(/Reject it with a reason, and the coordinator can make the edit again\.$/);
+  });
+
   it("TC-US29B-30: says a role can't take the action when the API answers FORBIDDEN", () => {
     expect(decisionErrorMessage(new ApiError(403, "FORBIDDEN"))).toBe("This isn't an action your role can take.");
   });

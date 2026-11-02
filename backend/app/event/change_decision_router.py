@@ -23,7 +23,7 @@ from app.user.dependencies import require_user_roles
 from app.user.models import User, UserRole
 
 # US29b (SCRUM-142): change requests, decided by the event's coordinator or, for a coordinator's own US12 edit, a
-# Lead (D102). Lead decisions are API only until a follow-up ticket gives them a screen.
+# Lead (D102). The Lead's screen is Coordinator edits to approve on the Assignment Queue (SCRUM-144).
 router = APIRouter(prefix="/api/v1/change-requests", tags=["change-requests"])
 # The review flags a significant approval raises (D104), for the event's coordinator.
 events_router = APIRouter(prefix="/api/v1/events", tags=["change-requests"])
