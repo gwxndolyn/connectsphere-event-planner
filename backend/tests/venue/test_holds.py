@@ -142,6 +142,8 @@ async def test_tc_us25_09_venue_staff_list_the_events_they_may_hold_a_venue_for(
 ) -> None:
     planning = make_event(db, name="Alumni Night", status=EventStatus.PLANNING, coordinator_id=coordinator.id)
     make_event(db, name="Not Yet", status=EventStatus.UNDER_REVIEW)
+    # Nobody could confirm or decline a hold on an unassigned event (PR review), so it isn't offered.
+    make_event(db, name="Nobody's", status=EventStatus.APPROVED)
 
     response = await client.get(f"{HOLDS_URL}/events", headers=auth(staff))
 
@@ -362,3 +364,44 @@ def test_tc_us25_24_the_seed_clears_the_hold_demo(db: Session) -> None:
     seed(db, now=NOW)
 
     assert db.query(VenueBooking).filter(VenueBooking.event_id == event.id).count() == 0
+
+
+
+async def test_tc_us25_08_every_missing_field_is_named_at_once(
+    client: AsyncClient, staff: User, event: Event, venue: Venue
+) -> None:
+    response = await place(client, staff, event, venue, hold_expires_at=None, venue_id=None, starts_at=None)
+
+    assert (response.status_code, response.json()["code"]) == (422, "MISSING_REQUIRED_FIELD")
+    assert response.json()["fields"] == ["venue_id", "starts_at", "hold_expires_at"]
+
+
+async def test_tc_us25_08_a_hold_expires_before_the_venues_setup_starts(
+    client: AsyncClient, db: Session, staff: User, event: Event
+) -> None:
+    """Held from 12:00 at a venue with two hours of setup, so it's occupied from 10:00; an 11:00 expiry is before the
+    start but inside the setup (PR review)."""
+    slow = make_venue(db, name="Hall B", setup_minutes=120)
+    starts = START + timedelta(hours=3)
+    response = await place(
+        client, staff, event, slow, starts_at=starts.isoformat(), ends_at=(starts + timedelta(hours=2)).isoformat(),
+        hold_expires_at=(starts - timedelta(hours=1)).isoformat(),
+    )
+
+    assert response.status_code == 422
+    assert response.json()["errors"] == {
+        "hold_expires_at": "The hold must expire before the venue's setup for it starts."
+    }
+
+
+async def test_tc_us25_13_a_hold_past_its_expiry_expires_rather_than_being_declined(
+    client: AsyncClient, db: Session, staff: User, coordinator: User, event: Event, venue: Venue, notifier: FakeNotifier
+) -> None:
+    """A stale tab declines after the expiry, before anything read it (PR review): it lapses as Expired."""
+    held = (await place(client, staff, event, venue)).json()
+    at(EXPIRES)
+
+    declined = await client.post(f"/api/v1/venue-bookings/{held['id']}/withdraw", headers=auth(coordinator))
+
+    assert (declined.status_code, declined.json()) == (409, {"code": "BOOKING_NOT_LIVE", "status": "expired"})
+    assert notifier.holds[-1]["stage"] == "expired"

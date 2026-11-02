@@ -117,6 +117,11 @@ describe("tentative venue holds (US25)", () => {
 
     const row = await bookings().findByRole("listitem", { name: /^Hall A/ });
     await user.click(within(row).getByRole("button", { name: "Decline hold" }));
+    // It asks first, as Withdraw does: nothing is sent until confirmed, and Keep hold backs out.
+    const confirm = within(within(row).getByRole("group", { name: "Confirm declining the hold" }));
+    expect(confirm.getByText(/The venue is free for anyone to book at once./)).toBeInTheDocument();
+    expect(callsTo("POST", `/api/v1/venue-bookings/${held.id}/withdraw`)).toHaveLength(0);
+    await user.click(confirm.getByRole("button", { name: "Decline hold" }));
 
     expect(await bookings().findByRole("status")).toHaveTextContent("Hold on Hall A declined. The venue is free again.");
     expect(callsTo("POST", `/api/v1/venue-bookings/${held.id}/withdraw`)).toHaveLength(1);
