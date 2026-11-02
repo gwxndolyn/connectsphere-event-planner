@@ -31,7 +31,7 @@ def auth(user: User) -> dict[str, str]:
 
 
 def at(moment: datetime) -> None:
-    """Move the app's clock: a hold lapses on the next read after its expiry (D103)."""
+    """Move the app's clock: a hold lapses on the next read after its expiry (D109)."""
     app.dependency_overrides[get_now] = lambda: moment
 
 
@@ -259,7 +259,7 @@ async def test_tc_us25_13_the_coordinator_declines_a_hold_and_the_window_is_free
     assert again.status_code == 201
 
 
-# --- AC 3, 4: expiry and the warnings, on read (D103) ---
+# --- AC 3, 4: expiry and the warnings, on read (D109) ---
 
 
 async def test_tc_us25_14_a_hold_lapses_on_the_next_read_after_its_expiry(
@@ -276,7 +276,7 @@ async def test_tc_us25_14_a_hold_lapses_on_the_next_read_after_its_expiry(
     assert retaken.status_code == 201  # the window is free again (AC 3)
     db.refresh(event)
     assert event.status == EventStatus.APPROVED  # the event stays as it was
-    # Nothing read it in its last 24 hours, so there was no warning: the coordinator hears it expired (D103).
+    # Nothing read it in its last 24 hours, so there was no warning: the coordinator hears it expired (D109).
     assert [call["stage"] for call in notifier.holds if call["booking_id"] == uuid.UUID(held["id"])] == [
         "placed",
         "expired",

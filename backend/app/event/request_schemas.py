@@ -92,7 +92,8 @@ class EventRequestOut(BaseModel):
 class ReadinessItemOut(BaseModel):
     """One line of the readiness list (US18 AC 2): a venue booking, the equipment, technical support or the safety check."""
 
-    kind: Literal["venue", "equipment", "technical_support", "safety"]
+    # US29b (SCRUM-142): review_flags once a significant change has flagged the event's arrangements (D104).
+    kind: Literal["venue", "equipment", "technical_support", "safety", "review_flags"]
     name: str
     complete: bool
     # What is done, or what is still outstanding, in words the coordinator can act on.

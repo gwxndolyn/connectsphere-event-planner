@@ -70,7 +70,7 @@ class VenueBookingWrite(BaseModel):
 
 class VenueHoldWrite(VenueBookingWrite):
     """US25 (SCRUM-93) AC 1: Venue staff hold a venue for an event and time, as a request would ask for it, until
-    `hold_expires_at`, which is required and in the future (at most 14 days ahead, D102)."""
+    `hold_expires_at`, which is required and in the future (at most 14 days ahead, D108)."""
 
     hold_expires_at: datetime | None = None
 

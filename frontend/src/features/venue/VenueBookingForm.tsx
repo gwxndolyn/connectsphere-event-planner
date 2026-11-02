@@ -324,7 +324,7 @@ export function VenueBookingForm({ event, onBooked, onCancel, hold = false }: Ve
         {hold && (
           <>
             {field(
-              // US25 AC 1 (D102): required, in the future, at most 14 days ahead and before the held time.
+              // US25 AC 1 (D108): required, in the future, at most 14 days ahead and before the held time.
               "Hold expires on",
               "hold_expires_at",
               <input

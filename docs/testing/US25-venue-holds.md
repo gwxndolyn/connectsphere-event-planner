@@ -23,13 +23,13 @@
 
 ## Decisions for this story
 
-- **A hold is a venue booking with status `held`** (D105, `DECISION-PENDING`), so the existing overlap guard keeps another request out of the window (AC 2), even in a race. It blocks the window but is no booking anywhere else (AC 6): `BLOCKING_STATUSES` is the guard's set, and everything that counts an event's venues (venues arranged, readiness, the primary venue) keeps `LIVE_BOOKING_STATUSES`. A hold can't be the primary venue. While held, `requested_by_user_id` is the Venue staff member who placed it; confirming makes the coordinator the requester, so Venue staff can then approve it (D51).
-- **Length** (D102, the story owner's choice, 1 Nov): any expiry from now up to 14 days ahead; no extension. To keep a venue longer, the coordinator confirms it, or Venue staff place a new hold once it lapses.
-- **Expiry and the 24-hour warning** (D103, the story owner's choice, 1 Nov): no scheduler, as for waitlist offers (D2, §1a "Lapse on read"). A hold lapses on the next read or change of its venue's bookings; the warning goes out once, on the first read inside the last 24 hours (`hold_warned_at`), or at once for a hold placed with less than 24 hours left. It may arrive later than exactly 24 hours if nobody looks.
-- **Released when** (D104, the story owner's choice, 1 Nov): the coordinator declines it (for example after choosing another venue), the event is cancelled (US9), or it's confirmed into a request. Rejection can't apply: holds exist only from Approved on.
+- **A hold is a venue booking with status `held`** (D111, `DECISION-PENDING`), so the existing overlap guard keeps another request out of the window (AC 2), even in a race. It blocks the window but is no booking anywhere else (AC 6): `BLOCKING_STATUSES` is the guard's set, and everything that counts an event's venues (venues arranged, readiness, the primary venue) keeps `LIVE_BOOKING_STATUSES`. A hold can't be the primary venue. While held, `requested_by_user_id` is the Venue staff member who placed it; confirming makes the coordinator the requester, so Venue staff can then approve it (D51).
+- **Length** (D108, the story owner's choice, 1 Nov): any expiry from now up to 14 days ahead; no extension. To keep a venue longer, the coordinator confirms it, or Venue staff place a new hold once it lapses.
+- **Expiry and the 24-hour warning** (D109, the story owner's choice, 1 Nov): no scheduler, as for waitlist offers (D2, §1a "Lapse on read"). A hold lapses on the next read or change of its venue's bookings; the warning goes out once, on the first read inside the last 24 hours (`hold_warned_at`), or at once for a hold placed with less than 24 hours left. It may arrive later than exactly 24 hours if nobody looks.
+- **Released when** (D110, the story owner's choice, 1 Nov): the coordinator declines it (for example after choosing another venue), the event is cancelled (US9), or it's confirmed into a request. Rejection can't apply: holds exist only from Approved on.
 - **A confirmed hold keeps its expiry** (AC 5): Venue staff must approve the request before it, or it lapses as `expired`.
-- **No warning if nobody looks** (D103): a hold nobody reads in its last 24 hours just expires, and the coordinator hears only that.
-- **Which events Venue staff see** (D106, `DECISION-PENDING`): they read no event requests (D55), so `GET /venue-holds/events` lists only each Approved or Planning event's name, reference, schedule and attendance.
+- **No warning if nobody looks** (D109): a hold nobody reads in its last 24 hours just expires, and the coordinator hears only that.
+- **Which events Venue staff see** (D112, `DECISION-PENDING`): they read no event requests (D55), so `GET /venue-holds/events` lists only each Approved or Planning event's name, reference, schedule and attendance.
 - **The expiry must also come before the held time starts**: a hold on a slot that has begun keeps nothing for anyone.
 
 ## Test cases
@@ -44,12 +44,12 @@
 | TC-US25-06 | 2 | A hold; an expired hold at another venue | The availability check over each window | The hold is the conflict, by its reference; the expired one is no conflict. Fails without `BLOCKING_STATUSES` in the check |
 | TC-US25-07 | 1, 4 | An Approved event and a venue | Venue staff place a hold | `201`, held, not primary, `coordinator_to_confirm`, the expiry and who placed it; the coordinator told (`placed`) |
 | TC-US25-08 | 1 | | No expiry (alone, or with other missing fields); one in the past, over 14 days ahead, after the start, inside the venue's setup, or with no offset; too many attendees; a draft; a Confirmed event | `MISSING_REQUIRED_FIELD` naming every gap / `INVALID_HOLD` on `hold_expires_at`, nothing stored; `VENUE_CAPACITY_EXCEEDED`; `404`; `409 EVENT_NOT_BOOKABLE` |
-| TC-US25-09 | 1 | Approved and Planning events with a coordinator, an unassigned Approved one, an Under Review one | Venue staff list the events to hold for | The assigned Approved and Planning ones, by name (D106) |
+| TC-US25-09 | 1 | Approved and Planning events with a coordinator, an unassigned Approved one, an Under Review one | Venue staff list the events to hold for | The assigned Approved and Planning ones, by name (D112) |
 | TC-US25-10 | 2, 6 | A hold | Another event requests the same window; a coordinator searches it; the event's venues are read | `409 VENUE_UNAVAILABLE` naming the conflict; the venue not in the results; not arranged, no primary, nothing allocated |
 | TC-US25-11 | 5 | A hold | Its coordinator confirms; another coordinator; confirm twice | Requested, the coordinator the requester, primary, the expiry and placer kept, Venue staff told; `404`; `409 HOLD_NOT_HELD` |
 | TC-US25-12 | 5 | A confirmed hold | Venue staff approve before its expiry; at its expiry | Approved; `409 BOOKING_NOT_PENDING` (`expired`), the coordinator told |
 | TC-US25-13 | 7 | A hold; a hold past its expiry that nothing has read | The coordinator declines it, then Venue staff hold the window again; a stale screen declines the lapsed one | Withdrawn, then the new hold placed; `409 BOOKING_NOT_LIVE` (`expired`) and the coordinator told it expired |
-| TC-US25-14 | 3, 4 | A hold | The first read is at its expiry | Expired with `expired_at`; the window free; the event unchanged; the coordinator hears placed then expired, with no warning (D103) |
+| TC-US25-14 | 3, 4 | A hold | The first read is at its expiry | Expired with `expired_at`; the window free; the event unchanged; the coordinator hears placed then expired, with no warning (D109) |
 | TC-US25-15 | 4 | A hold; one placed with 6 hours left | Reads 25 and 23 hours before expiry, twice; a read | One warning, inside the last 24 hours; the short one warned at once |
 | TC-US25-16 | 2, 6 | A hold | Read the calendar; read it after the expiry | Kind `hold`, label "Hold", with its expiry; then nothing |
 | TC-US25-17 | 7 | A hold | The event is cancelled (US9) | The hold withdrawn |
@@ -66,4 +66,6 @@
 | Date | Suite | Result |
 | --- | --- | --- |
 | 1 Nov | Backend (`pytest`), PR 1 | 1563 passed, including TC-US25-01 to 06; the migration upgrades, downgrades and upgrades again on a local database |
+| 2 Nov | Backend (`pytest`), PR 1 after merging `main` (#119, US29b) | 1649 passed; the migration now follows `20261115_1200_us29b_decisions`; D102 to D105 renumbered to D108 to D111 and deviation 68 to 69 (US29b took D102 to D107 and 68) |
 | 2 Nov | PR 2: backend (`pytest`), frontend (Vitest), E2E (Playwright, local Postgres and the real backend) | Backend 1618 passed (after the review fixes) (TC-US25-07 to 17, 24); frontend 466 (TC-US25-18 to 23); E2E 50 passed and 11 skipped, TC-US25-24 included, which also passes twice in a row without a reseed |
+| 2 Nov | PR 2 after merging PR 1 (with `main`'s #119 and US29b) | Backend 1676 passed, frontend 478, E2E 52 passed and 11 skipped (TC-US25-24 included, on a rebuilt local database); D106 renumbered to D112 and deviation 69 to 70 |

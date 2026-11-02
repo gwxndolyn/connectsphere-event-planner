@@ -95,6 +95,9 @@ class AuditEntryOut(BaseModel):
     # Set when the entry belongs to a critical edit, which the event doesn't show until it's approved.
     change_request_id: uuid.UUID | None
     change_request_status: ChangeRequestStatus | None
+    # US29b (SCRUM-142) AC 5: saved, requested, applied, decided, status_changed, confirmation_cleared or
+    # safety_approval_cleared.
+    action: str
 
 
 class EventHistoryOut(BaseModel):

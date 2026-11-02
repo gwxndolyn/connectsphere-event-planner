@@ -140,7 +140,7 @@ def event_bookings(
 
 
 # US25 (SCRUM-93) AC 5: the event's coordinator confirms a held venue into a request for Venue staff to approve.
-# Declining one is withdraw (AC 7, D104).
+# Declining one is withdraw (AC 7, D110).
 @router.post("/{booking_id}/confirm", response_model=VenueBookingOut)
 def confirm_hold(
     booking_id: uuid.UUID,

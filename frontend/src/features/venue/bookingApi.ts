@@ -52,7 +52,7 @@ export const bookingApi = {
   evaluation: (id: string) => apiClient.get<BookingEvaluation>(`/api/v1/venue-bookings/${id}/evaluation`),
 
   // US25 (SCRUM-93): Venue staff hold a venue (AC 1) for one of the events they may; the event's coordinator
-  // confirms it into a request (AC 5), or declines it with withdraw (AC 7, D104).
+  // confirms it into a request (AC 5), or declines it with withdraw (AC 7, D110).
   placeHold: (body: VenueHoldWrite) => apiClient.post<VenueBookingCreated>("/api/v1/venue-holds", body),
 
   async holdEvents(): Promise<HoldEvent[]> {

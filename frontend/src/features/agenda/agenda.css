@@ -1,0 +1,60 @@
+/* US15 (SCRUM-140): the event's agenda on the organiser's request. */
+.agenda {
+  margin: 32px 0 8px;
+  text-align: left;
+}
+
+.agenda__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.agenda__heading h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.agenda__hint {
+  margin: 12px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.agenda__row {
+  align-items: flex-start;
+}
+
+.agenda__time {
+  display: grid;
+  min-width: 150px;
+  font-size: 13px;
+}
+
+.agenda__main {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+  font-size: 14px;
+}
+
+.agenda__main h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.agenda__outside {
+  justify-self: start;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--badge-bg, #fef3c7);
+  color: var(--badge-text, #92400e);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.agenda__actions {
+  display: flex;
+  gap: 8px;
+}

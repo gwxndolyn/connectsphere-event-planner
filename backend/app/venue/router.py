@@ -63,7 +63,7 @@ def search_available_venues(
     facilities: Annotated[list[str] | None, Query()] = None,
     accessibility: Annotated[list[str] | None, Query()] = None,
 ) -> VenueSearchOut:
-    # US25 (SCRUM-93): a lapsed hold frees its venue before the search (D103).
+    # US25 (SCRUM-93): a lapsed hold frees its venue before the search (D109).
     expire_lapsed_holds(db, now, notifier)
     return venue_service.find_available(
         db,
@@ -99,7 +99,7 @@ def venue_calendar(
     end: Annotated[str | None, Query(alias="to")] = None,
 ) -> VenueCalendarOut:
     """US21 (SCRUM-88): what occupies the venue over `from`..`to` (Singapore days, both included)."""
-    # US25 (SCRUM-93): a lapsed hold leaves the calendar first (AC 6, D103).
+    # US25 (SCRUM-93): a lapsed hold leaves the calendar first (AC 6, D109).
     expire_lapsed_holds(db, now, notifier)
     return calendar_service.calendar(db, venue_id, reader, start, end)
 

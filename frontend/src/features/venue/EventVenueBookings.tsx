@@ -119,7 +119,7 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
     }
   }
 
-  /** US25 AC 5, 7: confirm a held venue into a request for Venue staff, or decline it (withdraw, D104). */
+  /** US25 AC 5, 7: confirm a held venue into a request for Venue staff, or decline it (withdraw, D110). */
   async function decideHold(booking: EventVenueBooking, action: "confirmed" | "declined") {
     setError(null);
     setNotice(null);

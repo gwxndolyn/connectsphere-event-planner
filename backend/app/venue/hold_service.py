@@ -13,7 +13,7 @@ from app.venue.models import Venue, VenueBooking, VenueBookingStatus
 
 logger = logging.getLogger(__name__)
 
-# DECISION-PENDING: D102 — a hold lasts at most 14 days; D103 — the coordinator is warned in its last 24 hours.
+# DECISION-PENDING: D108 — a hold lasts at most 14 days; D109 — the coordinator is warned in its last 24 hours.
 HOLD_MAX_LENGTH = timedelta(days=14)
 HOLD_WARNING = timedelta(hours=24)
 # A hold, and a hold confirmed into a request that Venue staff haven't decided yet (AC 5), lapse at the expiry.
@@ -86,7 +86,7 @@ def _due_warning(booking: VenueBooking, now: datetime) -> bool:
 
 
 def expire_lapsed_holds(db: Session, now: datetime, notifier: Notifier) -> int:
-    """DECISION-PENDING: D103 — lapse on read, as waitlist offers (D2, SCRUM-137; §1a "Lapse on read"). Every read or
+    """DECISION-PENDING: D109 — lapse on read, as waitlist offers (D2, SCRUM-137; §1a "Lapse on read"). Every read or
     change of venue bookings calls this first: a hold past its expiry, or a confirmed one Venue staff haven't
     approved by then (AC 5), becomes Expired and frees the window (AC 3); one inside its last 24 hours warns its
     coordinator, once (AC 4).

@@ -1,5 +1,5 @@
 // Shapes from backend/app/venue/schemas.py (US22, SCRUM-89). Datetimes are ISO 8601 from the API.
-// US25 (SCRUM-93): "held" until the coordinator confirms it, "expired" once it lapsed (D103).
+// US25 (SCRUM-93): "held" until the coordinator confirms it, "expired" once it lapsed (D109).
 export type VenueBookingStatus = "requested" | "approved" | "rejected" | "withdrawn" | "held" | "expired";
 
 export interface BookingEvent {

@@ -104,6 +104,9 @@ class FakeNotifier:
         # US14 (SCRUM-134): each Tech support staff member assigned to an event.
         self.tech_staff_assignments: list[dict[str, object]] = []
         self.change_requests: list[dict[str, object]] = []
+        # US29b (SCRUM-142): each decision told, and each arrangement flagged told to its staff.
+        self.change_decisions: list[dict[str, object]] = []
+        self.arrangement_flags: list[dict[str, object]] = []
         # US9 (SCRUM-12): a cancellation asked for, a request rejected, and the event cancelled (one per recipient).
         self.cancellation_requests: list[dict[str, object]] = []
         self.cancellation_rejections: list[dict[str, object]] = []
@@ -309,6 +312,16 @@ class FakeNotifier:
         if self.fail:
             raise RuntimeError("mail server unavailable")
         self.change_requests.append(call)
+
+    def change_request_decided(self, **call: object) -> None:
+        if self.fail:
+            raise RuntimeError("mail server unavailable")
+        self.change_decisions.append(call)
+
+    def arrangement_flagged(self, **call: object) -> None:
+        if self.fail:
+            raise RuntimeError("mail server unavailable")
+        self.arrangement_flags.append(call)
 
     def safety_review_decided(self, **call: object) -> None:
         if self.fail:
