@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { formatInstantDateTime } from "../registration/datetime";
-import { changeLabel, changeReviewApi, flagErrorMessage } from "./changeRequestApi";
+import { changeReviewApi, flagErrorMessage, reviewLabel } from "./changeRequestApi";
 import type { ReviewFlag } from "./types";
 import "./changeRequests.css";
 
@@ -90,7 +90,7 @@ function FlagRow({ flag, onCleared }: { flag: ReviewFlag; onCleared: (flag: Revi
     <li className={`review-flags__item${flag.open ? " review-flags__item--open" : ""}`}>
       <strong>{label}</strong>
       <span>
-        Changed: {flag.fields.map(changeLabel).join(", ")} · flagged {formatInstantDateTime(flag.raised_at)}
+        Changed: {flag.fields.map(reviewLabel).join(", ")} · flagged {formatInstantDateTime(flag.raised_at)}
       </span>
       {flag.cleared_at ? (
         <span>

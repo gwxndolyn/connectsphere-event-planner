@@ -235,7 +235,7 @@ function Workspace({ me, role: currentRole, onRoleChange, view, onNavigate, onLo
         />
       ) : shown === "event-requests" ? (
         role === "coordinator" ? (
-          <ClarificationReviewPage key="coordinator" userId={me?.id ?? DEV_USER_IDS.coordinator} />
+          <ClarificationReviewPage key="coordinator" userId={me?.id ?? DEV_USER_IDS.coordinator} actingAs={role} />
         ) : role === "coordinator_lead" ? (
           <AssignmentQueuePage key="coordinator_lead" />
         ) : role === "venue_staff" || role === "tech_support" ? (

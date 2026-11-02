@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { formatInstantDateTime } from "../registration/datetime";
-import { changeReviewApi, decisionErrorMessage } from "./changeRequestApi";
+import { changeReviewApi, decisionErrorMessage, type DecidingRole } from "./changeRequestApi";
 import type { ChangeRequestReview } from "./types";
 import "./changeRequests.css";
 
 interface CoordinatorChangeRequestsProps {
+  // The Role switcher's role: a user who is also a Lead sees only what they decide as coordinator here.
+  actingAs: DecidingRole;
   // Opens the event's review screen at its change requests.
   onReview: (eventId: string, requestId: string) => void;
 }
@@ -14,14 +16,14 @@ interface CoordinatorChangeRequestsProps {
  * to them, oldest first. Nothing shows while none waits. Deviation 71: placed here, the coordinator's Event requests
  * screen, because every status a request can be decided in opens from it.
  */
-export function CoordinatorChangeRequests({ onReview }: CoordinatorChangeRequestsProps) {
+export function CoordinatorChangeRequests({ actingAs, onReview }: CoordinatorChangeRequestsProps) {
   const [requests, setRequests] = useState<ChangeRequestReview[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let current = true;
     changeReviewApi
-      .pending()
+      .pending(null, actingAs)
       .then((found) => {
         if (current) setRequests(found);
       })
@@ -31,7 +33,7 @@ export function CoordinatorChangeRequests({ onReview }: CoordinatorChangeRequest
     return () => {
       current = false;
     };
-  }, []);
+  }, [actingAs]);
 
   if (error) return <div className="request-alert" role="alert">{error}</div>;
   if (!requests || requests.length === 0) return null;

@@ -3,6 +3,7 @@ import { ApiError, apiClient } from "../../api/client";
 import { EventVenueBookings } from "../venue/EventVenueBookings";
 import { ChangeRequestReview } from "../changeRequest/ChangeRequestReview";
 import { CoordinatorChangeRequests } from "../changeRequest/CoordinatorChangeRequests";
+import type { DecidingRole } from "../changeRequest/changeRequestApi";
 import { ClarificationThreadView } from "./ClarificationThreadView";
 import { CANCELLATION_VISIBLE } from "../cancellation/cancellationApi";
 import { EventCancellation } from "../cancellation/EventCancellation";
@@ -39,9 +40,11 @@ function errorMessage(error: unknown): string {
 interface ClarificationReviewPageProps {
   // The coordinator using the screen: only their own assigned requests offer Approve and Reject (US17).
   userId?: string;
+  // The Role switcher's role, sent with the change-request list (US29b, Calvin's #127 review).
+  actingAs?: DecidingRole;
 }
 
-export function ClarificationReviewPage({ userId }: ClarificationReviewPageProps) {
+export function ClarificationReviewPage({ userId, actingAs = "coordinator" }: ClarificationReviewPageProps) {
   const [requests, setRequests] = useState<EventRequest[]>([]);
   const [screen, setScreen] = useState<Screen>("queue");
   const [activeRequest, setActiveRequest] = useState<EventRequest | null>(null);
@@ -55,6 +58,9 @@ export function ClarificationReviewPage({ userId }: ClarificationReviewPageProps
   const [sending, setSending] = useState(false);
   // Bumped when a rejected safety arrangement is sent back, so the readiness list is read again (US30a).
   const [safetyVersion, setSafetyVersion] = useState(0);
+  // US29b (SCRUM-143): bumped when an approved change moved the event, flagged arrangements or cleared the safety
+  // approval, so the safety outcome is read again. A resend keeps the outcome it answered (Calvin's #127 review).
+  const [outcomeVersion, setOutcomeVersion] = useState(0);
   // US29b (SCRUM-143): the change request the coordinator came to review from the queue.
   const [focusChange, setFocusChange] = useState<string | null>(null);
 
@@ -172,7 +178,7 @@ export function ClarificationReviewPage({ userId }: ClarificationReviewPageProps
       {error && <div className="request-alert" role="alert">{error}</div>}
 
       {screen === "queue" && (
-        <CoordinatorChangeRequests onReview={(eventId, changeId) => void openRequest({ id: eventId }, changeId)} />
+        <CoordinatorChangeRequests actingAs={actingAs} onReview={(eventId, changeId) => void openRequest({ id: eventId }, changeId)} />
       )}
       {screen === "queue" && (
         <section aria-label="Requests to review" className="request-list">
@@ -283,17 +289,22 @@ export function ClarificationReviewPage({ userId }: ClarificationReviewPageProps
         <ChangeRequestReview
           key={`changes-${activeRequest.id}`}
           event={activeRequest}
+          actingAs={actingAs}
           focusId={focusChange}
-          onDecided={(decided) => {
-            recordDecision({ ...activeRequest, ...decided });
-            // A decision can change the event without changing its status: read readiness and safety again.
-            setSafetyVersion((version) => version + 1);
+          onDecided={(decision) => {
+            recordDecision({ ...activeRequest, ...decision.event });
+            // A significant approval can change the event without changing its status: read readiness and safety
+            // again. A rejection, or a change with no effect beyond its values, leaves them as they are.
+            if (decision.status_change || decision.safety_review_required || decision.flags.length > 0) {
+              setSafetyVersion((version) => version + 1);
+              setOutcomeVersion((version) => version + 1);
+            }
           }}
         />
       )}
       {screen === "review" && activeRequest && canConfirm && (
         <SafetyOutcome
-          key={`safety-${activeRequest.id}-${safetyVersion}`}
+          key={`safety-${activeRequest.id}-${outcomeVersion}`}
           request={activeRequest}
           canResend
           onResent={() => setSafetyVersion((version) => version + 1)}
