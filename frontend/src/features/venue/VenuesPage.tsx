@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { venueApi, venueErrorMessage } from "./api";
 import { ACCESSIBILITY_FEATURES, FACILITIES, tagLabel } from "./tags";
 import type { ActiveFilter, Venue, VenueFilters } from "./types";
+import { HoldVenue } from "./HoldVenue";
 import { PendingBookings } from "./PendingBookings";
 import { VenueCalendar } from "./VenueCalendar";
 import { VenueForm } from "./VenueForm";
@@ -126,6 +127,8 @@ export function VenuesPage({ staff, canSearch = false, calendar = false }: Venue
       )}
 
       {staff && <PendingBookings />}
+      {/* US25 (SCRUM-93): Venue staff hold a venue for an event until an expiry. */}
+      {staff && <HoldVenue />}
       {canSearch && <VenueSearch />}
       {calendar && <VenueCalendar staff={staff} />}
 

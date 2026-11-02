@@ -1,6 +1,6 @@
 import { type CSSProperties, useEffect, useId, useState } from "react";
 import { statusLabel } from "../eventRequest/clarificationSections";
-import { formatInstantTime } from "../registration/datetime";
+import { formatInstantDateTime, formatInstantTime } from "../registration/datetime";
 import { calendarErrorMessage, venueApi, venueErrorMessage } from "./api";
 import {
   PREPARATION_STATUSES,
@@ -246,8 +246,8 @@ interface CalendarBodyProps {
 }
 
 function CalendarBody({ calendar, view, anchor, onOpen }: CalendarBodyProps) {
-  // DECISION-PENDING: D59 — holds aren't drawn until US25 (SCRUM-93) adds them; none come back yet.
-  const items = calendar.items.filter((item) => item.kind !== "hold");
+  // US25 (SCRUM-93): holds are drawn too; an expired one never comes back from the API (AC 6).
+  const items = calendar.items;
   return (
     <>
       {items.length === 0 && (
@@ -514,6 +514,13 @@ function ItemDetails({ item, staff, onClose, onChanged, onStale }: ItemDetailsPr
                 <dt>Booking status</dt>
                 <dd>{bookingStatusLabel(booking.status)}</dd>
               </div>
+              {/* US25 (SCRUM-93) AC 2: the window is kept until the hold is confirmed or expires. */}
+              {booking.hold_expires_at && (
+                <div>
+                  <dt>Held until</dt>
+                  <dd>{formatInstantDateTime(booking.hold_expires_at)}</dd>
+                </div>
+              )}
             </>
           )}
           <div>

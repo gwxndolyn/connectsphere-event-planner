@@ -294,6 +294,37 @@
   color: #276749;
 }
 
+/* US25 (SCRUM-93): a hold waiting for the coordinator, and one that lapsed. */
+.venue-booking-status--held {
+  background: var(--badge-soon-bg);
+  color: var(--badge-soon-text);
+}
+
+.venue-booking-status--expired {
+  background: var(--chip-bg);
+  color: var(--text-muted);
+}
+
+.venue-booking-row__hold {
+  color: var(--badge-soon-text);
+}
+
+.venue-holds {
+  margin: 24px 0;
+}
+
+.venue-holds__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.venue-holds__heading h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
 .venue-booking-status--rejected {
   background: #fff5f5;
   color: #c53030;
@@ -439,6 +470,13 @@
 .venue-calendar__item--block {
   border-color: var(--text-muted);
   background: var(--chip-bg);
+}
+
+/* US25 (SCRUM-93): a tentative hold keeps the window until it's confirmed or expires. */
+.venue-calendar__item--hold {
+  border-style: dotted;
+  border-color: var(--badge-soon-text);
+  background: var(--badge-soon-bg);
 }
 
 /* D60: a cancelled event's booking still holds the window, so it's shown, but muted. */

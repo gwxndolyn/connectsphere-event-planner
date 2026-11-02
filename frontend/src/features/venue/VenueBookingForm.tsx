@@ -1,5 +1,4 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import type { EventRequest } from "../eventRequest/types";
 import { formatEventDate, formatInstantDateTime } from "../registration/datetime";
 import { venueApi, venueErrorMessage } from "./api";
 import {
@@ -12,6 +11,7 @@ import {
   missingForVenue,
   occupiedPreview,
   toBookingBody,
+  toHoldBody,
 } from "./bookingApi";
 import type { BookingFormValues, VenueBookingCreated } from "./bookingTypes";
 import { ACCESSIBILITY_FEATURES, FACILITIES, ROOM_LAYOUTS, tagLabel } from "./tags";
@@ -35,7 +35,7 @@ function occupiedText(form: BookingFormValues, venue: Venue): string {
  * US24 AC 1 (D65): the schedule a venue's window must fall within: the event's own start and end once
  * it has them (a planned event), otherwise its preferred dates and times. Null when it has neither.
  */
-function scheduleText(event: EventRequest): string | null {
+function scheduleText(event: BookingFormEvent): string | null {
   if (event.start_at && event.end_at) {
     const window = { starts_at: event.start_at, ends_at: event.end_at };
     const sameDay =
@@ -61,7 +61,7 @@ function toggle(list: string[], tag: string): string[] {
 }
 
 /** The event's own preferences (US1) as a starting point; the coordinator can change any of them. */
-function initialValues(event: EventRequest): BookingFormValues {
+function initialValues(event: BookingFormEvent): BookingFormValues {
   return {
     venueId: "",
     date: event.preferred_dates?.[0] ?? "",
@@ -76,10 +76,24 @@ function initialValues(event: EventRequest): BookingFormValues {
   };
 }
 
+// What the form reads of the event: its schedule and attendance. A coordinator's request (EventRequest) or, for
+// Venue staff's hold (US25), an event from GET /venue-holds/events.
+interface BookingFormEvent {
+  id: string;
+  start_at?: string | null;
+  end_at?: string | null;
+  preferred_dates: string[] | null;
+  preferred_start_time: string | null;
+  preferred_end_time: string | null;
+  expected_attendees: number | null;
+}
+
 interface VenueBookingFormProps {
-  event: EventRequest;
+  event: BookingFormEvent;
   onBooked: (booking: VenueBookingCreated) => void;
   onCancel: () => void;
+  // US25 (SCRUM-93) AC 1: Venue staff hold the venue until an expiry, instead of requesting it.
+  hold?: boolean;
 }
 
 /**
@@ -89,8 +103,10 @@ interface VenueBookingFormProps {
  * previews the window the venue's setup and turnaround make it occupy; whether that fits its hours and
  * clears other bookings is still the API's call (VENUE_OUTSIDE_HOURS, VENUE_UNAVAILABLE).
  */
-export function VenueBookingForm({ event, onBooked, onCancel }: VenueBookingFormProps) {
+export function VenueBookingForm({ event, onBooked, onCancel, hold = false }: VenueBookingFormProps) {
   const [form, setForm] = useState<BookingFormValues>(() => initialValues(event));
+  const [expiryDate, setExpiryDate] = useState("");
+  const [expiryTime, setExpiryTime] = useState("17:00");
   const [venues, setVenues] = useState<Venue[]>([]);
   const [error, setError] = useState<string | null>(null);
   // Keyed by the API's field names (venue_id, starts_at, …), as the errors arrive.
@@ -129,7 +145,11 @@ export function VenueBookingForm({ event, onBooked, onCancel }: VenueBookingForm
     setError(null);
     setFieldErrors({});
     try {
-      onBooked(await bookingApi.create(toBookingBody(event.id, form)));
+      onBooked(
+        hold
+          ? await bookingApi.placeHold(toHoldBody(event.id, form, expiryDate, expiryTime))
+          : await bookingApi.create(toBookingBody(event.id, form)),
+      );
     } catch (reason) {
       setError(bookingErrorMessage(reason));
       setFieldErrors(bookingFieldErrors(reason));
@@ -162,7 +182,7 @@ export function VenueBookingForm({ event, onBooked, onCancel }: VenueBookingForm
 
   return (
     <form className="venue-booking-form" noValidate onSubmit={(submitted) => void handleSubmit(submitted)}>
-      <h3>Request a venue</h3>
+      <h3>{hold ? "Hold a venue" : "Request a venue"}</h3>
       {schedule && <p className="venue-booking__schedule">Event schedule: {schedule}</p>}
       {error && (
         <div className="request-alert" role="alert">
@@ -299,6 +319,38 @@ export function VenueBookingForm({ event, onBooked, onCancel }: VenueBookingForm
             <span className="venue-field-error">{fieldErrors.required_accessibility_features}</span>
           )}
         </fieldset>
+        {hold && (
+          <>
+            {field(
+              // US25 AC 1 (D102): required, in the future, at most 14 days ahead and before the held time.
+              "Hold expires on",
+              "hold_expires_at",
+              <input
+                id="venue-booking-hold_expires_at"
+                type="date"
+                value={expiryDate}
+                onChange={(changed) => {
+                  setExpiryDate(changed.target.value);
+                  update("date", form.date, "hold_expires_at");
+                }}
+                {...invalid("hold_expires_at")}
+              />,
+            )}
+            {field(
+              "Hold expires at",
+              "hold_expires_time",
+              <input
+                id="venue-booking-hold_expires_time"
+                type="time"
+                value={expiryTime}
+                onChange={(changed) => {
+                  setExpiryTime(changed.target.value);
+                  update("date", form.date, "hold_expires_at");
+                }}
+              />,
+            )}
+          </>
+        )}
         <label className="request-field venue-form__wide">
           Special requirements
           <textarea
@@ -326,7 +378,7 @@ export function VenueBookingForm({ event, onBooked, onCancel }: VenueBookingForm
           Cancel
         </button>
         <button type="submit" className="request-button request-button--primary" disabled={sending}>
-          {sending ? "Sending…" : "Send request"}
+          {sending ? "Sending…" : hold ? "Place hold" : "Send request"}
         </button>
       </div>
     </form>
