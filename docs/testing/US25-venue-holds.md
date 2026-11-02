@@ -34,7 +34,7 @@
 
 | ID | AC | Given | When | Then |
 | --- | --- | --- | --- | --- |
-| TC-US25-01 | 1 | Migrations applied | Inspect the schema | `venue_booking_status` gains `held` and `expired`; holds are blocking but not live; one migration head |
+| TC-US25-01 | 1 | Migrations applied | Inspect the schema | `venue_booking_status` gains `held` and `expired`; holds are blocking but not live; a partial index on `hold_expires_at` for the sweep; one migration head |
 | TC-US25-02 | 2, 3 | A hold; an expired hold | Store an overlapping request at the same venue | Refused (`venue_bookings_no_overlap`); allowed |
 | TC-US25-03 | 1, 3, 4 | | A hold without an expiry; an expiry without who placed it; a warning without a hold, or at the expiry; a hold requested by someone other than who placed it; expired without a time, a time while held, or before the expiry | Each refused (`venue_bookings_hold_consistent`, `venue_bookings_expired_consistent`) |
 | TC-US25-04 | 6 | | A primary hold; a hold with a decision | Refused (`venue_bookings_hold_not_primary`, `venue_bookings_decided_consistent`) |
