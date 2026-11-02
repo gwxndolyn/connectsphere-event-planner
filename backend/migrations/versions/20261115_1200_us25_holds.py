@@ -112,12 +112,21 @@ def upgrade() -> None:
     )
     # A hold isn't a venue the event has yet (AC 6), so it can't be the one attendees see (US24, D68).
     op.create_check_constraint("venue_bookings_hold_not_primary", "venue_bookings", "status <> 'held' OR NOT is_primary")
+    # The lapse-on-read sweep (D109) checks for due holds on every booking read; this keeps its "nothing due" answer
+    # cheap as bookings grow. Partial: only bookings that ever were holds have an expiry.
+    op.create_index(
+        "ix_venue_bookings_hold_expires_at",
+        "venue_bookings",
+        ["hold_expires_at"],
+        postgresql_where=sa.text("hold_expires_at IS NOT NULL"),
+    )
 
 
 def downgrade() -> None:
     bind = op.get_bind()
     if bind.scalar(sa.text("SELECT EXISTS (SELECT 1 FROM venue_bookings WHERE hold_expires_at IS NOT NULL)")):
         raise RuntimeError("Refusing lossy downgrade: venue holds, or bookings confirmed from one, would be discarded.")
+    op.drop_index("ix_venue_bookings_hold_expires_at", table_name="venue_bookings")
     op.drop_constraint("venue_bookings_hold_not_primary", "venue_bookings", type_="check")
     op.drop_constraint("venue_bookings_expired_consistent", "venue_bookings", type_="check")
     op.drop_constraint("venue_bookings_hold_consistent", "venue_bookings", type_="check")

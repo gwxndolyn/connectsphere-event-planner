@@ -177,6 +177,8 @@ class VenueBooking(Base):
             name="venue_bookings_expired_consistent",
         ),
         CheckConstraint("status <> 'held' OR NOT is_primary", name="venue_bookings_hold_not_primary"),
+        # US25: the lapse-on-read sweep's check for due holds (D109), on every booking read.
+        Index("ix_venue_bookings_hold_expires_at", "hold_expires_at", postgresql_where=text("hold_expires_at IS NOT NULL")),
         # DECISION-PENDING: D73 — preparation is tracked per venue (CS3-49); PreparationStatus's values.
         CheckConstraint(
             "preparation_status IN ('not_started', 'in_progress', 'ready')",
