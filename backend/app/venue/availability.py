@@ -41,6 +41,7 @@ class Conflict:
     reference: str | None = None  # a booking's VB- reference (D33); None for a block
     note: str | None = None  # a block's note
     booking_id: uuid.UUID | None = None
+    reason: str | None = None  # a block's reason (US23a, SCRUM-90)
 
 
 @dataclass(frozen=True)
@@ -129,7 +130,14 @@ def block_conflicts(db: Session, venue_id: uuid.UUID, occupied: Window) -> list[
     for block in blocks:
         theirs = Window(block.starts_at, block.ends_at)
         conflicts.append(
-            Conflict(kind="block", window=theirs, occupied=theirs, overlap=_overlap(occupied, theirs), note=block.note)
+            Conflict(
+                kind="block",
+                window=theirs,
+                occupied=theirs,
+                overlap=_overlap(occupied, theirs),
+                note=block.note,
+                reason=block.reason,
+            )
         )
     return conflicts
 

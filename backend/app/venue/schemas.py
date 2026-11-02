@@ -114,13 +114,28 @@ class BookingVenueOut(BaseModel):
     capacity: int
 
 
+class BlockSummaryOut(BaseModel):
+    """US23a (SCRUM-90) AC 3: the venue unavailability that leaves a booking needing rearrangement."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    starts_at: datetime
+    ends_at: datetime
+    reason: str  # one of VenueBlockReason
+    note: str | None
+
+
 class BookingUnavailabilityOut(BaseModel):
     """US24 AC 4 (D71): why a venue needs replacing: Venue staff rejected it (with their reason and
-    alternative, if given), or the venue has been deactivated."""
+    alternative, if given), or the venue has been deactivated. US23a (SCRUM-90): or the venue is unavailable
+    for part of its window ("Needs rearrangement", `block` says when and why)."""
 
-    kind: Literal["rejected", "venue_inactive"]
+    kind: Literal["rejected", "venue_inactive", "venue_unavailable"]
     reason: str | None = None
     alternative_suggestion: str | None = None
+    block: BlockSummaryOut | None = None
+    flagged_at: datetime | None = None
 
 
 class VenueBookingOut(BaseModel):
@@ -323,6 +338,7 @@ class CalendarItemOut(BaseModel):
     occupied: WindowOut
     booking: CalendarBookingOut | None
     note: str | None  # a block's note
+    reason: str | None = None  # US23a (SCRUM-90): a block's reason, one of VenueBlockReason
 
 
 class VenueCalendarOut(BaseModel):
@@ -335,3 +351,40 @@ class VenueCalendarOut(BaseModel):
     from_: date = Field(alias="from")
     to: date
     items: list[CalendarItemOut]
+
+
+class VenueBlockWrite(BaseModel):
+    """US23a (SCRUM-90) AC 1: Venue staff mark a venue unavailable from `starts_at` to `ends_at` (ISO 8601 with an
+    offset) for a `reason`, with an optional `note`. Optional here so the service lists every missing field at once."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+    reason: str | None = None
+    note: str | None = None
+
+
+class AffectedBookingOut(BaseModel):
+    """A booking or hold the period overlaps, now needing rearrangement (AC 3)."""
+
+    id: uuid.UUID
+    reference: str
+    status: VenueBookingStatus
+    event: BookingEventOut
+    starts_at: datetime
+    ends_at: datetime
+
+
+class VenueBlockOut(BaseModel):
+    """POST /api/v1/venues/{id}/blocks (US23a): the period recorded and the bookings it affects."""
+
+    id: uuid.UUID
+    venue: BookingVenueOut
+    starts_at: datetime
+    ends_at: datetime
+    reason: str
+    note: str | None
+    created_by_user_id: uuid.UUID | None
+    created_at: datetime
+    affected_bookings: list[AffectedBookingOut]

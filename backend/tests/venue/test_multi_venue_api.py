@@ -524,9 +524,12 @@ async def test_tc_us24_15_unavailability_says_why_a_venue_needs_replacing(
 
     assert by_id[str(rejected.id)]["unavailability"] == {
         "kind": "rejected", "reason": "Booked for exams", "alternative_suggestion": "Try the auditorium",
+        "block": None, "flagged_at": None,  # US23a (SCRUM-90)
     }
     assert by_id[str(rejected.id)]["next_action"] == "coordinator_to_rebook"
-    assert by_id[str(on_closed.id)]["unavailability"] == {"kind": "venue_inactive", "reason": None, "alternative_suggestion": None}
+    assert by_id[str(on_closed.id)]["unavailability"] == {
+        "kind": "venue_inactive", "reason": None, "alternative_suggestion": None, "block": None, "flagged_at": None,
+    }
     assert by_id[str(on_closed.id)]["next_action"] == "coordinator_to_rebook"
     assert (by_id[str(pending.id)]["unavailability"], by_id[str(pending.id)]["next_action"]) == (None, "venue_staff_to_decide")
 
