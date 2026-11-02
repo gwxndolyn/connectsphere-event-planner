@@ -482,3 +482,38 @@ async def test_tc_us23a_12_a_seeded_style_block_without_a_recorder_still_shows(
 
     [item] = [item for item in response.json()["items"] if item["kind"] == "block"]
     assert item["reason"] == "maintenance"
+
+
+# --- TC-US23A-20's reset: the E2E's event starts clean on every reseed ---
+
+
+def test_tc_us23a_20_the_seed_clears_the_unavailability_demo(db: Session, staff: User) -> None:
+    from app.seed import UNAVAILABILITY_EVENT, seed, seed_id
+
+    seed(db, now=NOW)
+    event = db.get(Event, seed_id("event", UNAVAILABILITY_EVENT.slug))
+    assert (event.name, event.status, event.coordinator_id) == (
+        "Venue Unavailability Demo", EventStatus.APPROVED, seed_id("user", "event-coordinator"),
+    )
+    venue = make_venue(db, name="Hall Z")
+    own = make_venue_block(db, venue, START, END, created_by_user_id=staff.id)
+    shared = make_venue_block(db, venue, START + timedelta(days=1), END + timedelta(days=1), created_by_user_id=staff.id)
+    booking(db, event, venue, staff, rearrangement_block_id=own.id, rearrangement_flagged_at=NOW)
+    other = make_event(db, name="Someone Else's", status=EventStatus.APPROVED)
+    kept = booking(
+        db, other, venue, staff, starts_at=START + timedelta(days=1), ends_at=END + timedelta(days=1),
+        rearrangement_block_id=shared.id, rearrangement_flagged_at=NOW,
+    )
+    booking(
+        db, event, venue, staff, is_primary=False, starts_at=START + timedelta(days=2), ends_at=END + timedelta(days=2),
+        rearrangement_block_id=shared.id, rearrangement_flagged_at=NOW,
+    )
+    own_id, shared_id = own.id, shared.id
+
+    seed(db, now=NOW)
+
+    db.expire_all()
+    assert db.query(VenueBooking).filter(VenueBooking.event_id == event.id).count() == 0
+    assert db.get(VenueBlock, own_id) is None  # marked only the demo's booking
+    assert db.get(VenueBlock, shared_id) is not None  # still marks another event's booking
+    assert db.get(VenueBooking, kept.id) is not None
