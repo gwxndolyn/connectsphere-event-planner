@@ -58,3 +58,113 @@
 .change-request-row .venue-booking-row__main {
   flex: 1;
 }
+
+/* US29b (SCRUM-143): the coordinator's change requests to review, the decision panel and the review flags. */
+.change-queue {
+  margin: 0 0 24px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  text-align: left;
+}
+
+.change-queue h2,
+.change-decide h2 {
+  margin: 0 0 12px;
+  font-size: 18px;
+}
+
+.change-queue__list,
+.review-flags__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.change-queue__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+
+.change-queue__main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.change-queue__main span,
+.change-decide__who {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.change-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.change-badge--significant {
+  background: #fff4e5;
+  color: #8a4b00;
+}
+
+.change-badge--stale {
+  background: #fdecea;
+  color: #8a1c1c;
+}
+
+.change-decide {
+  margin: 32px 0 8px;
+  text-align: left;
+}
+
+.change-decide__request {
+  margin-top: 12px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.change-decide__impact {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-left: 3px solid #d9822b;
+  background: #fff8ef;
+  font-size: 14px;
+}
+
+.change-decide__confirm {
+  margin-top: 12px;
+}
+
+.review-flags {
+  margin: 16px 0;
+}
+
+.review-flags h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.review-flags__item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+  font-size: 14px;
+}
+
+.review-flags__item--open strong::before {
+  content: "● ";
+  color: #d9822b;
+}
+

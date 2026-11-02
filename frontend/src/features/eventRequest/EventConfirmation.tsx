@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ApiError, apiClient } from "../../api/client";
+import { ReviewFlags } from "../changeRequest/ReviewFlags";
 import { formatInstantDateTime } from "../registration/datetime";
 import type { EventRequest, Readiness } from "./types";
 
@@ -127,6 +128,8 @@ export function EventConfirmation({ request, onChanged }: EventConfirmationProps
               </li>
             ))}
           </ul>
+          {/* US29b (SCRUM-143): what an approved significant change flagged, until each is reviewed (D104). */}
+          {readiness.items.some((item) => item.kind === "review_flags") && <ReviewFlags eventId={request.id} onChanged={checkAgain} />}
           <p className="request-notice">
             {readiness.ready
               ? "Every arrangement is complete. Confirming tells the organiser the date, time and venue."

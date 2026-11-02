@@ -452,6 +452,9 @@ def test_tc_us29b_07_seed_has_a_change_request_demo_and_a_reseed_resets_it(db: S
         ]
         # Off the attendees' board, like the other demos.
         assert demo.registration_enabled is False
+        # Every field an organiser may ask to change (D90) is back as seeded, so TC-US29B-33 reruns.
+        assert (demo.name, demo.event_category, demo.expected_attendees) == (CHANGE_REQUEST_EVENT.name, "Workshop", 20)
+        assert (demo.room_layout_preference, demo.accessibility_needs, demo.equipment_needs) == (None, None, None)
         bookings = db.scalars(select(VenueBooking).where(VenueBooking.event_id == demo.id)).all()
         assert [(b.status, b.is_primary) for b in bookings] == [(VenueBookingStatus.APPROVED, True)]
         assert (bookings[0].starts_at, bookings[0].ends_at) == (demo.start_at, demo.end_at)
@@ -482,6 +485,9 @@ def test_tc_us29b_07_seed_has_a_change_request_demo_and_a_reseed_resets_it(db: S
     demo.confirmed_at = demo.confirmed_by_user_id = None
     demo.safety_approved_at = demo.safety_approved_by_user_id = None
     demo.start_at, demo.end_at = demo.start_at + timedelta(hours=1), demo.end_at + timedelta(hours=1)
+    # And a later approved request's fields, as TC-US29B-33 asks.
+    demo.expected_attendees, demo.equipment_needs = 30, "Two projectors"
+    demo.room_layout_preference, demo.accessibility_needs = "Theatre", "Step-free access"
     db.flush()
     # And a later review of the changed arrangement, which a reseed forgets.
     db.execute(

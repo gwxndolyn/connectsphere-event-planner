@@ -84,12 +84,19 @@ def _source(request: EventChangeRequest, event: Event) -> str:
     return "organiser" if request.requested_by_user_id == event.created_by_user_id else "coordinator"
 
 
-def _decides(user: User, request: EventChangeRequest, event: Event) -> bool:
-    """D102: the assigned coordinator decides what they didn't make; a Lead decides the coordinator's own edit."""
-    if user.holds(UserRole.COORDINATOR) and event.coordinator_id == user.id and request.requested_by_user_id != user.id:
+def _decides(user: User, request: EventChangeRequest, event: Event, acting_as: UserRole | None = None) -> bool:
+    """D102: the assigned coordinator decides what they didn't make; a Lead decides the coordinator's own edit.
+    `acting_as` keeps to one of the two for a user holding both (the list's Role switcher); None is either."""
+    if (
+        acting_as in (None, UserRole.COORDINATOR)
+        and user.holds(UserRole.COORDINATOR)
+        and event.coordinator_id == user.id
+        and request.requested_by_user_id != user.id
+    ):
         return True
     return (
-        user.holds(UserRole.COORDINATOR_LEAD)
+        acting_as in (None, UserRole.COORDINATOR_LEAD)
+        and user.holds(UserRole.COORDINATOR_LEAD)
         and _source(request, event) == "coordinator"
         and request.requested_by_user_id == event.coordinator_id
         and request.requested_by_user_id != user.id
@@ -174,7 +181,12 @@ class ChangeDecisionService:
     # --- reading ---
 
     def list_for(
-        self, db: Session, user: User, status: str = "pending_approval", event_id: uuid.UUID | None = None
+        self,
+        db: Session,
+        user: User,
+        status: str = "pending_approval",
+        event_id: uuid.UUID | None = None,
+        acting_as: UserRole | None = None,
     ) -> list[ChangeRequestReviewOut]:
         query = select(EventChangeRequest, Event).join(Event, Event.id == EventChangeRequest.event_id)
         if status == "pending_approval":
@@ -184,7 +196,7 @@ class ChangeDecisionService:
         if event_id is not None:
             query = query.where(Event.id == event_id)
         rows = db.execute(query.order_by(EventChangeRequest.created_at, EventChangeRequest.id)).all()
-        return [self._out(db, request, event) for request, event in rows if _decides(user, request, event)]
+        return [self._out(db, request, event) for request, event in rows if _decides(user, request, event, acting_as)]
 
     def get(self, db: Session, user: User, request_id: uuid.UUID) -> ChangeRequestReviewOut:
         request, event = self._reachable(db, user, request_id)

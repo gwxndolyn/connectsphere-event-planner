@@ -4,7 +4,7 @@ import { afterAll, afterEach, beforeAll } from "vitest";
 import type { EventRegistrations } from "../features/eventRegistrations/types";
 import type { AuditEntry, EventDetails } from "../features/eventEdit/types";
 import type { Cancellation } from "../features/cancellation/types";
-import type { OrganiserChangeRequest } from "../features/changeRequest/types";
+import type { ChangeRequestReview, OrganiserChangeRequest, ReviewFlag } from "../features/changeRequest/types";
 import type { AssignmentRecord, Clarification, EventRequest, EventRequestWrite } from "../features/eventRequest/types";
 import type { BookingEvaluation, VenueBooking } from "../features/venue/bookingTypes";
 import type { Venue } from "../features/venue/types";
@@ -185,6 +185,13 @@ export interface FakeSafetyReview {
   created_at: string;
 }
 
+// US29b (SCRUM-143): a change request as the fake keeps it: the organiser's view, plus who asked and decided.
+export type FakeChangeRequest = OrganiserChangeRequest & {
+  // The event's organiser when not given (US29a's requests).
+  requested_by_user_id?: string;
+  decided_by?: { id: string; name: string } | null;
+};
+
 interface Db {
   venues: Venue[];
   // What GET /venues/available returns next (see nextSearchResult).
@@ -222,8 +229,12 @@ interface Db {
   // US12 (SCRUM-15): the coordinator's events and each one's History, newest first.
   coordinatedEvents: EventDetails[];
   history: Record<string, AuditEntry[]>;
-  // US29a (SCRUM-97): organisers' change requests, newest first.
-  changeRequests: OrganiserChangeRequest[];
+  // US29a (SCRUM-97): organisers' change requests, newest first. US29b (SCRUM-143): who asked, and who decided.
+  changeRequests: FakeChangeRequest[];
+  // US29b (SCRUM-143): the review flags an approved significant change raised.
+  reviewFlags: ReviewFlag[];
+  // Roles a user holds besides ROLES' one (US16b), e.g. a coordinator who is also a Lead, like multi.role.
+  extraRoles: Record<string, string[]>;
   // US9 (SCRUM-12): cancellation requests and cancels, newest first.
   cancellations: Cancellation[];
   // US15 (SCRUM-140): every event's agenda sessions.
@@ -248,6 +259,8 @@ function emptyDb(): Db {
     coordinatedEvents: [],
     history: {},
     changeRequests: [],
+    reviewFlags: [],
+    extraRoles: {},
     cancellations: [],
     sessions: [],
     bookings: [],
@@ -610,6 +623,53 @@ export function seedSession(request: EventRequest, overrides: Partial<FakeSessio
   return session;
 }
 
+/** US29b (SCRUM-143): a change request on `event`, the organiser's unless `requested_by_user_id` says otherwise. */
+export function seedChangeRequest(
+  event: EventRequest,
+  overrides: Partial<FakeChangeRequest> & Pick<FakeChangeRequest, "changes">,
+): FakeChangeRequest {
+  const request: FakeChangeRequest = {
+    id: newId("change-request"),
+    event_id: event.id,
+    event_name: event.name,
+    request_reference: event.request_reference,
+    status: "pending_approval",
+    reason: null,
+    created_at: new Date(Date.UTC(2026, 9, 1, 1, db.nextId)).toISOString(),
+    requested_by_user_id: event.created_by_user_id ?? ORGANISER_ID,
+    decided_at: null,
+    decided_by: null,
+    rejection_reason: null,
+    ...overrides,
+  };
+  db.changeRequests.unshift(request);
+  return request;
+}
+
+/** US29b (SCRUM-143): a review flag on `event`; `label` names its booking or line (null for registrations). */
+export function seedReviewFlag(
+  event: EventRequest,
+  { label = "VB-2026-000001 · Seminar Room", ...overrides }: Partial<ReviewFlag> & { label?: string | null } = {},
+): ReviewFlag {
+  const flag: ReviewFlag = {
+    id: newId("review-flag"),
+    event_id: event.id,
+    kind: "venue_booking",
+    target: label === null ? null : { id: newId("target"), label, status: "approved" },
+    fields: ["start_at", "end_at"],
+    change_request_id: "change-request-seeded",
+    raised_at: "2026-10-02T02:00:00Z",
+    cleared_at: null,
+    cleared_by: null,
+    cleared_note: null,
+    resolved: false,
+    open: true,
+    ...overrides,
+  };
+  db.reviewFlags.push(flag);
+  return flag;
+}
+
 export function seedCoordinatedEvent(overrides: Partial<EventDetails> = {}): EventDetails {
   const event: EventDetails = {
     id: newId("event"),
@@ -786,8 +846,186 @@ function confirmableBy(request: Request, id: string): EventRequest | Response {
 }
 
 // US18 AC 1, 2: each live booking approved, the equipment lines approved, the safety check approved.
+// --- US29b (SCRUM-143): change request decisions, by the rules backend/tests/event/test_change_request_decisions.py
+// proves for app/event/change_decision_service.py: significant fields and what each flags (D103, D104), Planning
+// and the safety approval only once the event is being arranged (D105, D106), and stale requests refused (D107).
+type FlagKind = ReviewFlag["kind"];
+const SCHEDULE_KINDS: FlagKind[] = ["venue_booking", "equipment_reservation", "registrations"];
+const SIGNIFICANT_FIELDS: Record<string, FlagKind[]> = {
+  start_at: SCHEDULE_KINDS,
+  end_at: SCHEDULE_KINDS,
+  preferred_dates: SCHEDULE_KINDS,
+  preferred_start_time: SCHEDULE_KINDS,
+  preferred_end_time: SCHEDULE_KINDS,
+  expected_attendees: ["venue_booking", "registrations"],
+  capacity: ["venue_booking", "registrations"],
+  room_layout_preference: ["venue_booking"],
+  accessibility_needs: ["venue_booking"],
+  delivery_mode: ["venue_booking", "registrations"],
+  equipment_needs: ["equipment_reservation"],
+};
+const ARRANGED = ["approved", "planning", "confirmed"];
+const NOT_APPROVABLE = ["preparation", "cancelled", "completed", "rejected"];
+const DECIDED_AT = "2026-10-02T03:00:00Z";
+
+function requesterOf(request: FakeChangeRequest, event: EventRequest): string {
+  return request.requested_by_user_id ?? event.created_by_user_id ?? ORGANISER_ID;
+}
+
+function personFor(id: string) {
+  return [ORGANISER_PERSON, COORDINATOR_PERSON, LEAD_PERSON].find((person) => person.id === id) ?? { id, name: id, email: "" };
+}
+
+function sameValue(field: string, a: unknown, b: unknown): boolean {
+  if ((field === "start_at" || field === "end_at") && typeof a === "string" && typeof b === "string") return Date.parse(a) === Date.parse(b);
+  return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+}
+
+function significantFields(request: FakeChangeRequest): string[] {
+  return request.changes.map((c) => c.field).filter((field) => field in SIGNIFICANT_FIELDS);
+}
+
+function liveBookingsOf(event: EventRequest) {
+  return db.bookings.filter((b) => b.event.id === event.id && (b.status === "requested" || b.status === "approved"));
+}
+
+function reservedLinesOf(event: EventRequest) {
+  return db.equipmentLines.filter((line) => line.event.id === event.id && line.reservation !== null);
+}
+
+// The API's labels (backend/app/event/change_decision_service.py LABELS: US29a's, then US12's).
+const CHANGE_LABELS: Record<string, string> = {
+  name: "Event name",
+  event_category: "Category",
+  purpose: "Purpose",
+  preferred_dates: "Preferred dates",
+  preferred_start_time: "Preferred start time",
+  preferred_end_time: "Preferred end time",
+  start_at: "Start time",
+  end_at: "End time",
+  capacity: "Capacity",
+  expected_attendees: "Expected attendance",
+  delivery_mode: "Delivery mode",
+  room_layout_preference: "Room layout",
+  accessibility_needs: "Accessibility needs",
+  equipment_needs: "Equipment needs",
+  join_link: "Join link",
+};
+
+function changeView(request: FakeChangeRequest): ChangeRequestReview {
+  const event = db.requests.find((r) => r.id === request.event_id)!;
+  const current = event as unknown as Record<string, unknown>;
+  const pending = request.status === "pending_approval";
+  const significant = significantFields(request);
+  const kinds = new Set(significant.flatMap((field) => SIGNIFICANT_FIELDS[field]));
+  const impact = !pending
+    ? null
+    : significant.length === 0
+      ? { status_after: event.status, venue_bookings: 0, equipment_reservations: 0, registrations: 0, safety_review_required: false }
+      : !ARRANGED.includes(event.status)
+        ? { status_after: event.status, venue_bookings: null, equipment_reservations: null, registrations: null, safety_review_required: null }
+        : {
+            status_after: event.status === "confirmed" ? "planning" : event.status,
+            venue_bookings: kinds.has("venue_booking") ? liveBookingsOf(event).length : 0,
+            equipment_reservations: kinds.has("equipment_reservation") ? reservedLinesOf(event).length : 0,
+            registrations: 0,
+            safety_review_required: event.safety_approved_at !== null,
+          };
+  return {
+    id: request.id,
+    event_id: event.id,
+    event_name: event.name,
+    request_reference: event.request_reference,
+    event_status: event.status,
+    source: requesterOf(request, event) === event.created_by_user_id ? "organiser" : "coordinator",
+    requested_by: personFor(requesterOf(request, event)),
+    reason: request.reason,
+    status: request.status,
+    created_at: request.created_at,
+    changes: request.changes.map((c) => ({
+      ...c,
+      label: CHANGE_LABELS[c.field] ?? c.field,
+      current_value: current[c.field] ?? null,
+      stale: pending && !sameValue(c.field, c.old_value, current[c.field]),
+    })),
+    significant: significant.length > 0,
+    impact,
+    decided_at: request.decided_at ?? null,
+    decided_by: request.decided_by ?? null,
+    rejection_reason: request.rejection_reason ?? null,
+  };
+}
+
+/** The change request this coordinator decides (D102: their event, not their own request), or the refusal. */
+function decidableBy(request: Request, id: string): FakeChangeRequest | Response {
+  if (userRole(request) !== "coordinator") return error(403, "FORBIDDEN");
+  const userId = request.headers.get("X-User-Id");
+  const found = db.changeRequests.find((r) => r.id === id);
+  const event = found && db.requests.find((r) => r.id === found.event_id);
+  if (!found || !event || event.coordinator?.id !== userId) return error(404, "NOT_FOUND");
+  if (requesterOf(found, event) === userId) return error(403, "SELF_DECISION_NOT_ALLOWED");
+  return found;
+}
+
+function historyEntry(request: FakeChangeRequest, action: string, field: string, previous: unknown, next: unknown): AuditEntry {
+  return {
+    id: newId("history"),
+    field,
+    previous_value: previous,
+    new_value: next,
+    user: { id: COORDINATOR_PERSON.id, name: COORDINATOR_PERSON.name },
+    created_at: DECIDED_AT,
+    change_request_id: request.id,
+    change_request_status: request.status,
+    action,
+  };
+}
+
+function raiseFlags(event: EventRequest, request: FakeChangeRequest, significant: string[]): ReviewFlag[] {
+  const fieldsFor = (kind: FlagKind) => significant.filter((field) => SIGNIFICANT_FIELDS[field].includes(kind));
+  const targets: [FlagKind, { id: string; label: string; status: string }][] = [];
+  if (fieldsFor("venue_booking").length > 0) {
+    for (const b of liveBookingsOf(event)) targets.push(["venue_booking", { id: b.id, label: `${b.reference} · ${b.venue.name}`, status: b.status }]);
+  }
+  if (fieldsFor("equipment_reservation").length > 0) {
+    for (const line of reservedLinesOf(event)) {
+      targets.push(["equipment_reservation", { id: line.id, label: `${line.equipment_type.name} × ${line.quantity}`, status: "reserved" }]);
+    }
+  }
+  return targets.map(([kind, target]) => {
+    const open = db.reviewFlags.find((f) => f.cleared_at === null && f.kind === kind && f.target?.id === target.id);
+    if (open) {
+      open.fields = [...open.fields, ...fieldsFor(kind).filter((field) => !open.fields.includes(field))];
+      return open;
+    }
+    const flag: ReviewFlag = {
+      id: newId("review-flag"),
+      event_id: event.id,
+      kind,
+      target,
+      fields: fieldsFor(kind),
+      change_request_id: request.id,
+      raised_at: DECIDED_AT,
+      cleared_at: null,
+      cleared_by: null,
+      cleared_note: null,
+      resolved: false,
+      open: true,
+    };
+    db.reviewFlags.push(flag);
+    return flag;
+  });
+}
+
+function flagsOf(eventId: string): ReviewFlag[] {
+  // Open first, then newest (app/event/review_flag_service.py).
+  return db.reviewFlags
+    .filter((f) => f.event_id === eventId)
+    .sort((a, b) => Number(b.open) - Number(a.open) || b.raised_at.localeCompare(a.raised_at));
+}
+
 function readinessOf(event: EventRequest) {
-  const items: { kind: "venue" | "equipment" | "technical_support" | "safety"; name: string; complete: boolean; detail: string }[] = [];
+  const items: { kind: "venue" | "equipment" | "technical_support" | "safety" | "review_flags"; name: string; complete: boolean; detail: string }[] = [];
   const live = db.bookings.filter((b) => b.event.id === event.id && (b.status === "requested" || b.status === "approved"));
   for (const booking of live) {
     const approved = booking.status === "approved";
@@ -864,6 +1102,17 @@ function readinessOf(event: EventRequest) {
               .join(", ")}: ${reviewsOf(event)[0].comments} Make the changes, then mark them done.`
           : "Waiting for the Safety Officer's approval.",
   });
+  // US29b (SCRUM-143, D104): once flagged, every flag must be reviewed before confirming.
+  const flags = flagsOf(event.id);
+  if (flags.length > 0) {
+    const open = flags.filter((f) => f.open).length;
+    items.push({
+      kind: "review_flags",
+      name: "Review after change",
+      complete: open === 0,
+      detail: open === 0 ? "Every flagged arrangement is reviewed." : `${open} arrangement${open === 1 ? "" : "s"} to review after an approved change.`,
+    });
+  }
   return { ready: items.every((i) => i.complete), items };
 }
 
@@ -1717,7 +1966,7 @@ const handlers = [
     const { changes = {}, reason } = (body ?? {}) as { changes?: Record<string, unknown>; reason?: string };
     if (!reason?.trim()) return error(422, "MISSING_REQUIRED_FIELD", { fields: ["reason"] });
     const current = event as unknown as Record<string, unknown>;
-    const created: OrganiserChangeRequest = {
+    const created: FakeChangeRequest = {
       id: newId("change-request"),
       event_id: event.id,
       event_name: event.name,
@@ -1726,6 +1975,10 @@ const handlers = [
       reason: reason.trim(),
       changes: Object.entries(changes).map(([field, new_value]) => ({ field, old_value: current[field] ?? null, new_value })),
       created_at: new Date(Date.UTC(2026, 9, 1, 1, db.nextId)).toISOString(),
+      requested_by_user_id: event.created_by_user_id ?? ORGANISER_ID,
+      decided_at: null,
+      decided_by: null,
+      rejection_reason: null,
     };
     db.changeRequests.unshift(created);
     return HttpResponse.json(created as unknown as JsonBodyType, { status: 201 });
@@ -1772,6 +2025,127 @@ const handlers = [
     if (params.verb === "approve") event.status = "cancelled";
     record.event_status = event.status;
     return HttpResponse.json(record as unknown as JsonBodyType);
+  }),
+
+  // US29b (SCRUM-143): the coordinator's change requests and their decisions, and the review flags (rules above).
+  // acting_as (Calvin's #127 review): only what the user decides in that role; omitted, both.
+  route("get", "/api/v1/change-requests", ({ request }) => {
+    const userId = request.headers.get("X-User-Id") ?? "";
+    const roles = new Set<string>([userRole(request) ?? "", ...(db.extraRoles[userId] ?? [])]);
+    if (!roles.has("coordinator") && !roles.has("coordinator_lead")) return error(403, "FORBIDDEN");
+    const url = new URL(request.url);
+    const status = url.searchParams.get("status") ?? "pending_approval";
+    const eventId = url.searchParams.get("event_id");
+    const actingAs = url.searchParams.get("acting_as");
+    const mine = db.changeRequests
+      .filter((r) => {
+        const event = db.requests.find((e) => e.id === r.event_id);
+        if (event === undefined) return false;
+        const requester = requesterOf(r, event);
+        const asCoordinator = roles.has("coordinator") && event.coordinator?.id === userId && requester !== userId;
+        const asLead =
+          roles.has("coordinator_lead") && requester !== event.created_by_user_id && requester === event.coordinator?.id && requester !== userId;
+        return (actingAs !== "coordinator_lead" && asCoordinator) || (actingAs !== "coordinator" && asLead);
+      })
+      .filter((r) => !eventId || r.event_id === eventId)
+      .filter((r) => status === "all" || (status === "decided" ? r.status !== "pending_approval" : r.status === "pending_approval"))
+      .sort((a, b) => a.created_at.localeCompare(b.created_at));
+    return HttpResponse.json({ change_requests: mine.map(changeView) } as unknown as JsonBodyType);
+  }),
+
+  route("get", "/api/v1/change-requests/:id", ({ request, params }) => {
+    const found = decidableBy(request, params.id);
+    return found instanceof Response ? found : HttpResponse.json(changeView(found) as unknown as JsonBodyType);
+  }),
+
+  route("post", "/api/v1/change-requests/:id/approve", ({ request, params }) => {
+    const found = decidableBy(request, params.id);
+    if (found instanceof Response) return found;
+    if (found.status !== "pending_approval") return error(409, "CHANGE_REQUEST_NOT_PENDING", { status: found.status });
+    const event = db.requests.find((r) => r.id === found.event_id)!;
+    if (NOT_APPROVABLE.includes(event.status)) return error(409, "CHANGE_NOT_ALLOWED", { status: event.status });
+    const current = event as unknown as Record<string, unknown>;
+    const stale = found.changes.filter((c) => !sameValue(c.field, c.old_value, current[c.field]));
+    if (stale.length > 0) {
+      return error(409, "CHANGE_REQUEST_STALE", {
+        fields: stale.map((c) => ({ field: c.field, reason: "changed", requested_from: c.old_value, current: current[c.field], proposed: c.new_value })) as JsonBodyType,
+        message: "The event has changed since this request was made.",
+      });
+    }
+    found.status = "approved";
+    found.decided_at = DECIDED_AT;
+    found.decided_by = { id: COORDINATOR_PERSON.id, name: COORDINATOR_PERSON.name };
+    const entries = found.changes.map((c) => historyEntry(found, "applied", c.field, current[c.field] ?? null, c.new_value));
+    for (const c of found.changes) current[c.field] = c.new_value;
+    entries.push(historyEntry(found, "decided", "change_request", "pending_approval", { decision: "approved" }));
+    let statusChange: { from: string; to: string } | null = null;
+    let safetyCleared = false;
+    let flags: ReviewFlag[] = [];
+    const significant = significantFields(found);
+    if (significant.length > 0 && ARRANGED.includes(event.status)) {
+      flags = raiseFlags(event, found, significant);
+      if (event.status === "confirmed") {
+        entries.push(historyEntry(found, "status_changed", "status", "confirmed", "planning"));
+        entries.push(historyEntry(found, "confirmation_cleared", "confirmation", { confirmed_at: event.confirmed_at }, null));
+        Object.assign(event, { status: "planning", confirmed_at: null });
+        statusChange = { from: "confirmed", to: "planning" };
+      }
+      if (event.safety_approved_at) {
+        entries.push(historyEntry(found, "safety_approval_cleared", "safety_approval", { approved_at: event.safety_approved_at }, null));
+        event.safety_approved_at = null;
+        safetyCleared = true;
+      }
+    }
+    db.history[event.id] = [...entries.reverse(), ...(db.history[event.id] ?? [])];
+    return HttpResponse.json({
+      change_request: changeView(found),
+      event,
+      status_change: statusChange,
+      flags,
+      safety_review_required: safetyCleared,
+    } as unknown as JsonBodyType);
+  }),
+
+  route("post", "/api/v1/change-requests/:id/reject", ({ request, params, body }) => {
+    const found = decidableBy(request, params.id);
+    if (found instanceof Response) return found;
+    if (found.status !== "pending_approval") return error(409, "CHANGE_REQUEST_NOT_PENDING", { status: found.status });
+    const reason = ((body ?? {}) as { reason?: unknown }).reason;
+    const text = typeof reason === "string" ? reason.trim() : "";
+    if (!text) return error(422, "MISSING_REQUIRED_FIELD", { fields: ["reason"] });
+    if (text.length > 1000) return error(422, "INVALID_CHANGE_DECISION", { fields: ["reason"], errors: { reason: "Too long." } });
+    const event = db.requests.find((r) => r.id === found.event_id)!;
+    Object.assign(found, { status: "rejected", decided_at: DECIDED_AT, rejection_reason: text });
+    found.decided_by = { id: COORDINATOR_PERSON.id, name: COORDINATOR_PERSON.name };
+    db.history[event.id] = [
+      historyEntry(found, "decided", "change_request", "pending_approval", { decision: "rejected", reason: text }),
+      ...(db.history[event.id] ?? []),
+    ];
+    return HttpResponse.json({
+      change_request: changeView(found),
+      event,
+      status_change: null,
+      flags: [],
+      safety_review_required: false,
+    } as unknown as JsonBodyType);
+  }),
+
+  route("get", "/api/v1/events/:eventId/review-flags", ({ request, params }) => {
+    if (userRole(request) !== "coordinator") return error(403, "FORBIDDEN");
+    const event = db.requests.find((r) => r.id === params.eventId);
+    if (!event || event.coordinator?.id !== request.headers.get("X-User-Id")) return error(404, "NOT_FOUND");
+    return HttpResponse.json({ flags: flagsOf(event.id) } as unknown as JsonBodyType);
+  }),
+
+  route("post", "/api/v1/review-flags/:id/clear", ({ request, params, body }) => {
+    if (userRole(request) !== "coordinator") return error(403, "FORBIDDEN");
+    const flag = db.reviewFlags.find((f) => f.id === params.id);
+    const event = flag && db.requests.find((r) => r.id === flag.event_id);
+    if (!flag || !event || event.coordinator?.id !== request.headers.get("X-User-Id")) return error(404, "NOT_FOUND");
+    if (flag.cleared_at) return error(409, "FLAG_ALREADY_CLEARED");
+    const note = ((body ?? {}) as { note?: string | null }).note?.trim() || null;
+    Object.assign(flag, { cleared_at: DECIDED_AT, cleared_by: { id: COORDINATOR_PERSON.id, name: COORDINATOR_PERSON.name }, cleared_note: note, open: false });
+    return HttpResponse.json(flag as unknown as JsonBodyType);
   }),
 
   route("get", "/api/v1/me/change-requests", ({ request }) => {
@@ -2191,6 +2565,9 @@ const handlers = [
     }
     if (!arrangementsReady(found)) {
       return error(409, "SAFETY_REVIEW_NOT_ALLOWED", { reason: "arrangements_incomplete", status: found.status });
+    }
+    if (flagsOf(found.id).some((f) => f.open)) {
+      return error(409, "SAFETY_REVIEW_NOT_ALLOWED", { reason: "review_flags_open", status: found.status });
     }
     const sent = (body ?? {}) as {
       outcome?: "approved" | "rejected" | "changes_requested";

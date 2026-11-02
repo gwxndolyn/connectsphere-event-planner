@@ -240,6 +240,9 @@ export function EventChangeRequests({ event }: { event: EventRequest }) {
                 <span>Requested {formatInstantDateTime(request.created_at)}</span>
                 <ChangesTable changes={request.changes} label="Requested changes" />
                 {request.reason && <span>Reason: {request.reason}</span>}
+                {/* US29b (SCRUM-143) AC 4: when it was decided, and why a rejection. */}
+                {request.decided_at && <span>Decided {formatInstantDateTime(request.decided_at)}</span>}
+                {request.rejection_reason && <span>Why it was rejected: {request.rejection_reason}</span>}
               </div>
               <span className={`venue-booking-status venue-booking-status--${request.status === "pending_approval" ? "requested" : request.status}`}>
                 {changeStatusLabel(request.status)}
