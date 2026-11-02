@@ -204,6 +204,29 @@ async def test_tc_us29b_08_a_lead_lists_only_coordinators_own_edits_and_a_coordi
     assert [r["id"] for r in as_coordinator.json()["change_requests"]] == [str(asked.id)]
 
 
+# --- TC-US29B-34 acting_as scopes the list for a user holding both roles (Calvin's #127 review) ---
+
+
+async def test_tc_us29b_34_acting_as_scopes_the_list_to_the_role_and_omitted_gives_the_union(
+    client: AsyncClient, db: Session, organiser: User, coordinator: User
+) -> None:
+    both = make_user(db, UserRole.COORDINATOR, UserRole.COORDINATOR_LEAD)
+    mine = confirmed_event(db, organiser, both)
+    asked = pending(db, mine, organiser, [change(mine, "name", "Renamed")])
+    theirs = confirmed_event(db, organiser, coordinator)
+    edit = pending(db, theirs, coordinator, [change(theirs, "capacity", 60)], reason=None)
+
+    async def listed(**params: str) -> list[str]:
+        response = await client.get(URL, headers=auth(both), params=params)
+        assert response.status_code == 200, response.text
+        return [r["id"] for r in response.json()["change_requests"]]
+
+    assert await listed(acting_as="coordinator") == [str(asked.id)]
+    assert await listed(acting_as="coordinator_lead") == [str(edit.id)]
+    assert sorted(await listed()) == sorted([str(asked.id), str(edit.id)])
+    assert (await client.get(URL, headers=auth(both), params={"acting_as": "organiser"})).status_code == 422
+
+
 # --- TC-US29B-09 wrong role 403, not theirs 404 ---
 
 

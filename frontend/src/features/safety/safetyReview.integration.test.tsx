@@ -240,6 +240,8 @@ describe("Organiser and Coordinator read the outcome (US30a AC 4, 7)", () => {
     expect(await screen.findByText("Sent for another safety review.")).toBeInTheDocument();
     expect(callsTo("POST", `/api/v1/event-requests/${request.id}/safety-review-request`)).toHaveLength(1);
     expect(screen.queryByRole("button", { name: "Send for another review" })).not.toBeInTheDocument();
+    // Calvin's #127 review: the outcome keeps what the resend answered; it isn't read again.
+    expect(callsTo("GET", `/api/v1/event-requests/${request.id}/safety-reviews`)).toHaveLength(1);
   });
 
   it("shows nothing on an event that is still at the request stage", async () => {

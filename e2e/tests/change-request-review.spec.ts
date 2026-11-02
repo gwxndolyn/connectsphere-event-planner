@@ -37,7 +37,7 @@ test("TC-US29B-33: the organiser asks, the coordinator approves, both see the ou
   const review = page.getByRole("region", { name: "Change requests for this event" });
   const ours = review.getByRole("article").filter({ hasText: REASON });
   const changes = ours.getByRole("table", { name: "Requested changes" });
-  await expect(changes.getByRole("row", { name: /Expected attendees/ })).toContainText("2030");
+  await expect(changes.getByRole("row", { name: /Expected attendance/ })).toContainText("2030");
   await expect(changes.getByRole("row", { name: /Equipment needs/ })).toContainText("Two projectors");
   const notice = ours.getByRole("note", { name: "What approving does" });
   await expect(notice).toContainText("moves this event back to Planning");

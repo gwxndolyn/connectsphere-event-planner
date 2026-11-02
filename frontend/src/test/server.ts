@@ -233,6 +233,8 @@ interface Db {
   changeRequests: FakeChangeRequest[];
   // US29b (SCRUM-143): the review flags an approved significant change raised.
   reviewFlags: ReviewFlag[];
+  // Roles a user holds besides ROLES' one (US16b), e.g. a coordinator who is also a Lead, like multi.role.
+  extraRoles: Record<string, string[]>;
   // US9 (SCRUM-12): cancellation requests and cancels, newest first.
   cancellations: Cancellation[];
   // US15 (SCRUM-140): every event's agenda sessions.
@@ -258,6 +260,7 @@ function emptyDb(): Db {
     history: {},
     changeRequests: [],
     reviewFlags: [],
+    extraRoles: {},
     cancellations: [],
     sessions: [],
     bookings: [],
@@ -890,6 +893,25 @@ function reservedLinesOf(event: EventRequest) {
   return db.equipmentLines.filter((line) => line.event.id === event.id && line.reservation !== null);
 }
 
+// The API's labels (backend/app/event/change_decision_service.py LABELS: US29a's, then US12's).
+const CHANGE_LABELS: Record<string, string> = {
+  name: "Event name",
+  event_category: "Category",
+  purpose: "Purpose",
+  preferred_dates: "Preferred dates",
+  preferred_start_time: "Preferred start time",
+  preferred_end_time: "Preferred end time",
+  start_at: "Start time",
+  end_at: "End time",
+  capacity: "Capacity",
+  expected_attendees: "Expected attendance",
+  delivery_mode: "Delivery mode",
+  room_layout_preference: "Room layout",
+  accessibility_needs: "Accessibility needs",
+  equipment_needs: "Equipment needs",
+  join_link: "Join link",
+};
+
 function changeView(request: FakeChangeRequest): ChangeRequestReview {
   const event = db.requests.find((r) => r.id === request.event_id)!;
   const current = event as unknown as Record<string, unknown>;
@@ -922,7 +944,7 @@ function changeView(request: FakeChangeRequest): ChangeRequestReview {
     created_at: request.created_at,
     changes: request.changes.map((c) => ({
       ...c,
-      label: c.field,
+      label: CHANGE_LABELS[c.field] ?? c.field,
       current_value: current[c.field] ?? null,
       stale: pending && !sameValue(c.field, c.old_value, current[c.field]),
     })),
@@ -2006,16 +2028,24 @@ const handlers = [
   }),
 
   // US29b (SCRUM-143): the coordinator's change requests and their decisions, and the review flags (rules above).
+  // acting_as (Calvin's #127 review): only what the user decides in that role; omitted, both.
   route("get", "/api/v1/change-requests", ({ request }) => {
-    if (userRole(request) !== "coordinator") return error(403, "FORBIDDEN");
-    const userId = request.headers.get("X-User-Id");
+    const userId = request.headers.get("X-User-Id") ?? "";
+    const roles = new Set<string>([userRole(request) ?? "", ...(db.extraRoles[userId] ?? [])]);
+    if (!roles.has("coordinator") && !roles.has("coordinator_lead")) return error(403, "FORBIDDEN");
     const url = new URL(request.url);
     const status = url.searchParams.get("status") ?? "pending_approval";
     const eventId = url.searchParams.get("event_id");
+    const actingAs = url.searchParams.get("acting_as");
     const mine = db.changeRequests
       .filter((r) => {
         const event = db.requests.find((e) => e.id === r.event_id);
-        return event !== undefined && event.coordinator?.id === userId && requesterOf(r, event) !== userId;
+        if (event === undefined) return false;
+        const requester = requesterOf(r, event);
+        const asCoordinator = roles.has("coordinator") && event.coordinator?.id === userId && requester !== userId;
+        const asLead =
+          roles.has("coordinator_lead") && requester !== event.created_by_user_id && requester === event.coordinator?.id && requester !== userId;
+        return (actingAs !== "coordinator_lead" && asCoordinator) || (actingAs !== "coordinator" && asLead);
       })
       .filter((r) => !eventId || r.event_id === eventId)
       .filter((r) => status === "all" || (status === "decided" ? r.status !== "pending_approval" : r.status === "pending_approval"))
