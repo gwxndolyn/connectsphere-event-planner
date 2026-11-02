@@ -69,6 +69,14 @@ def test_tc_us25_01_statuses_and_columns_are_installed(db: Session) -> None:
     assert set(BLOCKING_STATUSES) - set(LIVE_BOOKING_STATUSES) == {VenueBookingStatus.HELD}
 
 
+def test_tc_us25_01_due_holds_are_found_by_an_index(db: Session) -> None:
+    """The sweep runs on every booking read (D109), so its check for due holds uses a partial index (PR #123 review)."""
+    definition = db.scalar(
+        text("select indexdef from pg_indexes where tablename = 'venue_bookings' and indexname = 'ix_venue_bookings_hold_expires_at'")
+    )
+    assert definition is not None and "(hold_expires_at)" in definition and "WHERE (hold_expires_at IS NOT NULL)" in definition
+
+
 def test_tc_us25_01_migrations_have_one_head() -> None:
     assert_one_head_including(REVISION)
 

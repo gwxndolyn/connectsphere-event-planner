@@ -471,6 +471,10 @@ class VenueBookingService:
             raise DomainError(404, "NOT_FOUND")
         if event.status not in BOOKABLE_STATUSES:
             raise DomainError(409, "EVENT_NOT_BOOKABLE", status=event.status.value)
+        # US25: only the event's coordinator confirms or declines a hold (D20), so one on an unassigned event would block
+        # the venue with nobody to act on it until it lapsed. hold_events leaves such events out too (D112).
+        if holding and event.coordinator_id is None:
+            raise DomainError(409, "EVENT_NOT_BOOKABLE", status=event.status.value, reason="no_coordinator")
         schedule_errors = _schedule_errors(event, cleaned["starts_at"], cleaned["ends_at"])
         if schedule_errors:
             raise DomainError(422, "INVALID_BOOKING", fields=list(schedule_errors), errors=schedule_errors)

@@ -299,6 +299,10 @@ export function bookingErrorMessage(error: unknown): string {
       return `${reason[0].toUpperCase()}${reason.slice(1)}. Choose times that fit.`;
     }
     case "EVENT_NOT_BOOKABLE":
+      // US25: a hold on an event with no coordinator would have nobody to confirm or decline it.
+      if (error.body.reason === "no_coordinator") {
+        return "This event has no coordinator yet, so nobody could confirm or decline a hold. A Coordinator Lead assigns one first.";
+      }
       return `Venues can only be requested for approved events or events in planning${status ? `; this one is ${status}` : ""}.`;
     case "BOOKING_NOT_LIVE":
       // US24 (D69): withdraw refuses only a rejected or already withdrawn booking.

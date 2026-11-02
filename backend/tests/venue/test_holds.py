@@ -151,6 +151,21 @@ async def test_tc_us25_09_venue_staff_list_the_events_they_may_hold_a_venue_for(
     assert [row["id"] for row in response.json()["events"]] == [str(planning.id), str(event.id)]
 
 
+async def test_tc_us25_09_a_hold_on_an_unassigned_event_is_refused(
+    client: AsyncClient, db: Session, staff: User, venue: Venue
+) -> None:
+    """Nobody could confirm or decline it, so it would only block the venue until it lapsed (PR #128 review)."""
+    unassigned = make_event(db, name="Nobody's", status=EventStatus.APPROVED)
+
+    response = await place(client, staff, unassigned, venue)
+
+    assert (response.status_code, response.json()) == (
+        409,
+        {"code": "EVENT_NOT_BOOKABLE", "status": "approved", "reason": "no_coordinator"},
+    )
+    assert db.query(VenueBooking).count() == 0
+
+
 # --- AC 2, 6: it blocks the window, but isn't a booking ---
 
 

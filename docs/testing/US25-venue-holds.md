@@ -36,7 +36,7 @@
 
 | ID | AC | Given | When | Then |
 | --- | --- | --- | --- | --- |
-| TC-US25-01 | 1 | Migrations applied | Inspect the schema | `venue_booking_status` gains `held` and `expired`; holds are blocking but not live; one migration head |
+| TC-US25-01 | 1 | Migrations applied | Inspect the schema | `venue_booking_status` gains `held` and `expired`; holds are blocking but not live; a partial index on `hold_expires_at` for the sweep; one migration head |
 | TC-US25-02 | 2, 3 | A hold; an expired hold | Store an overlapping request at the same venue | Refused (`venue_bookings_no_overlap`); allowed |
 | TC-US25-03 | 1, 3, 4 | | A hold without an expiry; an expiry without who placed it; a warning without a hold, or at the expiry; a hold requested by someone other than who placed it; expired without a time, a time while held, or before the expiry | Each refused (`venue_bookings_hold_consistent`, `venue_bookings_expired_consistent`) |
 | TC-US25-04 | 6 | | A primary hold; a hold with a decision | Refused (`venue_bookings_hold_not_primary`, `venue_bookings_decided_consistent`) |
@@ -44,7 +44,7 @@
 | TC-US25-06 | 2 | A hold; an expired hold at another venue | The availability check over each window | The hold is the conflict, by its reference; the expired one is no conflict. Fails without `BLOCKING_STATUSES` in the check |
 | TC-US25-07 | 1, 4 | An Approved event and a venue | Venue staff place a hold | `201`, held, not primary, `coordinator_to_confirm`, the expiry and who placed it; the coordinator told (`placed`) |
 | TC-US25-08 | 1 | | No expiry (alone, or with other missing fields); one in the past, over 14 days ahead, after the start, inside the venue's setup, or with no offset; too many attendees; a draft; a Confirmed event | `MISSING_REQUIRED_FIELD` naming every gap / `INVALID_HOLD` on `hold_expires_at`, nothing stored; `VENUE_CAPACITY_EXCEEDED`; `404`; `409 EVENT_NOT_BOOKABLE` |
-| TC-US25-09 | 1 | Approved and Planning events with a coordinator, an unassigned Approved one, an Under Review one | Venue staff list the events to hold for | The assigned Approved and Planning ones, by name (D112) |
+| TC-US25-09 | 1 | Approved and Planning events with a coordinator, an unassigned Approved one, an Under Review one | Venue staff list the events to hold for; place a hold on the unassigned one directly | The assigned Approved and Planning ones, by name (D112); `409 EVENT_NOT_BOOKABLE` (`no_coordinator`), nothing held, and the screen says a Lead assigns a coordinator first |
 | TC-US25-10 | 2, 6 | A hold | Another event requests the same window; a coordinator searches it; the event's venues are read | `409 VENUE_UNAVAILABLE` naming the conflict; the venue not in the results; not arranged, no primary, nothing allocated |
 | TC-US25-11 | 5 | A hold | Its coordinator confirms; another coordinator; confirm twice | Requested, the coordinator the requester, primary, the expiry and placer kept, Venue staff told; `404`; `409 HOLD_NOT_HELD` |
 | TC-US25-12 | 5 | A confirmed hold | Venue staff approve before its expiry; at its expiry | Approved; `409 BOOKING_NOT_PENDING` (`expired`), the coordinator told |

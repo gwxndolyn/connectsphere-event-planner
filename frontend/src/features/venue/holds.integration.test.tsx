@@ -4,7 +4,8 @@ import { describe, expect, it, onTestFinished, vi } from "vitest";
 import App from "../../App";
 import { setDevRole, type DevRole } from "../../api/client";
 import { callsTo, COORDINATOR_PERSON, seedBooking, seedRequest, seedVenue, startMockBackend } from "../../test/server";
-import { holdCountdown } from "./bookingApi";
+import { ApiError } from "../../api/client";
+import { bookingErrorMessage, holdCountdown } from "./bookingApi";
 
 // US25 (SCRUM-93): the real App, Venue staff's Venues screen and the coordinator's review screen against the fake
 // backend. The expiry's rules, the conflict check and expiry on read are the API's (backend/tests/venue/
@@ -155,6 +156,13 @@ describe("tentative venue holds (US25)", () => {
     const details = within(await screen.findByRole("dialog"));
     expect(details.getByText("Held until")).toBeInTheDocument();
     expect(details.getByText("Held")).toBeInTheDocument();
+  });
+
+  it("TC-US25-19: a hold on an event with no coordinator is explained (PR #128 review)", () => {
+    const refusal = new ApiError(409, "EVENT_NOT_BOOKABLE", [], { code: "EVENT_NOT_BOOKABLE", status: "approved", reason: "no_coordinator" });
+    expect(bookingErrorMessage(refusal)).toBe(
+      "This event has no coordinator yet, so nobody could confirm or decline a hold. A Coordinator Lead assigns one first.",
+    );
   });
 
   it("TC-US25-22: a countdown reads the time a hold has left (AC 4)", () => {
