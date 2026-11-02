@@ -7,12 +7,14 @@ import type {
   NextAction,
   PreparationStatus,
   BookingRejectWrite,
+  HoldEvent,
   TimeWindow,
   VenueBooking,
   VenueBookingCreated,
   VenueBookingStatus,
   VenueBookingsResponse,
   VenueBookingWrite,
+  VenueHoldWrite,
 } from "./bookingTypes";
 import { tagLabel } from "./tags";
 import type { Venue } from "./types";
@@ -48,6 +50,16 @@ export const bookingApi = {
 
   // US13 AC 4 (D36): Venue Staff only. What stands in the way of a booking now, with each overlap.
   evaluation: (id: string) => apiClient.get<BookingEvaluation>(`/api/v1/venue-bookings/${id}/evaluation`),
+
+  // US25 (SCRUM-93): Venue staff hold a venue (AC 1) for one of the events they may; the event's coordinator
+  // confirms it into a request (AC 5), or declines it with withdraw (AC 7, D104).
+  placeHold: (body: VenueHoldWrite) => apiClient.post<VenueBookingCreated>("/api/v1/venue-holds", body),
+
+  async holdEvents(): Promise<HoldEvent[]> {
+    return (await apiClient.get<{ events: HoldEvent[] }>("/api/v1/venue-holds/events")).events;
+  },
+
+  confirmHold: (id: string) => apiClient.post<VenueBooking>(`/api/v1/venue-bookings/${id}/confirm`, {}),
 };
 
 // Every event is in Singapore (D9), so the window is sent with its +08:00 offset; the API refuses a
@@ -74,6 +86,24 @@ export function toBookingBody(eventId: string, form: BookingFormValues): VenueBo
   if (form.roomLayout) body.room_layout = form.roomLayout;
   if (form.specialRequirements.trim()) body.special_requirements = form.specialRequirements.trim();
   if (form.purpose.trim()) body.purpose = form.purpose.trim();
+  return body;
+}
+
+/** US25 AC 4: how long a hold has left, in words, from this device's clock. */
+export function holdCountdown(expiresAt: string, now: number = Date.now()): string {
+  const minutes = Math.round((new Date(expiresAt).getTime() - now) / 60000);
+  if (minutes <= 0) return "expiring now";
+  if (minutes < 60) return `expires in ${minutes} min`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return `expires in ${hours} h`;
+  return `expires in ${Math.round(hours / 24)} days`;
+}
+
+/** US25 AC 1: the request's body plus the hold's expiry, in Singapore time (D9). */
+export function toHoldBody(eventId: string, form: BookingFormValues, expiryDate: string, expiryTime: string): VenueHoldWrite {
+  const body: VenueHoldWrite = toBookingBody(eventId, form);
+  const expires = singaporeInstant(expiryDate, expiryTime);
+  if (expires) body.hold_expires_at = expires;
   return body;
 }
 
@@ -137,6 +167,9 @@ const STATUS_LABELS: Record<VenueBookingStatus, string> = {
   approved: "Approved",
   rejected: "Rejected",
   withdrawn: "Withdrawn",
+  // US25 (SCRUM-93).
+  held: "Held",
+  expired: "Hold expired",
 };
 
 export function bookingStatusLabel(status: VenueBookingStatus): string {
@@ -159,6 +192,7 @@ export function preparationLabel(status: PreparationStatus): string {
 const NEXT_ACTION_LABELS: Record<NextAction, string> = {
   venue_staff_to_decide: "Waiting for Venue staff",
   coordinator_to_rebook: "Coordinator to rebook",
+  coordinator_to_confirm: "Coordinator to confirm the hold",
   none: "Nothing to do",
 };
 
@@ -269,6 +303,11 @@ export function bookingErrorMessage(error: unknown): string {
     case "BOOKING_NOT_LIVE":
       // US24 (D69): withdraw refuses only a rejected or already withdrawn booking.
       return `This booking can't be withdrawn${status ? `: it's ${status} now` : ""}.`;
+    // US25 (SCRUM-93).
+    case "INVALID_HOLD":
+      return "Review the hold's expiry, marked below.";
+    case "HOLD_NOT_HELD":
+      return `This hold can't be confirmed${status ? `: it's ${status} now` : ""}. Reload to see its status.`;
     case "NOT_FOUND":
       return "This event, venue or booking is no longer available. Reload and try again.";
     case "FORBIDDEN":
@@ -349,7 +388,8 @@ export function bookingFieldErrors(error: unknown): Record<string, string> {
   switch (error.code) {
     case "MISSING_REQUIRED_FIELD":
       return Object.fromEntries(error.fields.map((field) => [field, "Required."]));
-    case "INVALID_BOOKING": {
+    case "INVALID_BOOKING":
+    case "INVALID_HOLD": {
       const errors = error.body.errors;
       if (!errors || typeof errors !== "object") return {};
       return Object.fromEntries(

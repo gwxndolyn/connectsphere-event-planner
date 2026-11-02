@@ -1,5 +1,6 @@
 // Shapes from backend/app/venue/schemas.py (US22, SCRUM-89). Datetimes are ISO 8601 from the API.
-export type VenueBookingStatus = "requested" | "approved" | "rejected" | "withdrawn";
+// US25 (SCRUM-93): "held" until the coordinator confirms it, "expired" once it lapsed (D103).
+export type VenueBookingStatus = "requested" | "approved" | "rejected" | "withdrawn" | "held" | "expired";
 
 export interface BookingEvent {
   id: string;
@@ -46,13 +47,18 @@ export interface VenueBooking {
   purpose: string;
   is_primary: boolean;
   preparation_status: PreparationStatus;
+  // US25 (SCRUM-93): a hold's expiry (kept once it's confirmed, AC 5), who placed it, and when it lapsed.
+  hold_expires_at: string | null;
+  held_by_user_id: string | null;
+  expired_at: string | null;
 }
 
 // US24 AC 7 (D73): how far Venue staff are with getting an approved venue ready.
 export type PreparationStatus = "not_started" | "in_progress" | "ready";
 
 // US24 AC 4 (D71): who acts next on a booking.
-export type NextAction = "venue_staff_to_decide" | "coordinator_to_rebook" | "none";
+// US25: a hold waits for the coordinator to confirm or decline it.
+export type NextAction = "venue_staff_to_decide" | "coordinator_to_rebook" | "coordinator_to_confirm" | "none";
 
 /** Why a venue needs replacing: Venue staff rejected it, or the venue has been deactivated. */
 export interface BookingUnavailability {
@@ -160,4 +166,23 @@ export interface BookingFormValues {
   specialRequirements: string;
   // US24: what this venue is for, e.g. "Main hall" or "Breakout A".
   purpose: string;
+}
+
+/** US25 (SCRUM-93) AC 1: an event Venue staff may hold a venue for, as GET /venue-holds/events lists it. */
+export interface HoldEvent {
+  id: string;
+  name: string | null;
+  request_reference: string | null;
+  status: string;
+  start_at: string | null;
+  end_at: string | null;
+  preferred_dates: string[] | null;
+  preferred_start_time: string | null;
+  preferred_end_time: string | null;
+  expected_attendees: number | null;
+}
+
+/** POST /venue-holds: a booking request's fields plus the hold's expiry (+08:00). */
+export interface VenueHoldWrite extends VenueBookingWrite {
+  hold_expires_at?: string;
 }
