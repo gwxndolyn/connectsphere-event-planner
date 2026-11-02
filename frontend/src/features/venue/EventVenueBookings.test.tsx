@@ -49,6 +49,9 @@ function booking(overrides: Partial<VenueBooking> = {}): VenueBooking {
     purpose: "Main venue",
     is_primary: true,
     preparation_status: "not_started",
+    hold_expires_at: null,
+    held_by_user_id: null,
+    expired_at: null,
     ...overrides,
   };
 }

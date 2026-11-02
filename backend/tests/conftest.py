@@ -111,6 +111,8 @@ class FakeNotifier:
         self.cancellation_requests: list[dict[str, object]] = []
         self.cancellation_rejections: list[dict[str, object]] = []
         self.cancellations: list[dict[str, object]] = []
+        # US25 (SCRUM-93): each hold notice, with its stage (placed, expiring, expired).
+        self.holds: list[dict[str, object]] = []
         self.confirmations: list[dict[str, object]] = []
         self.safety_reviews: list[dict[str, object]] = []
         self.safety_changes: list[dict[str, object]] = []
@@ -345,6 +347,11 @@ class FakeNotifier:
         if self.fail:
             raise RuntimeError("mail server unavailable")
         self.cancellations.append(call)
+
+    def venue_held(self, **call: object) -> None:
+        if self.fail:
+            raise RuntimeError("mail server unavailable")
+        self.holds.append(call)
 
 
 @pytest.fixture
