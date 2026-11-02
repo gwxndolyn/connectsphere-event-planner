@@ -335,3 +335,30 @@ async def test_tc_us25_17_cancelling_the_event_releases_its_holds(
     row = db.get(VenueBooking, uuid.UUID(held["id"]))
     db.refresh(row)
     assert row.status == VenueBookingStatus.WITHDRAWN
+
+
+def test_tc_us25_24_the_seed_clears_the_hold_demo(db: Session) -> None:
+    """The hold E2E's event (TC-US25-24): a reseed deletes its holds and bookings, so a rerun starts clean."""
+    from app.seed import HOLD_EVENT, seed, seed_id
+
+    seed(db, now=NOW)
+    event = db.get(Event, seed_id("event", HOLD_EVENT.slug))
+    assert (event.name, event.status, event.coordinator_id) == (
+        "Venue Hold Demo",
+        EventStatus.APPROVED,
+        seed_id("user", "event-coordinator"),
+    )
+    staff = make_user(db, UserRole.VENUE_STAFF)
+    db.add(
+        VenueBooking(
+            event_id=event.id, venue_id=make_venue(db).id, requested_by_user_id=staff.id, starts_at=START, ends_at=END,
+            occupied_starts_at=START, occupied_ends_at=END, expected_attendees=10, room_layout="theatre",
+            purpose="Main venue", status=VenueBookingStatus.HELD, is_primary=False, held_by_user_id=staff.id,
+            hold_expires_at=EXPIRES,
+        )
+    )
+    db.flush()
+
+    seed(db, now=NOW)
+
+    assert db.query(VenueBooking).filter(VenueBooking.event_id == event.id).count() == 0
