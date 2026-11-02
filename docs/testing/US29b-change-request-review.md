@@ -18,8 +18,8 @@
 | PR | Work | Tests |
 | --- | --- | --- |
 | 1, SCRUM-141 | Decision columns on `event_change_requests`, `event_audit_entries.action`, `event_review_flags` (migration `20261115_1200_us29b_decisions`); seeded **Change Request Demo** | `backend/tests/event/test_change_request_decision_schema.py` (TC-US29B-01 to 07) |
-| 2, SCRUM-142 | List, approve and reject change requests; list and clear review flags; readiness and safety queue; notices | `backend/tests/event/test_change_request_decisions.py`, `backend/tests/event/test_review_flags.py` (TC-US29B-08 to 25) |
-| 3, SCRUM-143 | The coordinator's review panel, flags in the readiness list, the safety notice, the organiser's outcome | `frontend/src/features/changeRequest/changeRequestReview.integration.test.tsx` (TC-US29B-26 to 32); `e2e/tests/change-request-review.spec.ts` (TC-US29B-33) |
+| 2, SCRUM-142 | List, approve and reject change requests; list and clear review flags; readiness and safety queue; notices | `backend/tests/event/test_change_request_decisions.py`, `backend/tests/event/test_review_flags.py` (TC-US29B-08 to 25; TC-US29B-34, from Calvin's #127 review) |
+| 3, SCRUM-143 | The coordinator's review panel, flags in the readiness list, the safety notice, the organiser's outcome | `frontend/src/features/changeRequest/changeRequestReview.integration.test.tsx` (TC-US29B-26 to 32, 35, 36), `changeRequestApi.test.ts`; `e2e/tests/change-request-review.spec.ts` (TC-US29B-33) |
 
 ## Decisions for this story
 
@@ -69,6 +69,9 @@ All six are **the story owner's defaults, asked of the acting PO (Matthew) on 1 
 | TC-US29B-31 | 6 | An approved significant change on a safety-approved event | The review screen loads | "A new safety review is needed" and why; Safety check outstanding |
 | TC-US29B-32 | 4 | Decided requests | The Organiser opens Change requests | Approved or Rejected, the date and any reason |
 | TC-US29B-33 | 1–6 | A fresh seed | The Organiser requests a later start on Change Request Demo; the coordinator reviews and approves it | The coordinator sees Planning, the flags and the safety notice; the Organiser sees Approved and the new times |
+| TC-US29B-34 | 1 | A user holding Coordinator and Lead, with an Organiser request on their own event and another coordinator's own edit | They list with `acting_as=coordinator`, `coordinator_lead`, neither, and an unknown role | Only their event's request; only the edit; both; `422` (Calvin's #127 review) |
+| TC-US29B-35 | 1 | That user, acting as Coordinator, with the same two requests | They open Event requests | "Change requests to review (1)", without the Lead's; every list call sends `acting_as=coordinator` |
+| TC-US29B-36 | 1, 3 | A reassigned event with the previous coordinator's capacity and delivery-mode edit | The new coordinator reviews and approves it | Capacity 40 → 60, Delivery mode In person → Online; Review after change reads "Changed: Capacity, Delivery mode" |
 
 ## Run log
 
@@ -116,3 +119,9 @@ SCRUM-143 (PR 3), 1 Nov 2026, branch `feat(SCRUM-143)Change-Request-Review-Scree
 - E2E, freshly seeded, backend without `--reload`: 53 passed, 10 skipped (the login and sign-up cases without their secrets), 63 in all; reseeded afterwards.
 - Seed fix: a reseed now resets Change Request Demo's equipment needs, so TC-US29B-33 reruns. It also resets room layout and accessibility needs, the other organiser-requestable fields (D90) the seed left alone; TC-US29B-07 sets them, with attendance 30 and "Two projectors", before the reseed and failed first on them.
 - Merged origin/main (#123, #129, US25): deviation 69 renumbered 71; counts Backend 1678 passed, Vitest 493 passed (46 files), E2E 64 (54 passed, 10 skipped; freshly seeded, backend without `--reload`, reseeded afterwards).
+
+Calvin's #127 review, 2 Nov 2026, local Postgres 16:
+
+- Tests first, all 8 failing before the code changed (the scroll and rejection tests on their own query mistakes, fixed before the code): TC-US29B-34 (`acting_as`), 35 (acting as Coordinator hides a Lead-only request), 36 (Capacity and Delivery mode labels and values in the table and "Changed: Capacity, Delivery mode" in the flags), TC-US29B-28's History cells checked exactly ("Safety approval", "Status", "Change request"), a scroll test (once, to the request's article), a rejection that rereads neither the safety outcome nor readiness, US30a's resend reading the outcome once, and `changeRequestApi.test.ts` (registrations as "the event's registrations (45)"; FORBIDDEN).
+- TC-US29B-33's E2E now finds the attendance row as "Expected attendance", the API's label.
+- Backend `pytest`: 1679 passed. Frontend: lint clean, `tsc -b` clean, build passes, Vitest 499 passed (47 files). E2E, freshly seeded, backend without `--reload`: 54 passed, 10 skipped, 64 in all; reseeded afterwards.
