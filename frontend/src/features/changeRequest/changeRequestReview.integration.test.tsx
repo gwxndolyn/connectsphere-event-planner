@@ -1,11 +1,12 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../../App";
 import { setDevRole } from "../../api/client";
 import {
   COORDINATOR_ID,
+  LEAD_ID,
   callsTo,
   db,
   seedBooking,
@@ -214,15 +215,115 @@ describe("the coordinator reviews change requests (US29b)", () => {
 
     const rows = within(await screen.findByRole("table")).getAllByRole("row").slice(1);
     const cells = (index: number) => within(rows[index]).getAllByRole("cell").map((cell) => cell.textContent);
-    expect(cells(0)[2]).toContain("Safety approval cleared");
+    // Calvin's #127 review: the Field cell is the field's label, then the action's badge; never the raw key.
+    const field = (index: number) => {
+      const cell = within(rows[index]).getAllByRole("cell")[2];
+      return [cell.firstChild?.textContent, cell.querySelector(".venue-booking-status")?.textContent];
+    };
+    expect(field(0)).toEqual(["Safety approval", "Safety approval cleared"]);
+    expect(cells(0)[2]).toBe("Safety approvalSafety approval cleared");
     expect(cells(0)[4]).toBe("Cleared");
-    expect(cells(1)[2]).toContain("Confirmation cleared");
-    expect(cells(2)[2]).toContain("Moved to Planning");
+    expect(field(1)).toEqual(["Confirmation", "Confirmation cleared"]);
+    expect(field(2)).toEqual(["Status", "Moved to Planning"]);
     expect([cells(2)[3], cells(2)[4]]).toEqual(["Confirmed", "Planning"]);
-    expect(cells(3)[2]).toContain("Approved change");
+    expect(field(3)).toEqual(["Change request", "Approved change"]);
     expect(cells(3)[4]).toBe("Approved");
-    expect(cells(4)[2]).toContain("Applied");
+    expect(field(4)).toEqual(["Expected attendance", "Applied"]);
     expect([cells(4)[3], cells(4)[4]]).toEqual(["20", "30"]);
+  });
+
+  it("TC-US29B-36: a previous coordinator's edit reads in labels and words, in the table and the flags (Calvin's #127 review)", async () => {
+    const user = userEvent.setup();
+    const event = seedDemo({ capacity: 40, delivery_mode: "in_person" });
+    // Reassigned: the request is the previous coordinator's US12 edit, so Casey decides it.
+    seedChangeRequest(event, {
+      requested_by_user_id: "previous-coordinator-id",
+      changes: [
+        { field: "capacity", old_value: 40, new_value: 60 },
+        { field: "delivery_mode", old_value: "in_person", new_value: "online" },
+      ],
+    });
+    const panel = await reviewFromQueue(user);
+
+    const rows = within(within(panel).getByRole("table", { name: "Requested changes" })).getAllByRole("row").slice(1);
+    expect(rows.map((row) => within(row).getAllByRole("cell").map((cell) => cell.textContent))).toEqual([
+      ["Capacity", "40", "60"],
+      ["Delivery mode", "In person", "Online"],
+    ]);
+
+    await user.click(within(panel).getByRole("button", { name: "Approve" }));
+    await user.click(within(panel).getByRole("button", { name: "Approve change" }));
+    const flags = await screen.findByRole("region", { name: "Review after change" });
+    expect(within(flags).getAllByRole("listitem")[0]).toHaveTextContent("Changed: Capacity, Delivery mode");
+  });
+
+  it("TC-US29B-35: a user holding both roles, acting as Coordinator, doesn't see a Lead-only request (Calvin's #127 review)", async () => {
+    const user = userEvent.setup();
+    db.extraRoles[COORDINATOR_ID] = ["coordinator_lead"];
+    moveLater(seedDemo());
+    // Another coordinator's own edit on their event: a Lead's to decide, not this coordinator's.
+    const theirs = seedRequest({ name: "Lena's event", status: "planning", coordinator: { id: LEAD_ID, name: "Lena Lead" } });
+    seedChangeRequest(theirs, { requested_by_user_id: LEAD_ID, changes: [{ field: "capacity", old_value: 40, new_value: 60 }] });
+
+    const queue = await openQueue(user);
+
+    expect(within(queue).getByRole("heading", { name: "Change requests to review (1)" })).toBeInTheDocument();
+    expect(within(queue).queryByRole("listitem", { name: /Lena's event/ })).not.toBeInTheDocument();
+    expect(callsTo("GET", "/api/v1/change-requests").every((call) => call.url.searchParams.get("acting_as") === "coordinator")).toBe(true);
+  });
+
+  describe("scrolling to the request opened from the queue (Calvin's #127 review)", () => {
+    const scrolled: Element[] = [];
+    beforeEach(() => {
+      scrolled.length = 0;
+      Element.prototype.scrollIntoView = vi.fn(function (this: Element) {
+        scrolled.push(this);
+      });
+    });
+    afterEach(() => {
+      delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    });
+
+    it("TC-US29B-27: scrolls once, to that request's article", async () => {
+      const user = userEvent.setup();
+      const demo = seedDemo();
+      const first = seedChangeRequest(demo, { reason: "A clearer title.", changes: [{ field: "name", old_value: demo.name, new_value: "Demo" }] });
+      const opened = moveLater(demo, { created_at: "2026-10-01T09:00:00Z" });
+      await openQueue(user);
+      // Oldest first: the later request is the last row.
+      await user.click(screen.getAllByRole("button", { name: "Review" }).at(-1)!);
+      const panel = await screen.findByRole("region", { name: "Change requests for this event" });
+      await within(panel).findAllByRole("article");
+
+      await waitFor(() => expect(scrolled.map((element) => element.id)).toEqual([`change-request-${opened.id}`]));
+      const firstArticle = document.getElementById(`change-request-${first.id}`)!;
+      await user.click(within(firstArticle).getByRole("button", { name: "Reject" }));
+      await user.type(within(firstArticle).getByLabelText("Reason for rejecting"), "Keep the name.");
+      await user.click(within(firstArticle).getByRole("button", { name: "Reject change" }));
+      await within(panel).findByRole("status");
+      expect(scrolled).toHaveLength(1);
+    });
+  });
+
+  it("TC-US29B-29: a rejection doesn't read the safety outcome or readiness again (Calvin's #127 review)", async () => {
+    const user = userEvent.setup();
+    // Planning, so the readiness list shows beside the safety outcome.
+    const demo = seedDemo({ status: "planning", confirmed_at: null });
+    moveLater(demo);
+    const panel = await reviewFromQueue(user);
+    await screen.findByRole("region", { name: "Safety review" });
+    await screen.findByRole("list", { name: "Readiness" });
+    const safetyReads = callsTo("GET", `/api/v1/event-requests/${demo.id}/safety-reviews`).length;
+    const readinessReads = callsTo("GET", `/api/v1/event-requests/${demo.id}/readiness`).length;
+
+    await user.click(within(panel).getByRole("button", { name: "Reject" }));
+    await user.type(within(panel).getByLabelText("Reason for rejecting"), "The library is booked.");
+    await user.click(within(panel).getByRole("button", { name: "Reject change" }));
+    await within(panel).findByRole("status");
+
+    expect(safetyReads).toBeGreaterThan(0);
+    expect(callsTo("GET", `/api/v1/event-requests/${demo.id}/safety-reviews`)).toHaveLength(safetyReads);
+    expect(callsTo("GET", `/api/v1/event-requests/${demo.id}/readiness`)).toHaveLength(readinessReads);
   });
 
   it("TC-US29B-29: rejecting needs a reason, checked before anything is sent (AC 2)", async () => {

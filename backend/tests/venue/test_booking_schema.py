@@ -45,6 +45,11 @@ AGREED_COLUMNS = {
     "purpose",
     "is_primary",
     "preparation_status",
+    # US25 (SCRUM-93): a hold's expiry, who placed it, its 24-hour warning and when it lapsed.
+    "hold_expires_at",
+    "held_by_user_id",
+    "hold_warned_at",
+    "expired_at",
 }
 # Every refused overlap names this constraint (AC 3 and 7).
 NO_OVERLAP = "venue_bookings_no_overlap"
@@ -167,6 +172,9 @@ def test_tc_us22_01_booking_schema_is_installed(db: Session, engine) -> None:
         "venue_bookings_decider_not_requester",  # US16b D51
         "venue_bookings_purpose_valid",  # US24 D66
         "venue_bookings_preparation_status_known",  # US24 D73
+        "venue_bookings_hold_consistent",  # US25
+        "venue_bookings_expired_consistent",  # US25
+        "venue_bookings_hold_not_primary",  # US25
     }
     exclusions = db.scalars(
         text("select conname from pg_constraint where conrelid = 'venue_bookings'::regclass and contype = 'x'")

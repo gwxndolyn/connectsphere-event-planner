@@ -3,41 +3,49 @@ import { formatInstantDateTime } from "../registration/datetime";
 import type { EventRequest } from "../eventRequest/types";
 import {
   REJECTION_MAX_LENGTH,
-  changeLabel,
   changeReviewApi,
-  changeValue,
   decisionErrorMessage,
   impactParts,
+  reviewLabel,
+  reviewValue,
   statusWord,
+  type DecidingRole,
 } from "./changeRequestApi";
-import type { ChangeRequestReview as Review } from "./types";
+import type { ChangeDecision, ChangeRequestReview as Review } from "./types";
 import "./changeRequests.css";
 
 interface ChangeRequestReviewProps {
   event: EventRequest;
+  actingAs: DecidingRole;
   // The request the coordinator came to review from the queue: shown in view.
   focusId?: string | null;
-  // The event as the decision left it, so the screen's status, readiness and safety outcome follow.
-  onDecided: (event: EventRequest) => void;
+  // The decision: the event as it left it, and what else it changed, so the screen's status, readiness and safety
+  // outcome follow.
+  onDecided: (decision: ChangeDecision) => void;
 }
 
 /**
  * US29b AC 1, 2 (SCRUM-143): the pending change requests on the event, for its assigned coordinator to approve or
- * reject. A significant one says what approving does (D103 to D106). Deviation 69: on the review screen between the
+ * reject. A significant one says what approving does (D103 to D106). Deviation 71: on the review screen between the
  * venue bookings and the safety review, next to the arrangements it affects; Approve takes a second click, and Reject
  * needs a reason first.
  */
-export function ChangeRequestReview({ event, focusId, onDecided }: ChangeRequestReviewProps) {
+function requestElementId(id: string): string {
+  return `change-request-${id}`;
+}
+
+export function ChangeRequestReview({ event, actingAs, focusId, onDecided }: ChangeRequestReviewProps) {
   const [requests, setRequests] = useState<Review[] | null>(null);
   const [loads, setLoads] = useState(0);
   const [outcome, setOutcome] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const panel = useRef<HTMLElement>(null);
+  // Scrolled to the focused request already: a reload after a decision doesn't move the page again.
+  const scrolled = useRef(false);
 
   useEffect(() => {
     let current = true;
     changeReviewApi
-      .pending(event.id)
+      .pending(event.id, actingAs)
       .then((found) => {
         if (current) setRequests(found);
       })
@@ -47,10 +55,14 @@ export function ChangeRequestReview({ event, focusId, onDecided }: ChangeRequest
     return () => {
       current = false;
     };
-  }, [event.id, loads]);
+  }, [event.id, actingAs, loads]);
 
   useEffect(() => {
-    if (focusId && requests) panel.current?.scrollIntoView?.({ block: "start" });
+    if (!focusId || !requests || scrolled.current) return;
+    const article = document.getElementById(requestElementId(focusId));
+    if (!article) return;
+    scrolled.current = true;
+    article.scrollIntoView?.({ block: "start" });
   }, [focusId, requests]);
 
   function reload() {
@@ -59,7 +71,7 @@ export function ChangeRequestReview({ event, focusId, onDecided }: ChangeRequest
 
   if (requests !== null && requests.length === 0 && !outcome && !error) return null;
   return (
-    <section className="change-decide" aria-label="Change requests for this event" ref={panel}>
+    <section className="change-decide" aria-label="Change requests for this event">
       <h2>Change requests</h2>
       {outcome && <p className="request-notice" role="status">{outcome}</p>}
       {error && <div className="request-alert" role="alert">{error}</div>}
@@ -92,7 +104,7 @@ export function ChangeRequestReview({ event, focusId, onDecided }: ChangeRequest
 interface RequestToDecideProps {
   request: Review;
   eventStatus: string;
-  onDecided: (message: string, event: EventRequest) => void;
+  onDecided: (message: string, decision: ChangeDecision) => void;
   onRefused: (message: string) => void;
 }
 
@@ -107,7 +119,7 @@ function RequestToDecide({ request, eventStatus, onDecided, onRefused }: Request
     setBusy(true);
     try {
       const decided = await changeReviewApi.approve(request.id);
-      onDecided(`Approved. The event is now ${statusWord(decided.event.status)}.`, decided.event);
+      onDecided(`Approved. The event is now ${statusWord(decided.event.status)}.`, decided);
     } catch (refusal) {
       onRefused(decisionErrorMessage(refusal));
     } finally {
@@ -123,7 +135,7 @@ function RequestToDecide({ request, eventStatus, onDecided, onRefused }: Request
     setBusy(true);
     try {
       const decided = await changeReviewApi.reject(request.id, text);
-      onDecided("Rejected. The event keeps its current details.", decided.event);
+      onDecided("Rejected. The event keeps its current details.", decided);
     } catch (refusal) {
       onRefused(decisionErrorMessage(refusal));
     } finally {
@@ -132,7 +144,7 @@ function RequestToDecide({ request, eventStatus, onDecided, onRefused }: Request
   }
 
   return (
-    <article className="change-decide__request" aria-label={`Change request from ${request.requested_by.name}`}>
+    <article className="change-decide__request" id={requestElementId(request.id)} aria-label={`Change request from ${request.requested_by.name}`}>
       <p className="change-decide__who">
         <strong>{request.requested_by.name}</strong> asked {formatInstantDateTime(request.created_at)}
         {request.source === "coordinator" && " (a critical edit)"}
@@ -149,12 +161,12 @@ function RequestToDecide({ request, eventStatus, onDecided, onRefused }: Request
         <tbody>
           {request.changes.map((change) => (
             <tr key={change.field}>
-              <td>{changeLabel(change.field)}</td>
+              <td>{change.label || reviewLabel(change.field)}</td>
               <td>
-                {changeValue(change.field, change.current_value)}
+                {reviewValue(change.field, change.current_value)}
                 {change.stale && <span className="change-badge change-badge--stale">Changed since requested</span>}
               </td>
-              <td>{changeValue(change.field, change.new_value)}</td>
+              <td>{reviewValue(change.field, change.new_value)}</td>
             </tr>
           ))}
         </tbody>

@@ -58,7 +58,7 @@ async function reviewEdit(user: User) {
 }
 
 describe("the Lead decides a coordinator's own edit (US29b, SCRUM-144)", () => {
-  it("TC-US29B-34: lists Casey's held capacity edit, opens it, approves it, and the event takes the value (D102)", async () => {
+  it("TC-US29B-37: lists Casey's held capacity edit, opens it, approves it, and the event takes the value (D102)", async () => {
     const user = userEvent.setup();
     const { event, edit } = seedHeldEdit();
     await openLeadQueue(user);
@@ -94,7 +94,7 @@ describe("the Lead decides a coordinator's own edit (US29b, SCRUM-144)", () => {
     expect(screen.queryByRole("region", { name: /Coordinator edits to approve/ })).not.toBeInTheDocument();
   });
 
-  it("TC-US29B-34: the coordinator then sees the flag the Lead's approval raised", async () => {
+  it("TC-US29B-37: the coordinator then sees the flag the Lead's approval raised", async () => {
     const user = userEvent.setup();
     seedHeldEdit();
     const panel = await reviewEdit(user);
@@ -116,7 +116,7 @@ describe("the Lead decides a coordinator's own edit (US29b, SCRUM-144)", () => {
     expect(within(item).getByRole("button", { name: "Mark reviewed" })).toBeInTheDocument();
   });
 
-  it("TC-US29B-35: rejecting needs a reason first, then the edit leaves the list (D102)", async () => {
+  it("TC-US29B-38: rejecting needs a reason first, then the edit leaves the list (D102)", async () => {
     const user = userEvent.setup();
     const { event, edit } = seedHeldEdit();
     const panel = await reviewEdit(user);
@@ -139,7 +139,7 @@ describe("the Lead decides a coordinator's own edit (US29b, SCRUM-144)", () => {
     expect(screen.queryByRole("region", { name: /Coordinator edits to approve/ })).not.toBeInTheDocument();
   });
 
-  it("TC-US29B-35: the Lead doesn't see an organiser's request, and the section hides when none waits", async () => {
+  it("TC-US29B-38: the Lead doesn't see an organiser's request, and the section hides when none waits", async () => {
     const user = userEvent.setup();
     const event = seedRequest({ name: "Data Science Workshop", status: "planning", coordinator: CASEY });
     seedChangeRequest(event, { reason: "A clearer title.", changes: [{ field: "name", old_value: event.name, new_value: "Data Science Day" }] });
@@ -147,6 +147,8 @@ describe("the Lead decides a coordinator's own edit (US29b, SCRUM-144)", () => {
 
     expect(await screen.findByRole("tab", { name: /Unassigned/ })).toBeInTheDocument();
     expect(callsTo("GET", /^\/api\/v1\/change-requests/).length).toBeGreaterThan(0);
+    // The Lead's list is asked for as the Lead (acting_as, #127).
+    expect(callsTo("GET", /^\/api\/v1\/change-requests/).every((call) => call.url.searchParams.get("acting_as") === "coordinator_lead")).toBe(true);
     expect(screen.queryByRole("region", { name: /Coordinator edits to approve/ })).not.toBeInTheDocument();
     expect(screen.queryByText("A clearer title.")).not.toBeInTheDocument();
   });

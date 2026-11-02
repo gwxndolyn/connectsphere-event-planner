@@ -274,6 +274,7 @@ export function AssignmentQueuePage() {
 
       {screen === "queue" && (
         <CoordinatorChangeRequests
+          actingAs="coordinator_lead"
           heading="Coordinator edits to approve"
           source="coordinator"
           reloadKey={changesVersion}
@@ -422,9 +423,10 @@ export function AssignmentQueuePage() {
           />
           <ChangeRequestReview
             event={active}
+            actingAs="coordinator_lead"
             focusId={changeId}
-            onDecided={(decided) => {
-              setActive(decided as UnassignedRequest);
+            onDecided={(decision) => {
+              setActive(decision.event as UnassignedRequest);
               setChangesVersion((count) => count + 1);
               setAssignedVersion((count) => count + 1);
             }}

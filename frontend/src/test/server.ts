@@ -233,6 +233,8 @@ interface Db {
   changeRequests: FakeChangeRequest[];
   // US29b (SCRUM-143): the review flags an approved significant change raised.
   reviewFlags: ReviewFlag[];
+  // Roles a user holds besides ROLES' one (US16b), e.g. a coordinator who is also a Lead, like multi.role.
+  extraRoles: Record<string, string[]>;
   // US9 (SCRUM-12): cancellation requests and cancels, newest first.
   cancellations: Cancellation[];
   // US15 (SCRUM-140): every event's agenda sessions.
@@ -258,6 +260,7 @@ function emptyDb(): Db {
     history: {},
     changeRequests: [],
     reviewFlags: [],
+    extraRoles: {},
     cancellations: [],
     sessions: [],
     bookings: [],
@@ -444,6 +447,9 @@ export function seedBooking(request: EventRequest, venue: Venue, overrides: Part
     purpose: "Main venue",
     is_primary: true,
     preparation_status: "not_started",
+    hold_expires_at: null,
+    held_by_user_id: null,
+    expired_at: null,
     ...overrides,
   };
   db.bookings.push(booking);
@@ -887,6 +893,25 @@ function reservedLinesOf(event: EventRequest) {
   return db.equipmentLines.filter((line) => line.event.id === event.id && line.reservation !== null);
 }
 
+// The API's labels (backend/app/event/change_decision_service.py LABELS: US29a's, then US12's).
+const CHANGE_LABELS: Record<string, string> = {
+  name: "Event name",
+  event_category: "Category",
+  purpose: "Purpose",
+  preferred_dates: "Preferred dates",
+  preferred_start_time: "Preferred start time",
+  preferred_end_time: "Preferred end time",
+  start_at: "Start time",
+  end_at: "End time",
+  capacity: "Capacity",
+  expected_attendees: "Expected attendance",
+  delivery_mode: "Delivery mode",
+  room_layout_preference: "Room layout",
+  accessibility_needs: "Accessibility needs",
+  equipment_needs: "Equipment needs",
+  join_link: "Join link",
+};
+
 function changeView(request: FakeChangeRequest): ChangeRequestReview {
   const event = db.requests.find((r) => r.id === request.event_id)!;
   const current = event as unknown as Record<string, unknown>;
@@ -919,7 +944,7 @@ function changeView(request: FakeChangeRequest): ChangeRequestReview {
     created_at: request.created_at,
     changes: request.changes.map((c) => ({
       ...c,
-      label: c.field,
+      label: CHANGE_LABELS[c.field] ?? c.field,
       current_value: current[c.field] ?? null,
       stale: pending && !sameValue(c.field, c.old_value, current[c.field]),
     })),
@@ -1618,10 +1643,13 @@ const handlers = [
     const overlaps = (startsAt: string, endsAt: string) => Date.parse(startsAt) < end && Date.parse(endsAt) > start;
     const seesEveryReference = role === "venue_staff" || role === "coordinator_lead";
     const bookings = db.bookings
-      .filter((b) => b.venue.id === venue.id && live(b) && overlaps(b.occupied_starts_at, b.occupied_ends_at))
+      // US25 (SCRUM-93): a hold is drawn too, as kind "hold"; an expired one isn't listed (AC 6).
+      .filter(
+        (b) => b.venue.id === venue.id && (live(b) || b.status === "held") && overlaps(b.occupied_starts_at, b.occupied_ends_at),
+      )
       .map((b) => ({
-        kind: "booking",
-        label: "Booking",
+        kind: b.status === "held" ? "hold" : "booking",
+        label: b.status === "held" ? "Hold" : "Booking",
         starts_at: b.starts_at,
         ends_at: b.ends_at,
         occupied: { starts_at: b.occupied_starts_at, ends_at: b.occupied_ends_at },
@@ -1632,6 +1660,7 @@ const handlers = [
           event: { name: b.event.name, request_reference: b.event.request_reference, status: b.event.status },
           // US24 (D73, D78): Venue staff set it from the calendar's dialog.
           preparation_status: b.preparation_status,
+          hold_expires_at: b.hold_expires_at,
         },
         note: null,
       }));
@@ -1721,9 +1750,14 @@ const handlers = [
     if (!role) return error(401, "UNAUTHENTICATED");
     if (role !== "coordinator") return error(403, "FORBIDDEN");
     const booking = db.bookings.find((b) => b.id === params.id);
-    if (!booking || booking.requested_by_user_id !== request.headers.get("X-User-Id")) return error(404, "NOT_FOUND");
-    // US24 (D69): an approved booking can be withdrawn too, so the refusal says it isn't live.
-    if (booking.status !== "requested" && booking.status !== "approved") {
+    const userId = request.headers.get("X-User-Id");
+    // US25: a hold was placed by Venue staff, so the event's coordinator declines it.
+    const event = booking && db.requests.find((r) => r.id === booking.event.id);
+    if (!booking || (booking.requested_by_user_id !== userId && !(event && assignedTo(event, userId!)))) {
+      return error(404, "NOT_FOUND");
+    }
+    // US24 (D69): an approved booking can be withdrawn too, so the refusal says it isn't live; US25: a hold too.
+    if (booking.status !== "requested" && booking.status !== "approved" && booking.status !== "held") {
       return error(409, "BOOKING_NOT_LIVE", { status: booking.status });
     }
     Object.assign(booking, { status: "withdrawn", withdrawn_at: "2026-10-01T03:00:00Z", updated_at: "2026-10-01T03:00:00Z" });
@@ -1814,7 +1848,13 @@ const handlers = [
             : isLive(b) && !active
               ? { kind: "venue_inactive", reason: null, alternative_suggestion: null }
               : null;
-        const next_action = unavailability ? "coordinator_to_rebook" : b.status === "requested" ? "venue_staff_to_decide" : "none";
+        const next_action = unavailability
+          ? "coordinator_to_rebook"
+          : b.status === "requested"
+            ? "venue_staff_to_decide"
+            : b.status === "held"
+              ? "coordinator_to_confirm"
+              : "none";
         return { ...b, unavailability, next_action };
       });
     const live = db.bookings.filter((b) => b.event.id === event.id && isLive(b));
@@ -1833,6 +1873,68 @@ const handlers = [
       expected_attendees: expected,
       next_action: live.length > 0 && !primary ? "choose_primary" : null,
     });
+  }),
+
+  // US25 (SCRUM-93), identified by X-User-Id. The expiry's rules (future, 14 days, before the start) and the
+  // conflict check are the API's (backend/tests/venue/test_holds.py); this stores the hold and needs an expiry,
+  // so a flow sees its own writes. Other refusals: server.use(...).
+  route("get", "/api/v1/venue-holds/events", ({ request }) => {
+    if (userRole(request) !== "venue_staff") return error(403, "FORBIDDEN");
+    const events = db.requests
+      .filter((r) => r.status === "approved" || r.status === "planning")
+      .map((r) => ({
+        id: r.id,
+        name: r.name,
+        request_reference: r.request_reference,
+        status: r.status,
+        start_at: r.start_at ?? null,
+        end_at: r.end_at ?? null,
+        preferred_dates: r.preferred_dates,
+        preferred_start_time: r.preferred_start_time,
+        preferred_end_time: r.preferred_end_time,
+        expected_attendees: r.expected_attendees,
+      }));
+    return HttpResponse.json({ events } as unknown as JsonBodyType);
+  }),
+
+  route("post", "/api/v1/venue-holds", ({ request, body }) => {
+    if (userRole(request) !== "venue_staff") return error(403, "FORBIDDEN");
+    const sent = (body ?? {}) as Record<string, unknown>;
+    const missing = [...BOOKING_REQUIRED, "hold_expires_at"].filter(
+      (field) => sent[field] === undefined || sent[field] === null || sent[field] === "",
+    );
+    if (missing.length > 0) return error(422, "MISSING_REQUIRED_FIELD", { fields: missing });
+    const event = db.requests.find((r) => r.id === sent.event_id && (r.status === "approved" || r.status === "planning"));
+    const venue = db.venues.find((v) => v.id === sent.venue_id && v.is_active);
+    if (!event || !venue) return error(404, "NOT_FOUND");
+    const staff = request.headers.get("X-User-Id")!;
+    const booking = seedBooking(event, venue, {
+      requested_by_user_id: staff,
+      starts_at: String(sent.starts_at),
+      ends_at: String(sent.ends_at),
+      expected_attendees: Number(sent.expected_attendees),
+      room_layout: String(sent.room_layout),
+      purpose: String(sent.purpose).trim(),
+      status: "held",
+      is_primary: false,
+      hold_expires_at: String(sent.hold_expires_at),
+      held_by_user_id: staff,
+    });
+    return HttpResponse.json({ ...booking, warnings: [] }, { status: 201 });
+  }),
+
+  route("post", "/api/v1/venue-bookings/:id/confirm", ({ request, params }) => {
+    if (userRole(request) !== "coordinator") return error(403, "FORBIDDEN");
+    const booking = db.bookings.find((b) => b.id === params.id);
+    const event = booking && db.requests.find((r) => r.id === booking.event.id);
+    if (!booking || !event || !assignedTo(event, request.headers.get("X-User-Id")!)) return error(404, "NOT_FOUND");
+    if (booking.status !== "held") return error(409, "HOLD_NOT_HELD", { status: booking.status });
+    Object.assign(booking, {
+      status: "requested",
+      requested_by_user_id: request.headers.get("X-User-Id")!,
+      is_primary: !db.bookings.some((b) => b.event.id === event.id && b.is_primary && isLive(b)),
+    });
+    return HttpResponse.json(booking);
   }),
 
   // US24 AC 4 (D68): the event's coordinator makes one of its live bookings the primary venue.
@@ -1942,17 +2044,22 @@ const handlers = [
   }),
 
   // US29b (SCRUM-143): the coordinator's change requests and their decisions, and the review flags (rules above).
+  // acting_as (Calvin's #127 review): only what the user decides in that role; omitted, both.
   route("get", "/api/v1/change-requests", ({ request }) => {
-    const role = userRole(request);
-    if (role !== "coordinator" && role !== "coordinator_lead") return error(403, "FORBIDDEN");
-    const userId = request.headers.get("X-User-Id");
+    const userId = request.headers.get("X-User-Id") ?? "";
+    const roles = new Set<string>([userRole(request) ?? "", ...(db.extraRoles[userId] ?? [])]);
+    if (!roles.has("coordinator") && !roles.has("coordinator_lead")) return error(403, "FORBIDDEN");
     const url = new URL(request.url);
     const status = url.searchParams.get("status") ?? "pending_approval";
     const eventId = url.searchParams.get("event_id");
+    const actingAs = url.searchParams.get("acting_as");
     const mine = db.changeRequests
       .filter((r) => {
         const event = db.requests.find((e) => e.id === r.event_id);
-        return event !== undefined && decides(role, userId, r, event);
+        if (event === undefined) return false;
+        const asCoordinator = roles.has("coordinator") && decides("coordinator", userId, r, event);
+        const asLead = roles.has("coordinator_lead") && decides("coordinator_lead", userId, r, event);
+        return (actingAs !== "coordinator_lead" && asCoordinator) || (actingAs !== "coordinator" && asLead);
       })
       .filter((r) => !eventId || r.event_id === eventId)
       .filter((r) => status === "all" || (status === "decided" ? r.status !== "pending_approval" : r.status === "pending_approval"))

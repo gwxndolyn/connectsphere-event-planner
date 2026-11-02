@@ -1,5 +1,6 @@
 import { ApiError, apiClient } from "../../api/client";
 import { formatInstantDateTime } from "../registration/datetime";
+import { FIELD_LABELS, displayValue } from "../eventEdit/eventEditApi";
 import type { EventRequest } from "../eventRequest/types";
 import type { ChangeDecision, ChangeImpact, ChangeRequestReview, FieldChange, OrganiserChangeRequest, ReviewFlag } from "./types";
 
@@ -115,9 +116,6 @@ const LABELS: Record<string, string> = {
   room_layout_preference: "Room layout preference",
   accessibility_needs: "Accessibility needs",
   equipment_needs: "Equipment needs",
-  // A coordinator's US12 critical edit (D87) can also hold these (SCRUM-144).
-  capacity: "Capacity",
-  delivery_mode: "Delivery mode",
 };
 
 export function changeLabel(field: string): string {
@@ -191,10 +189,14 @@ export function changeFieldErrors(error: unknown): Record<string, string> {
 
 // --- US29b (SCRUM-143): the coordinator reviews and decides change requests, and the flags a significant one raises.
 
+// The role the user is working in (the Role switcher), so one holding both sees only that role's requests.
+export type DecidingRole = "coordinator" | "coordinator_lead";
+
 export const changeReviewApi = {
-  async pending(eventId?: string): Promise<ChangeRequestReview[]> {
-    const query = eventId ? `?event_id=${eventId}` : "";
-    const body = await apiClient.get<{ change_requests: ChangeRequestReview[] }>(`/api/v1/change-requests${query}`);
+  async pending(eventId: string | null, actingAs: DecidingRole): Promise<ChangeRequestReview[]> {
+    const query = new URLSearchParams({ acting_as: actingAs });
+    if (eventId) query.set("event_id", eventId);
+    const body = await apiClient.get<{ change_requests: ChangeRequestReview[] }>(`/api/v1/change-requests?${query}`);
     return body.change_requests;
   },
   approve: (id: string) => apiClient.post<ChangeDecision>(`/api/v1/change-requests/${id}/approve`, {}),
@@ -207,6 +209,19 @@ export const changeReviewApi = {
 };
 
 export const REJECTION_MAX_LENGTH = 1000;
+
+/**
+ * A field as the coordinator reads it: the API's labels (US12's for a coordinator's edit, US29a's otherwise), so a
+ * review flag, which carries only field names, reads like the request's table (Calvin's #127 review).
+ */
+export function reviewLabel(field: string): string {
+  return FIELD_LABELS[field] ?? changeLabel(field);
+}
+
+/** A value in a request to decide: US12's words for its fields (e.g. In person), US29a's for the organiser's others. */
+export function reviewValue(field: string, value: unknown): string {
+  return field in FIELD_LABELS ? displayValue(field, value) : changeValue(field, value);
+}
 
 function count(n: number, one: string): string {
   return `${n} ${one}${n === 1 ? "" : "s"}`;
@@ -238,7 +253,7 @@ export function impactParts(impact: ChangeImpact | null, status: string): string
   const flagged = [
     impact.venue_bookings ? count(impact.venue_bookings, "venue booking") : null,
     impact.equipment_reservations ? count(impact.equipment_reservations, "equipment reservation") : null,
-    impact.registrations ? count(impact.registrations, "registration") : null,
+    impact.registrations ? `the event's registrations (${impact.registrations})` : null,
   ].filter((part): part is string => part !== null);
   if (flagged.length > 0) {
     const listed = flagged.length === 1 ? flagged[0] : `${flagged.slice(0, -1).join(", ")} and ${flagged.at(-1)}`;
@@ -261,7 +276,7 @@ export function decisionErrorMessage(error: unknown): string {
   switch (error.code) {
     case "CHANGE_REQUEST_STALE": {
       const fields = Array.isArray(error.body.fields) ? (error.body.fields as { field: string; reason: string }[]) : [];
-      const named = fields.map((f) => `${changeLabel(f.field)} (${STALE_REASONS[f.reason] ?? f.reason})`).join(", ");
+      const named = fields.map((f) => `${reviewLabel(f.field)} (${STALE_REASONS[f.reason] ?? f.reason})`).join(", ");
       return `The event has changed since this was asked: ${named}. Reject it with a reason, and the organiser can ask again.`;
     }
     case "CHANGE_REQUEST_NOT_PENDING":
@@ -274,6 +289,8 @@ export function decisionErrorMessage(error: unknown): string {
       return "The reason must be at most 1,000 characters.";
     case "SELF_DECISION_NOT_ALLOWED":
       return "You made this request, so a Coordinator Lead decides it.";
+    case "FORBIDDEN":
+      return "This isn't an action your role can take.";
     case "NOT_FOUND":
       return "This request isn't one you decide, or it no longer exists.";
     default:

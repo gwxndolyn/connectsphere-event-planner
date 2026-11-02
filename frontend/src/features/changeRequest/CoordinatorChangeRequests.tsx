@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { formatInstantDateTime } from "../registration/datetime";
-import { changeReviewApi, decisionErrorMessage } from "./changeRequestApi";
+import { changeReviewApi, decisionErrorMessage, type DecidingRole } from "./changeRequestApi";
 import type { ChangeRequestReview } from "./types";
 import "./changeRequests.css";
 
 interface CoordinatorChangeRequestsProps {
+  // The Role switcher's role: a user who is also a Lead sees only what they decide as coordinator here.
+  actingAs: DecidingRole;
   // Opens the event's review screen at its change requests.
   onReview: (eventId: string, requestId: string) => void;
   // SCRUM-144: the Lead's list, "Coordinator edits to approve", of coordinators' own US12 edits only (D102).
@@ -16,10 +18,11 @@ interface CoordinatorChangeRequestsProps {
 
 /**
  * US29b AC 1 (SCRUM-143): above the coordinator's review queue, every pending change request on the events assigned
- * to them, oldest first. Nothing shows while none waits. Deviation 69: placed here, the coordinator's Event requests
+ * to them, oldest first. Nothing shows while none waits. Deviation 71: placed here, the coordinator's Event requests
  * screen, because every status a request can be decided in opens from it.
  */
 export function CoordinatorChangeRequests({
+  actingAs,
   onReview,
   heading = "Change requests to review",
   source,
@@ -31,7 +34,7 @@ export function CoordinatorChangeRequests({
   useEffect(() => {
     let current = true;
     changeReviewApi
-      .pending()
+      .pending(null, actingAs)
       .then((found) => {
         // The API lists only what this user decides; a user holding both roles still sees one role's list.
         if (current) setRequests(source ? found.filter((request) => request.source === source) : found);
@@ -42,7 +45,7 @@ export function CoordinatorChangeRequests({
     return () => {
       current = false;
     };
-  }, [source, reloadKey]);
+  }, [actingAs, source, reloadKey]);
 
   if (error) return <div className="request-alert" role="alert">{error}</div>;
   if (!requests || requests.length === 0) return null;

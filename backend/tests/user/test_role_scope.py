@@ -282,6 +282,10 @@ ROUTES = [
     # preparation (D73); the event's Organiser reads its venues (D71).
     ("POST", "/api/v1/venue-bookings/{booking_id}/make-primary", {COORDINATOR}),
     ("POST", "/api/v1/venue-bookings/{booking_id}/preparation", {VENUE_STAFF}),
+    # US25 (SCRUM-93): Venue staff hold a venue and list the events they may; the event's coordinator confirms.
+    ("POST", "/api/v1/venue-holds", {VENUE_STAFF}),
+    ("GET", "/api/v1/venue-holds/events", {VENUE_STAFF}),
+    ("POST", "/api/v1/venue-bookings/{booking_id}/confirm", {COORDINATOR}),
     ("GET", "/api/v1/events/{event_id}/venue-bookings", {ORGANISER, COORDINATOR, VENUE_STAFF}),
     ("GET", "/api/v1/me/equipment-events", {COORDINATOR}),
     ("GET", "/api/v1/events/{event_id}/equipment-lines", {COORDINATOR}),

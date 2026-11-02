@@ -38,9 +38,12 @@ def list_change_requests(
     user: Decider,
     status: Literal["pending_approval", "decided", "all"] = "pending_approval",
     event_id: uuid.UUID | None = None,
+    # Calvin's #127 review: the frontend's acting role, so a user holding both sees one role's requests at a time.
+    acting_as: Literal["coordinator", "coordinator_lead"] | None = None,
     db: Session = Depends(get_db),
 ) -> ChangeRequestReviewsOut:
-    return ChangeRequestReviewsOut(change_requests=change_decision_service.list_for(db, user, status, event_id))
+    role = UserRole(acting_as) if acting_as else None
+    return ChangeRequestReviewsOut(change_requests=change_decision_service.list_for(db, user, status, event_id, role))
 
 
 @router.get("/{request_id}", response_model=ChangeRequestReviewOut)

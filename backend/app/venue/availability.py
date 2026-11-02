@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import func, literal, select
 from sqlalchemy.orm import Session
 
-from app.venue.models import LIVE_BOOKING_STATUSES, Venue, VenueBlock, VenueBooking, occupied_window
+from app.venue.models import BLOCKING_STATUSES, Venue, VenueBlock, VenueBooking, occupied_window
 
 VENUE_TIMEZONE = ZoneInfo("Asia/Singapore")
 
@@ -87,12 +87,12 @@ def hours_breach(venue: Venue, booking_starts_at: datetime, occupied: Window) ->
 def _booking_conflicts(
     db: Session, venue_id: uuid.UUID, occupied: Window, exclude_booking_id: uuid.UUID | None
 ) -> list[Conflict]:
-    """Live bookings (D21) whose stored occupied window overlaps this one, the exclusion
-    constraint's rule. && on the range its GiST index holds."""
+    """Live bookings (D21) and, since US25, holds whose stored occupied window overlaps this one, the exclusion
+    constraint's rule (BLOCKING_STATUSES). && on the range its GiST index holds."""
     window = func.tstzrange(literal(occupied.starts_at), literal(occupied.ends_at), literal("[)"))
     query = select(VenueBooking).where(
         VenueBooking.venue_id == venue_id,
-        VenueBooking.status.in_(LIVE_BOOKING_STATUSES),
+        VenueBooking.status.in_(BLOCKING_STATUSES),
         func.tstzrange(VenueBooking.occupied_starts_at, VenueBooking.occupied_ends_at, literal("[)")).op("&&")(window),
     )
     if exclude_booking_id is not None:

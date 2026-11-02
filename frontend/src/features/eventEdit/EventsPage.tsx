@@ -432,7 +432,7 @@ function EventHistory({ eventId }: { eventId: string }) {
                 <span className="event-edit-history__id">{entry.user.id}</span>
               </td>
               <td>
-                {fieldLabel(entry.field)}
+                {HISTORY_FIELDS[entry.field] ?? fieldLabel(entry.field)}
                 {ACTION_LABELS[entry.action ?? ""] ? (
                   <span className="venue-booking-status venue-booking-status--approved">{actionLabel(entry)}</span>
                 ) : (
