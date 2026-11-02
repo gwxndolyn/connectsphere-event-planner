@@ -15,7 +15,7 @@ SCRUM-133); other events' lines are untouched.
 Likewise it deletes every venue booking on Multi-Venue Conference Demo that the seed didn't make, such as
 the Breakout C each E2E run of TC-US24-26 adds and withdraws (SCRUM-129); other events' bookings are
 untouched. And it deletes Agenda Demo's sessions (SCRUM-138), so TC-US15-15 reruns start with an empty
-agenda.
+agenda. And it deletes every booking and hold on Venue Hold Demo (SCRUM-93), so TC-US25-24 reruns start clean.
 """
 
 import sys
@@ -414,6 +414,9 @@ class BookableEventSpec:
 # (VITE_DEV_COORDINATOR_ID), because only the assigned coordinator may book it (US10a, D20).
 # Approved straight away (D24).
 BOOKABLE_EVENT = BookableEventSpec(slug="bookable-venue-booking-demo", name="Venue Booking Demo", expected_attendees=40)
+# US25 (SCRUM-93): the event Venue staff hold a venue for in the hold E2E; only that spec uses it, and a reseed
+# deletes its bookings and holds.
+HOLD_EVENT = BookableEventSpec(slug="venue-hold-demo", name="Venue Hold Demo", expected_attendees=30)
 
 # US24 (SCRUM-92): every seeded booking says what it's for; a single-venue event's is its main venue.
 MAIN_VENUE_PURPOSE = "Main venue"
@@ -1185,6 +1188,9 @@ def seed(db: Session, now: datetime | None = None) -> None:
     for spec in VENUE_BLOCKS:
         upsert_venue_block(db, spec, now)
     upsert_bookable_event(db, BOOKABLE_EVENT, organiser, coordinator)
+    upsert_bookable_event(db, HOLD_EVENT, organiser, coordinator)
+    # TC-US25-24 reruns start with no holds or requests on it.
+    db.execute(delete(VenueBooking).where(VenueBooking.event_id == seed_id("event", HOLD_EVENT.slug)))
     upsert_confirmation_event(db, CONFIRMATION_EVENT, organiser, coordinator, now)
     upsert_safety_review_event(db, SAFETY_REVIEW_EVENT, organiser, coordinator, now)
     equipment_event = upsert_equipment_event(db, EQUIPMENT_EVENT, organiser, coordinator, now)
@@ -1262,7 +1268,8 @@ def admin_from_settings() -> SupabaseAdmin | None:
 REMOTE_RESEED_WARNING = (
     "Reseeding also deletes every equipment line on Equipment Request Demo, approved ones included, "
     "every venue booking on Multi-Venue Conference Demo that the seed didn't make, "
-    "and every session on Agenda Demo's agenda. "
+    "every session on Agenda Demo's agenda, "
+    "and every booking and hold on Venue Hold Demo. "
     "Other events' lines, bookings and sessions are untouched."
 )
 
