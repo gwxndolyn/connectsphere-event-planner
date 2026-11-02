@@ -78,6 +78,10 @@ class VenueBookingStatus(enum.StrEnum):
     APPROVED = "approved"  # Venue Staff approved it: the venue is reserved for the event (US4 AC 2)
     REJECTED = "rejected"  # Venue Staff rejected it, optionally with a reason and an alternative (US4 AC 5)
     WITHDRAWN = "withdrawn"  # the coordinator withdrew it while pending (AC 5)
+    # US25 (SCRUM-93): Venue staff hold the venue until an expiry (AC 1); it lapses unconfirmed, or confirmed but
+    # not yet approved, at that expiry (AC 3, 5). Neither is a booking (AC 6): only BLOCKING_STATUSES count a hold.
+    HELD = "held"
+    EXPIRED = "expired"
 
 
 class PreparationStatus(enum.StrEnum):
@@ -92,8 +96,12 @@ class PreparationStatus(enum.StrEnum):
 # D21 (decided by the team): Requested and Approved both block the window, from the sessions 1-2
 # clarification behind AC 7, "any overlap is prevented; first come, first served". AC 3 lists only
 # approved bookings, but first come, first served needs a pending request to hold the window too.
-# The migration's exclusion constraint uses the same pair; change both together.
+# These are an event's venues; since US25 the overlap guard uses BLOCKING_STATUSES, which adds holds.
 LIVE_BOOKING_STATUSES = (VenueBookingStatus.REQUESTED, VenueBookingStatus.APPROVED)
+# US25 AC 2: what keeps another request out of the window, the overlap guard's set. A hold blocks the window but
+# isn't one of the event's venues (AC 6), so everything else reads LIVE_BOOKING_STATUSES. The migration's
+# exclusion constraint (venue_bookings_no_overlap) uses the same set; change both together.
+BLOCKING_STATUSES = (*LIVE_BOOKING_STATUSES, VenueBookingStatus.HELD)
 
 
 def occupied_window(venue: "Venue", starts_at: datetime, ends_at: datetime) -> tuple[datetime, datetime]:
@@ -109,7 +117,7 @@ def occupied_window(venue: "Venue", starts_at: datetime, ends_at: datetime) -> t
 class VenueBooking(Base):
     """A coordinator's request to hold a venue for an event (US22, SCRUM-89).
 
-    The exclusion constraint `venue_bookings_no_overlap` refuses a Requested or Approved booking
+    The exclusion constraint `venue_bookings_no_overlap` refuses a Requested, Approved or (US25) held booking
     whose occupied window [occupied_starts_at, occupied_ends_at) overlaps another's at the same
     venue, even by one second; windows that only touch are allowed (US13 AC 3). It also settles
     AC 7's race, since a concurrent second insert waits for the first to commit and then fails. The
@@ -118,7 +126,7 @@ class VenueBooking(Base):
 
     # DECISION-PENDING: D22 — since US13 PR 1 (SCRUM-114) the guard covers the occupied window, from
     # the venue's buffers when the booking is made. PR 2 recomputes it when buffers change (D31).
-    # Holds (US25) don't exist yet.
+    # Since US25 (SCRUM-93) a hold blocks the window too (BLOCKING_STATUSES).
 
     __tablename__ = "venue_bookings"
     __table_args__ = (
@@ -135,7 +143,7 @@ class VenueBooking(Base):
         # DECISION-PENDING: D77 — US24 PR 2: a withdrawn booking may keep the decision it had (D69).
         CheckConstraint(
             "(status NOT IN ('approved', 'rejected') OR decided_at IS NOT NULL) "
-            "AND (status <> 'requested' OR decided_at IS NULL)",
+            "AND (status NOT IN ('requested', 'held', 'expired') OR decided_at IS NULL)",
             name="venue_bookings_decided_consistent",
         ),
         CheckConstraint(
@@ -156,6 +164,21 @@ class VenueBooking(Base):
             unique=True,
             postgresql_where=text("is_primary AND status IN ('requested', 'approved')"),
         ),
+        # US25 (SCRUM-93): who held it and until when, kept once confirmed (AC 5); the 24-hour warning (AC 4).
+        CheckConstraint(
+            "(hold_expires_at IS NULL) = (held_by_user_id IS NULL) "
+            "AND (status NOT IN ('held', 'expired') OR hold_expires_at IS NOT NULL) "
+            "AND (hold_warned_at IS NULL OR (hold_expires_at IS NOT NULL AND hold_warned_at < hold_expires_at)) "
+            "AND (status <> 'held' OR requested_by_user_id = held_by_user_id)",
+            name="venue_bookings_hold_consistent",
+        ),
+        CheckConstraint(
+            "(status = 'expired') = (expired_at IS NOT NULL) AND (expired_at IS NULL OR expired_at >= hold_expires_at)",
+            name="venue_bookings_expired_consistent",
+        ),
+        CheckConstraint("status <> 'held' OR NOT is_primary", name="venue_bookings_hold_not_primary"),
+        # US25: the lapse-on-read sweep's check for due holds (D109), on every booking read.
+        Index("ix_venue_bookings_hold_expires_at", "hold_expires_at", postgresql_where=text("hold_expires_at IS NOT NULL")),
         # DECISION-PENDING: D73 — preparation is tracked per venue (CS3-49); PreparationStatus's values.
         CheckConstraint(
             "preparation_status IN ('not_started', 'in_progress', 'ready')",
@@ -198,6 +221,12 @@ class VenueBooking(Base):
     # than US4 (the migration backfills decided_at for those). The two notes go with a rejection (AC 5).
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     decided_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    # US25 (SCRUM-93) AC 1, 3, 4: a hold's expiry and who placed it (kept once it's confirmed into a request), the
+    # 24-hour warning, and when it lapsed. While held, requested_by_user_id is also the Venue staff member.
+    hold_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    held_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    hold_warned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     rejection_reason: Mapped[str | None] = mapped_column(Text)
     alternative_suggestion: Mapped[str | None] = mapped_column(Text)
     # US24 (SCRUM-92) AC 1: what this venue is for, e.g. "Main hall" or "Breakout A". Required since PR 2
