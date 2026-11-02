@@ -375,6 +375,8 @@ async def test_tc_us12_16_a_save_writes_one_audit_entry_per_changed_field(
         (coordinator.id, "equipment_needs", None, "Pens", NOW),
     ]
     assert all(e.change_request_id is None for e in entries)
+    # US29b (Calvin's #121 review): a save that changed the event is logged as saved.
+    assert [e.action for e in entries] == ["saved", "saved"]
 
 
 async def test_tc_us12_17_a_critical_save_is_logged_against_its_change_request(
@@ -388,6 +390,8 @@ async def test_tc_us12_17_a_critical_save_is_logged_against_its_change_request(
     entry = db.scalars(select(EventAuditEntry).where(EventAuditEntry.event_id == event.id)).one()
     assert (entry.field_name, entry.previous_value, entry.new_value) == ("capacity", 80, 90)
     assert str(entry.change_request_id) == response.json()["change_request"]["id"]
+    # US29b (Calvin's #121 review): a held edit is logged as requested, not saved.
+    assert entry.action == "requested"
 
 
 async def test_tc_us12_18_history_lists_entries_newest_first(
@@ -442,7 +446,7 @@ def test_tc_us12_20_reseeding_resets_the_planning_event(db: Session) -> None:
     )
     db.add(request)
     db.flush()
-    db.add(EventAuditEntry(event_id=event.id, user_id=coordinator.id, field_name="capacity", previous_value=80, new_value=90, change_request_id=request.id))
+    db.add(EventAuditEntry(event_id=event.id, user_id=coordinator.id, field_name="capacity", previous_value=80, new_value=90, change_request_id=request.id, action="requested"))
     db.flush()
 
     seed(db, now=NOW)

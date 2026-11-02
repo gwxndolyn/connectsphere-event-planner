@@ -173,6 +173,8 @@ def _out(request: EventChangeRequest, event: Event) -> OrganiserChangeRequestOut
         reason=request.reason,
         changes=[FieldChangeOut(**change) for change in request.changes],
         created_at=request.created_at,
+        decided_at=request.decided_at,
+        rejection_reason=request.rejection_reason,
     )
 
 

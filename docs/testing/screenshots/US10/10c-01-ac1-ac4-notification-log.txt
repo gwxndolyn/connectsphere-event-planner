@@ -1,0 +1,5 @@
+app.notification.service: coordinator assigned (coordinator notice): event.coordinator@smu.edu.sg, ER-2026-000001 (Hackathon Kick-off), coordinator Casey Tan, dates 2026-12-01
+app.notification.service: coordinator assigned (organiser notice): event.organiser@smu.edu.sg, ER-2026-000001 (Hackathon Kick-off), coordinator Casey Tan, dates 2026-12-01
+app.notification.service: event reassigned (new_coordinator notice): dana.lim@smu.edu.sg, ER-2026-000001 (Hackathon Kick-off), from Casey Tan to Dana Lim, dates 2026-12-01; reason: Casey is leading the careers fair that week.
+app.notification.service: event reassigned (previous_coordinator notice): event.coordinator@smu.edu.sg, ER-2026-000001 (Hackathon Kick-off), from Casey Tan to Dana Lim, dates 2026-12-01; reason: Casey is leading the careers fair that week.
+app.notification.service: event reassigned (organiser notice): event.organiser@smu.edu.sg, ER-2026-000001 (Hackathon Kick-off), from Casey Tan to Dana Lim, dates 2026-12-01; reason: Casey is leading the careers fair that week.

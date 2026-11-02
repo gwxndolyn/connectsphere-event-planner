@@ -219,7 +219,8 @@ describe("Coordinator Lead: views the assignment history (US10d)", () => {
     const entries = within(await screen.findByRole("region", { name: "Assignment history" })).getAllByRole("listitem");
     expect(entries).toHaveLength(2);
     expect(entries[0]).toHaveTextContent("Reassignment");
-    expect(entries[0]).toHaveTextContent("Lena Lead assigned Dana Lim");
+    expect(entries[0]).toHaveTextContent("Lena Lead reassigned the event to Dana Lim");
+    expect(entries[1]).toHaveTextContent("Lena Lead assigned Casey Tan");
     expect(entries[1]).toHaveTextContent("Casey Tan");
     expect(entries[1]).not.toHaveTextContent("Reassignment");
   });

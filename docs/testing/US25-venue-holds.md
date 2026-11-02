@@ -24,10 +24,10 @@
 
 ## Decisions for this story
 
-- **A hold is a venue booking with status `held`** (D105, `DECISION-PENDING`), so the existing overlap guard keeps another request out of the window (AC 2), even in a race. It blocks the window but is no booking anywhere else (AC 6): `BLOCKING_STATUSES` is the guard's set, and everything that counts an event's venues (venues arranged, readiness, the primary venue) keeps `LIVE_BOOKING_STATUSES`. A hold can't be the primary venue. While held, `requested_by_user_id` is the Venue staff member who placed it; confirming makes the coordinator the requester, so Venue staff can then approve it (D51).
-- **Length** (D102, the story owner's choice, 1 Nov): any expiry from now up to 14 days ahead; no extension. To keep a venue longer, the coordinator confirms it, or Venue staff place a new hold once it lapses.
-- **Expiry and the 24-hour warning** (D103, the story owner's choice, 1 Nov): no scheduler, as for waitlist offers (D2, §1a "Lapse on read"). A hold lapses on the next read or change of its venue's bookings; the warning goes out once, on the first read inside the last 24 hours (`hold_warned_at`), or at once for a hold placed with less than 24 hours left. It may arrive later than exactly 24 hours if nobody looks.
-- **Released when** (D104, the story owner's choice, 1 Nov): the coordinator declines it (for example after choosing another venue), the event is cancelled (US9), or it's confirmed into a request. Rejection can't apply: holds exist only from Approved on.
+- **A hold is a venue booking with status `held`** (D111, `DECISION-PENDING`), so the existing overlap guard keeps another request out of the window (AC 2), even in a race. It blocks the window but is no booking anywhere else (AC 6): `BLOCKING_STATUSES` is the guard's set, and everything that counts an event's venues (venues arranged, readiness, the primary venue) keeps `LIVE_BOOKING_STATUSES`. A hold can't be the primary venue. While held, `requested_by_user_id` is the Venue staff member who placed it; confirming makes the coordinator the requester, so Venue staff can then approve it (D51).
+- **Length** (D108, the story owner's choice, 1 Nov): any expiry from now up to 14 days ahead; no extension. To keep a venue longer, the coordinator confirms it, or Venue staff place a new hold once it lapses.
+- **Expiry and the 24-hour warning** (D109, the story owner's choice, 1 Nov): no scheduler, as for waitlist offers (D2, §1a "Lapse on read"). A hold lapses on the next read or change of its venue's bookings; the warning goes out once, on the first read inside the last 24 hours (`hold_warned_at`), or at once for a hold placed with less than 24 hours left. It may arrive later than exactly 24 hours if nobody looks.
+- **Released when** (D110, the story owner's choice, 1 Nov): the coordinator declines it (for example after choosing another venue), the event is cancelled (US9), or it's confirmed into a request. Rejection can't apply: holds exist only from Approved on.
 - **A confirmed hold keeps its expiry** (AC 5): Venue staff must approve the request before it, or it lapses as `expired`.
 
 ## Test cases
@@ -46,3 +46,4 @@
 | Date | Suite | Result |
 | --- | --- | --- |
 | 1 Nov | Backend (`pytest`), PR 1 | 1563 passed, including TC-US25-01 to 06; the migration upgrades, downgrades and upgrades again on a local database |
+| 2 Nov | Backend (`pytest`), PR 1 after merging `main` (#119, US29b) | 1649 passed; the migration now follows `20261115_1200_us29b_decisions`; D102 to D105 renumbered to D108 to D111 and deviation 68 to 69 (US29b took D102 to D107 and 68) |

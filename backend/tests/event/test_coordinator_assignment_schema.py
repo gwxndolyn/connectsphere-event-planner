@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 from app.event.models import Event, EventStatus
 from app.seed import (
     BOOKABLE_EVENT,
+    CANCELLATION_EVENT,
+    CHANGE_REQUEST_EVENT,
     CONFIRMATION_EVENT,
     EQUIPMENT_EVENT,
     EVENT_COORDINATOR_LEAD_EMAILS,
@@ -74,18 +76,21 @@ def test_tc_us10a_04_seed_adds_two_active_leads_and_leaves_events_unassigned(db:
     assert db.scalars(select(User).where(User.roles.any(UserRole.COORDINATOR), User.full_name.is_(None))).first() is None
     # Seeded events start unassigned, except US22's Venue Booking Demo, US26's Equipment Request
     # Demo, US28's Intro to Supabase, US24's Multi-Venue Conference Demo, US12's Event Planning Demo, US18's
-    # Confirmation Demo and US30a's Safety Review Demo: only the assigned coordinator may book a venue, add
-    # equipment (D20), view registrations (D52) or edit an event (US12), so the seed assigns the dev
-    # coordinator to all seven for their screens and E2E.
+    # Confirmation Demo, US30a's Safety Review Demo, US29b's Change Request Demo and US9's Cancellation Demo:
+    # only the assigned coordinator may book a venue, add equipment (D20), view registrations (D52), edit an
+    # event (US12), decide a change request (D102) or cancel it (US9), so the seed assigns the dev coordinator
+    # to all nine for their screens and E2E.
     assigned = db.scalars(select(Event.id).where(Event.coordinator_id.is_not(None))).all()
     assert sorted(assigned) == sorted(
         [
             seed_id("event", BOOKABLE_EVENT.slug),
+            seed_id("event", CHANGE_REQUEST_EVENT.slug),
             seed_id("event", CONFIRMATION_EVENT.slug),
             seed_id("event", SAFETY_REVIEW_EVENT.slug),
             seed_id("event", EQUIPMENT_EVENT.slug),
             seed_id("event", "supabase-live-coding"),
             seed_id("event", PLANNING_EVENT.slug),
             seed_id("event", MULTI_VENUE_EVENT.slug),
+            seed_id("event", CANCELLATION_EVENT.slug),
         ]
     )

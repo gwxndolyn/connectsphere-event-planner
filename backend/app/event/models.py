@@ -47,8 +47,8 @@ class AssignmentKind(enum.StrEnum):
 
 
 class ChangeRequestStatus(enum.StrEnum):
-    """US12 (SCRUM-15): a critical-field edit waits for approval. Only `pending_approval` is written so far;
-    who approves (and so the other two) is D58."""
+    """A change request's state (US12, SCRUM-15; US29a, SCRUM-97). It's `pending_approval` until decided;
+    who decides is D89, settled by US29b's D102 (SCRUM-98)."""
 
     PENDING_APPROVAL = "pending_approval"
     APPROVED = "approved"
@@ -254,6 +254,28 @@ class EventChangeRequest(Base):
             name="event_change_requests_changes_not_empty",
         ),
         CheckConstraint("reason IS NULL OR btrim(reason) <> ''", name="event_change_requests_reason_not_blank"),
+        # US29b (SCRUM-98): a decision is whole, and only a rejection has a reason (AC 2).
+        CheckConstraint(
+            "(status::text = 'pending_approval') = (decided_at IS NULL)"
+            " AND (decided_at IS NULL) = (decided_by_user_id IS NULL)",
+            name="event_change_requests_decision_consistent",
+        ),
+        CheckConstraint(
+            "(status::text = 'rejected') = (rejection_reason IS NOT NULL)",
+            name="event_change_requests_rejection_reason_only_when_rejected",
+        ),
+        CheckConstraint(
+            "rejection_reason IS NULL OR btrim(rejection_reason) <> ''",
+            name="event_change_requests_rejection_reason_not_blank",
+        ),
+        # DECISION-PENDING: D102 — no one approves a request they made (D51), so a coordinator's own US12 edit
+        # goes to a Coordinator Lead. Rejecting is allowed: cancelling an event rejects all its pending requests,
+        # the canceller's own too (US9).
+        CheckConstraint(
+            "status::text <> 'approved' OR decided_by_user_id <> requested_by_user_id",
+            name="event_change_requests_decider_not_requester",
+        ),
+        Index("ix_event_change_requests_pending", "event_id", postgresql_where=text("status = 'pending_approval'")),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, server_default=text("gen_random_uuid()"))
@@ -266,8 +288,25 @@ class EventChangeRequest(Base):
     # US29a (SCRUM-97): an organiser's request carries their reason (AC 3); a coordinator's US12 edit has none.
     reason: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # US29b (SCRUM-98) AC 2, 5: who approved or rejected it, when, and a rejection's reason.
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    decided_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    rejection_reason: Mapped[str | None] = mapped_column(Text)
 
     requested_by: Mapped["User"] = relationship(foreign_keys=[requested_by_user_id])
+    decided_by: Mapped["User | None"] = relationship(foreign_keys=[decided_by_user_id])
+
+
+class AuditAction(enum.StrEnum):
+    """What an `EventAuditEntry` records (US29b, SCRUM-98, AC 5)."""
+
+    SAVED = "saved"  # a save that changed the event (US12 AC 2)
+    REQUESTED = "requested"  # a critical save held in a change request (US12 AC 3, D89)
+    APPLIED = "applied"  # a field an approved change request changed
+    DECIDED = "decided"  # the approval or rejection itself
+    STATUS_CHANGED = "status_changed"  # a significant change moved the event back to Planning (D105)
+    CONFIRMATION_CLEARED = "confirmation_cleared"  # ...so it's no longer confirmed (D105)
+    SAFETY_APPROVAL_CLEARED = "safety_approval_cleared"  # ...and needs a new safety review (AC 6, D106)
 
 
 class EventCancellation(Base):
@@ -325,9 +364,22 @@ class EventCancellation(Base):
 class EventAuditEntry(Base):
     """One field of one successful edit (US12 AC 5): who, which field, its previous and new value, when.
     A critical edit's entries point at its change request, because the event itself didn't change yet.
-    Append-only. `seq` orders entries written at the same instant, newest first in History."""
+    Since US29b (SCRUM-98) `action` says what each entry is, so History tells a held request from the
+    change it later applied, and records the decision. Append-only. `seq` orders entries written at the
+    same instant, newest first in History."""
 
     __tablename__ = "event_audit_entries"
+    __table_args__ = (
+        CheckConstraint(
+            "action IN ('saved', 'requested', 'applied', 'decided', 'status_changed', 'confirmation_cleared',"
+            " 'safety_approval_cleared')",
+            name="event_audit_entries_action_known",
+        ),
+        # Calvin's #121 review: an entry tied to a change request is never a plain save.
+        CheckConstraint(
+            "change_request_id IS NULL OR action <> 'saved'", name="event_audit_entries_request_entry_not_saved"
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, server_default=text("gen_random_uuid()"))
     seq: Mapped[int] = mapped_column(BigInteger, Identity(always=True))
@@ -337,7 +389,73 @@ class EventAuditEntry(Base):
     previous_value: Mapped[object | None] = mapped_column(JSONB(none_as_null=True))
     new_value: Mapped[object | None] = mapped_column(JSONB(none_as_null=True))
     change_request_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("event_change_requests.id"))
+    action: Mapped[str] = mapped_column(Text, server_default=AuditAction.SAVED.value)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     user: Mapped["User"] = relationship(foreign_keys=[user_id])
     change_request: Mapped["EventChangeRequest | None"] = relationship(foreign_keys=[change_request_id])
+
+
+class ReviewFlagKind(enum.StrEnum):
+    VENUE_BOOKING = "venue_booking"  # a live booking (Requested or Approved)
+    EQUIPMENT_RESERVATION = "equipment_reservation"  # a line that holds a reservation
+    REGISTRATIONS = "registrations"  # the event's active registrations, as one flag
+
+
+class EventReviewFlag(Base):
+    """An arrangement an approved significant change may have overtaken (US29b AC 3, SCRUM-98), for the
+    event's coordinator to review. Nothing on the booking, reservation or registrations changes.
+    DECISION-PENDING: D104 — one row per affected item, one open flag per item (a later change adds its
+    fields to it), cleared by the coordinator with an optional note. An equipment flag points at the line,
+    not its reservation, because releasing a reservation deletes it (D74)."""
+
+    __tablename__ = "event_review_flags"
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('venue_booking', 'equipment_reservation', 'registrations')", name="event_review_flags_kind_known"
+        ),
+        CheckConstraint(
+            "(venue_booking_id IS NOT NULL) = (kind = 'venue_booking')"
+            " AND (equipment_request_line_id IS NOT NULL) = (kind = 'equipment_reservation')",
+            name="event_review_flags_target_matches_kind",
+        ),
+        CheckConstraint("cardinality(fields) > 0", name="event_review_flags_fields_not_empty"),
+        CheckConstraint(
+            "(cleared_at IS NULL) = (cleared_by_user_id IS NULL)", name="event_review_flags_clearance_consistent"
+        ),
+        CheckConstraint(
+            "cleared_note IS NULL OR (cleared_at IS NOT NULL AND btrim(cleared_note) <> '')",
+            name="event_review_flags_note_only_when_cleared",
+        ),
+        Index("ix_event_review_flags_event_id", "event_id"),
+        Index(
+            "event_review_flags_one_open_per_booking",
+            "venue_booking_id",
+            unique=True,
+            postgresql_where=text("cleared_at IS NULL AND venue_booking_id IS NOT NULL"),
+        ),
+        Index(
+            "event_review_flags_one_open_per_line",
+            "equipment_request_line_id",
+            unique=True,
+            postgresql_where=text("cleared_at IS NULL AND equipment_request_line_id IS NOT NULL"),
+        ),
+        Index(
+            "event_review_flags_one_open_registrations",
+            "event_id",
+            unique=True,
+            postgresql_where=text("cleared_at IS NULL AND kind = 'registrations'"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, server_default=text("gen_random_uuid()"))
+    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id"))
+    change_request_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("event_change_requests.id"))
+    kind: Mapped[str] = mapped_column(Text)
+    venue_booking_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("venue_bookings.id"))
+    equipment_request_line_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("equipment_request_lines.id"))
+    fields: Mapped[list[str]] = mapped_column(ARRAY(Text))
+    raised_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    cleared_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cleared_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    cleared_note: Mapped[str | None] = mapped_column(Text)

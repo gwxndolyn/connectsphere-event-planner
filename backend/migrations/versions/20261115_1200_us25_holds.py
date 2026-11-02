@@ -1,7 +1,7 @@
 """add tentative venue holds: a held status that blocks the window until it's confirmed or expires
 
 Revision ID: 20261115_1200_us25_holds
-Revises: 20261114_1200_us30a_rls
+Revises: 20261115_1200_us29b_decisions
 Create Date: 2026-11-15
 
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 revision: str = "20261115_1200_us25_holds"
-down_revision: Union[str, None] = "20261114_1200_us30a_rls"
+down_revision: Union[str, None] = "20261115_1200_us29b_decisions"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -101,7 +101,7 @@ def upgrade() -> None:
         "(hold_expires_at IS NULL) = (held_by_user_id IS NULL) "
         "AND (status NOT IN ('held', 'expired') OR hold_expires_at IS NOT NULL) "
         "AND (hold_warned_at IS NULL OR (hold_expires_at IS NOT NULL AND hold_warned_at < hold_expires_at)) "
-        # While held, the requester is whoever placed it; confirming makes the coordinator the requester (D105).
+        # While held, the requester is whoever placed it; confirming makes the coordinator the requester (D111).
         "AND (status <> 'held' OR requested_by_user_id = held_by_user_id)",
     )
     # A hold lapses at its expiry, never before it (AC 3).

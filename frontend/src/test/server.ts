@@ -3,6 +3,7 @@ import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll } from "vitest";
 import type { EventRegistrations } from "../features/eventRegistrations/types";
 import type { AuditEntry, EventDetails } from "../features/eventEdit/types";
+import type { Cancellation } from "../features/cancellation/types";
 import type { OrganiserChangeRequest } from "../features/changeRequest/types";
 import type { AssignmentRecord, Clarification, EventRequest, EventRequestWrite } from "../features/eventRequest/types";
 import type { BookingEvaluation, VenueBooking } from "../features/venue/bookingTypes";
@@ -131,6 +132,18 @@ export interface FakePerson {
   name: string;
 }
 
+// US15 (SCRUM-139's API, SCRUM-140's screen): one agenda session, as GET .../sessions returns it.
+export interface FakeSession {
+  id: string;
+  event_id: string;
+  title: string;
+  session_type: "presentation" | "workshop" | "panel" | "break" | "other";
+  speaker_name: string | null;
+  starts_at: string;
+  ends_at: string;
+  outside_window: boolean;
+}
+
 /** One assignment, active until unassigned; the rows are also the log (D79). */
 interface FakeTechStaffRow {
   event_id: string;
@@ -211,6 +224,10 @@ interface Db {
   history: Record<string, AuditEntry[]>;
   // US29a (SCRUM-97): organisers' change requests, newest first.
   changeRequests: OrganiserChangeRequest[];
+  // US9 (SCRUM-12): cancellation requests and cancels, newest first.
+  cancellations: Cancellation[];
+  // US15 (SCRUM-140): every event's agenda sessions.
+  sessions: FakeSession[];
   calls: RecordedCall[];
   nextId: number;
   nextReference: number;
@@ -231,6 +248,8 @@ function emptyDb(): Db {
     coordinatedEvents: [],
     history: {},
     changeRequests: [],
+    cancellations: [],
+    sessions: [],
     bookings: [],
     blocks: [],
     evaluations: {},
@@ -572,6 +591,22 @@ export function seedManagedEvent(
 }
 
 /** A planning event the coordinator can edit (US12); pass `status` for one that can't be. */
+export function seedSession(request: EventRequest, overrides: Partial<FakeSession> = {}): FakeSession {
+  const session: FakeSession = {
+    id: newId("session"),
+    event_id: request.id,
+    title: "Opening keynote",
+    session_type: "presentation",
+    speaker_name: "Dr Tan",
+    starts_at: "2026-11-20T14:00:00+08:00",
+    ends_at: "2026-11-20T15:00:00+08:00",
+    outside_window: false,
+    ...overrides,
+  };
+  db.sessions.push(session);
+  return session;
+}
+
 export function seedCoordinatedEvent(overrides: Partial<EventDetails> = {}): EventDetails {
   const event: EventDetails = {
     id: newId("event"),
@@ -946,6 +981,95 @@ function isLive(booking: VenueBooking): boolean {
 
 const BOOKING_REQUIRED = ["event_id", "venue_id", "starts_at", "ends_at", "expected_attendees", "room_layout", "purpose"];
 const SECTION_ORDER = ["details", "schedule", "attendance", "layout", "accessibility", "equipment", "registration"];
+
+// US15 (D93, D95, D96): the agenda's rules the fake keeps.
+const AGENDA_EDITABLE = ["draft", "planning"];
+
+function ownRequest(request: Request, id: string): EventRequest | undefined {
+  return db.requests.find((r) => r.id === id && r.created_by_user_id === request.headers.get("X-User-Id"));
+}
+
+function agendaOf(eventId: string): FakeSession[] {
+  const at = (iso: string) => new Date(iso).getTime();
+  return db.sessions
+    .filter((s) => s.event_id === eventId)
+    .sort((a, b) => at(a.starts_at) - at(b.starts_at) || at(a.ends_at) - at(b.ends_at) || a.title.localeCompare(b.title));
+}
+
+function sessionValues(current: Partial<FakeSession>, body: unknown): Partial<FakeSession> {
+  const sent = (body ?? {}) as Partial<FakeSession>;
+  const merged = { ...current, ...sent };
+  return {
+    title: (merged.title ?? "").trim(),
+    session_type: merged.session_type,
+    speaker_name: merged.speaker_name?.trim() || null,
+    starts_at: merged.starts_at,
+    ends_at: merged.ends_at,
+  };
+}
+
+function refuseSession(eventId: string, values: Partial<FakeSession>, sessionId?: string): Response | null {
+  // As the API's schema: a time that's sent but isn't one ("") is FastAPI's own 422, with no `code`; only a
+  // missing (null) time reaches the service's per-field messages.
+  for (const field of ["starts_at", "ends_at"] as const) {
+    const value = values[field];
+    if (value != null && Number.isNaN(Date.parse(value))) {
+      return HttpResponse.json({ detail: [{ type: "datetime_from_date_parsing", loc: ["body", field] }] }, { status: 422 });
+    }
+  }
+  const errors: Record<string, string> = {};
+  if (!values.title) errors.title = "Give the session a title.";
+  if (!values.session_type) errors.session_type = "Choose a session type.";
+  if (!values.speaker_name && values.session_type !== "break") errors.speaker_name = "Name the speaker or presenter. Only a break has none.";
+  if (!values.starts_at) errors.starts_at = "Give the session's start time.";
+  if (!values.ends_at) errors.ends_at = "Give the session's end time.";
+  else if (values.starts_at && new Date(values.ends_at) <= new Date(values.starts_at)) errors.ends_at = "The end must be after the start.";
+  if (Object.keys(errors).length > 0) return error(422, "INVALID_SESSION", { fields: Object.keys(errors), errors });
+  const starts = new Date(values.starts_at!).getTime();
+  const ends = new Date(values.ends_at!).getTime();
+  const clash = agendaOf(eventId).find(
+    (s) => s.id !== sessionId && new Date(s.starts_at).getTime() < ends && new Date(s.ends_at).getTime() > starts,
+  );
+  if (clash) {
+    return error(409, "SESSION_OVERLAP", { session: { id: clash.id, title: clash.title, starts_at: clash.starts_at, ends_at: clash.ends_at } });
+  }
+  return null;
+}
+
+// US9 (SCRUM-12): asking (organiser) or cancelling directly (coordinator).
+const CANCELLABLE_STATUSES = new Set(["approved", "planning", "confirmed", "preparation"]);
+
+function cancellationTime(): string {
+  return new Date(Date.UTC(2026, 9, 1, 1, db.nextId)).toISOString();
+}
+
+function startCancellation(event: EventRequest, body: unknown, direct: boolean) {
+  if (!CANCELLABLE_STATUSES.has(event.status)) return error(409, "CANCELLATION_NOT_ALLOWED", { status: event.status });
+  const reason = ((body ?? {}) as { reason?: string }).reason?.trim();
+  if (!reason) return error(422, "MISSING_REQUIRED_FIELD", { fields: ["reason"] });
+  const pending = db.cancellations.find((c) => c.event_id === event.id && c.status === "pending");
+  if (pending) return error(409, "CANCELLATION_PENDING", { cancellation_id: pending.id });
+  const now = cancellationTime();
+  const person = direct ? { id: COORDINATOR_PERSON.id, name: COORDINATOR_PERSON.name } : { id: ORGANISER_PERSON.id, name: ORGANISER_PERSON.name };
+  if (direct) event.status = "cancelled";
+  const created: Cancellation = {
+    id: newId("cancellation"),
+    event_id: event.id,
+    event_name: event.name,
+    request_reference: event.request_reference,
+    event_status: event.status,
+    status: direct ? "approved" : "pending",
+    reason,
+    requested_by: person,
+    requested_at: now,
+    decided_by: direct ? person : null,
+    decided_at: direct ? now : null,
+    rejection_reason: null,
+    direct,
+  };
+  db.cancellations.unshift(created);
+  return HttpResponse.json(created as unknown as JsonBodyType, { status: direct ? 200 : 201 });
+}
 
 // --- Handlers -------------------------------------------------------------------------------
 
@@ -1527,11 +1651,99 @@ const handlers = [
     return HttpResponse.json(created as unknown as JsonBodyType, { status: 201 });
   }),
 
+  // US9 (SCRUM-12), identified by X-User-Id. Which statuses can be cancelled, the start time and the releases are
+  // the API's (backend/tests/event/test_cancellations.py); this keeps one pending request per event, needs a reason
+  // and moves the event to cancelled, so a flow sees its own writes. Other refusals: server.use(...).
+  route("get", "/api/v1/event-requests/:id/cancellations", ({ request, params }) => {
+    const role = userRole(request);
+    const userId = request.headers.get("X-User-Id");
+    const event = db.requests.find((r) => r.id === params.id);
+    const reader = role === "organiser" ? event?.created_by_user_id === userId : event?.coordinator?.id === userId;
+    if (!event || event.status === "draft" || !reader) return error(404, "NOT_FOUND");
+    return HttpResponse.json({ cancellations: db.cancellations.filter((c) => c.event_id === event.id) } as unknown as JsonBodyType);
+  }),
+
+  route("post", "/api/v1/event-requests/:id/cancellation-requests", ({ request, params, body }) => {
+    if (userRole(request) !== "organiser") return error(403, "FORBIDDEN");
+    const event = db.requests.find((r) => r.id === params.id && r.created_by_user_id === request.headers.get("X-User-Id"));
+    if (!event || event.status === "draft") return error(404, "NOT_FOUND");
+    return startCancellation(event, body, false);
+  }),
+
+  route("post", "/api/v1/event-requests/:id/cancel", ({ request, params, body }) => {
+    if (userRole(request) !== "coordinator") return error(403, "FORBIDDEN");
+    const event = db.requests.find((r) => r.id === params.id && r.coordinator?.id === request.headers.get("X-User-Id"));
+    if (!event || event.status === "draft") return error(404, "NOT_FOUND");
+    return startCancellation(event, body, true);
+  }),
+
+  route("post", "/api/v1/event-cancellations/:id/:verb", ({ request, params, body }) => {
+    if (userRole(request) !== "coordinator") return error(403, "FORBIDDEN");
+    const record = db.cancellations.find((c) => c.id === params.id);
+    const event = record && db.requests.find((r) => r.id === record.event_id);
+    if (!record || !event || event.coordinator?.id !== request.headers.get("X-User-Id")) return error(404, "NOT_FOUND");
+    const reason = ((body ?? {}) as { reason?: string }).reason?.trim();
+    if (params.verb === "reject" && !reason) return error(422, "MISSING_REQUIRED_FIELD", { fields: ["reason"] });
+    if (record.status !== "pending") return error(409, "CANCELLATION_NOT_PENDING", { status: record.status });
+    record.status = params.verb === "approve" ? "approved" : "rejected";
+    record.decided_by = { id: COORDINATOR_PERSON.id, name: COORDINATOR_PERSON.name };
+    record.decided_at = cancellationTime();
+    record.rejection_reason = params.verb === "reject" ? reason! : null;
+    if (params.verb === "approve") event.status = "cancelled";
+    record.event_status = event.status;
+    return HttpResponse.json(record as unknown as JsonBodyType);
+  }),
+
   route("get", "/api/v1/me/change-requests", ({ request }) => {
     if (userRole(request) !== "organiser") return error(403, "FORBIDDEN");
     const eventId = new URL(request.url).searchParams.get("event_id");
     const mine = db.changeRequests.filter((r) => !eventId || r.event_id === eventId);
     return HttpResponse.json({ change_requests: mine } as unknown as JsonBodyType);
+  }),
+
+  // US15 (SCRUM-140), identified by X-User-Id: the organiser's own request's agenda. The window (D94) is the API's
+  // (backend/tests/agenda/test_event_sessions_api.py); this keeps the fields, the status rule (D93) and one track
+  // (D95), so a flow sees its own writes in the API's order. A test queues other refusals with server.use(...).
+  route("get", "/api/v1/event-requests/:id/sessions", ({ request, params }) => {
+    const event = ownRequest(request, params.id);
+    if (!event) return error(404, "NOT_FOUND");
+    return HttpResponse.json({ sessions: agendaOf(event.id) } as unknown as JsonBodyType);
+  }),
+
+  route("post", "/api/v1/event-requests/:id/sessions", ({ request, params, body }) => {
+    if (userRole(request) !== "organiser") return error(403, "FORBIDDEN");
+    const event = ownRequest(request, params.id);
+    if (!event) return error(404, "NOT_FOUND");
+    if (!AGENDA_EDITABLE.includes(event.status)) return error(409, "AGENDA_NOT_EDITABLE", { status: event.status });
+    const values = sessionValues({}, body);
+    const refused = refuseSession(event.id, values);
+    if (refused) return refused;
+    const created: FakeSession = { id: newId("session"), event_id: event.id, outside_window: false, ...(values as Omit<FakeSession, "id" | "event_id" | "outside_window">) };
+    db.sessions.push(created);
+    return HttpResponse.json(created as unknown as JsonBodyType, { status: 201 });
+  }),
+
+  route("patch", "/api/v1/event-sessions/:id", ({ request, params, body }) => {
+    if (userRole(request) !== "organiser") return error(403, "FORBIDDEN");
+    const session = db.sessions.find((s) => s.id === params.id);
+    const event = session && ownRequest(request, session.event_id);
+    if (!session || !event) return error(404, "NOT_FOUND");
+    if (!AGENDA_EDITABLE.includes(event.status)) return error(409, "AGENDA_NOT_EDITABLE", { status: event.status });
+    const values = sessionValues(session, body);
+    const refused = refuseSession(event.id, values, session.id);
+    if (refused) return refused;
+    Object.assign(session, values);
+    return HttpResponse.json(session as unknown as JsonBodyType);
+  }),
+
+  route("delete", "/api/v1/event-sessions/:id", ({ request, params }) => {
+    if (userRole(request) !== "organiser") return error(403, "FORBIDDEN");
+    const session = db.sessions.find((s) => s.id === params.id);
+    const event = session && ownRequest(request, session.event_id);
+    if (!session || !event) return error(404, "NOT_FOUND");
+    if (!AGENDA_EDITABLE.includes(event.status)) return error(409, "AGENDA_NOT_EDITABLE", { status: event.status });
+    db.sessions = db.sessions.filter((s) => s.id !== session.id);
+    return new HttpResponse(null, { status: 204 });
   }),
 
   route("get", "/api/v1/me/event-requests", ({ request }) => {
