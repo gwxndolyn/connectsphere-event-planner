@@ -42,9 +42,12 @@ interface ClarificationReviewPageProps {
   userId?: string;
   // The Role switcher's role, sent with the change-request list (US29b, Calvin's #127 review).
   actingAs?: DecidingRole;
+  // US31 (SCRUM-107) AC 5: a request to open straight away, from a notification, and the call that says it was.
+  openId?: string | null;
+  onOpened?: () => void;
 }
 
-export function ClarificationReviewPage({ userId, actingAs = "coordinator" }: ClarificationReviewPageProps) {
+export function ClarificationReviewPage({ userId, actingAs = "coordinator", openId, onOpened }: ClarificationReviewPageProps) {
   const [requests, setRequests] = useState<EventRequest[]>([]);
   const [screen, setScreen] = useState<Screen>("queue");
   const [activeRequest, setActiveRequest] = useState<EventRequest | null>(null);
@@ -81,6 +84,14 @@ export function ClarificationReviewPage({ userId, actingAs = "coordinator" }: Cl
       current = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!openId) return;
+    void openRequest({ id: openId });
+    onOpened?.();
+    // Once per notification clicked.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openId]);
 
   async function openRequest(request: Pick<EventRequest, "id">, changeId: string | null = null) {
     setError(null);

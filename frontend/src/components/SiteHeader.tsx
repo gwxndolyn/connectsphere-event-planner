@@ -1,5 +1,6 @@
 import type { DevRole } from "../api/client";
 import { roleLabel } from "../auth/currentRole";
+import "../features/notifications/notifications.css";
 import "./SiteHeader.css";
 
 export type View =
@@ -10,7 +11,8 @@ export type View =
   | "registrations"
   | "venues"
   | "equipment"
-  | "safety-reviews";
+  | "safety-reviews"
+  | "notifications";
 
 interface SiteHeaderProps {
   search: string;
@@ -29,6 +31,8 @@ interface SiteHeaderProps {
   onRoleChange?: (role: string) => void;
   // The screens this user may open, home first; every screen in dev mode without a login.
   views: View[];
+  // US31 (SCRUM-107) AC 3: how many notifications the user hasn't read, shown on the Notifications link.
+  unreadCount?: number;
 }
 
 export function SiteHeader({
@@ -43,6 +47,7 @@ export function SiteHeader({
   roles = [],
   currentRole,
   onRoleChange,
+  unreadCount = 0,
 }: SiteHeaderProps) {
   const attendeeScreens = views.includes("discovery");
   return (
@@ -152,6 +157,22 @@ export function SiteHeader({
             onClick={() => onNavigate("safety-reviews")}
           >
             Safety reviews
+          </button>
+        )}
+        {views.includes("notifications") && (
+          <button
+            type="button"
+            className="site-header__nav-link"
+            aria-current={view === "notifications" ? "page" : undefined}
+            aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : "Notifications"}
+            onClick={() => onNavigate("notifications")}
+          >
+            Notifications
+            {unreadCount > 0 && (
+              <span className="site-header__count" aria-hidden="true">
+                {unreadCount > 99 ? "99+" : unreadCount}
+              </span>
+            )}
           </button>
         )}
         {/* Dev-only stand-in for login (D12): picks which seeded user's X-User-Id is sent. */}
