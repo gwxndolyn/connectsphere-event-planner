@@ -11,9 +11,18 @@ from sqlalchemy.orm import Session
 from app.core.exceptions import DomainError
 from app.event.models import DeliveryMode, Event, EventStatus
 from app.event.self_decision import refuse_self_decision
-from app.notification.service import BookingDecision, Notifier
+from app.notification.service import BookingDecision, Notifier, RestoreDecision
+from app.registration.models import ACTIVE_STATUSES, Registration
 from app.user.models import User, UserRole
-from app.venue.availability import Conflict, Evaluation, HoursBreach, Window, evaluate_booking, evaluate_window
+from app.venue.availability import (
+    Conflict,
+    Evaluation,
+    HoursBreach,
+    Window,
+    block_conflicts,
+    evaluate_booking,
+    evaluate_window,
+)
 from app.venue.hold_service import HOLD_MAX_LENGTH, HOLD_WARNING, expire_lapsed_holds, notice_for, send
 from app.venue.models import (
     BLOCKING_STATUSES,
@@ -23,10 +32,12 @@ from app.venue.models import (
     Venue,
     VenueBooking,
     VenueBookingStatus,
+    clear_restore_request,
 )
 from app.venue.schemas import (
     BlockSummaryOut,
     HoldEventOut,
+    RestoreDeclineWrite,
     VenueHoldWrite,
     BookingConflictOut,
     BookingEvaluationOut,
@@ -66,6 +77,8 @@ TAG_VOCABULARIES = {
     "required_accessibility_features": "accessibility_features",
 }
 NO_OVERLAP = "venue_bookings_no_overlap"
+# US23b (SCRUM-91, D117): a second live replacement for the same booking, caught by the index.
+ONE_LIVE_REPLACEMENT = "venue_bookings_one_live_replacement"
 # Two inserts for overlapping windows at the same moment can each wait on the other's row in the
 # exclusion index; Postgres aborts one with deadlock_detected. That request runs once more, and then
 # sees or waits for the winner and is refused with VENUE_UNAVAILABLE (AC 7).
@@ -316,9 +329,12 @@ def _unavailability(booking: VenueBooking, venue: Venue) -> BookingUnavailabilit
 
 def _next_action(
     booking: VenueBooking, venue: Venue
-) -> Literal["venue_staff_to_decide", "coordinator_to_rebook", "coordinator_to_confirm", "none"]:
+) -> Literal["venue_staff_to_decide", "coordinator_to_rebook", "coordinator_to_confirm", "venue_staff_to_restore", "none"]:
     """US24 AC 4 (D71): who acts next on this booking. US25: a hold waits for the coordinator (AC 5). US23a: one the
     venue's unavailability overlaps, hold or not, is the coordinator's to rearrange (AC 4)."""
+    # US23b (SCRUM-91) AC 5: the coordinator asked to restore it; Venue staff confirm or decline (D118).
+    if _needs_rearrangement(booking) and booking.restore_requested_at is not None:
+        return "venue_staff_to_restore"
     if _needs_rearrangement(booking):
         return "coordinator_to_rebook"
     if booking.status == VenueBookingStatus.HELD:
@@ -377,7 +393,9 @@ def _warnings(booking: VenueBooking, venue: Venue) -> list[BookingWarning]:
     return warnings
 
 
-def _out(booking: VenueBooking, event: Event, venue: Venue) -> VenueBookingOut:
+def _out(
+    booking: VenueBooking, event: Event, venue: Venue, replacement_id: uuid.UUID | None = None
+) -> VenueBookingOut:
     return VenueBookingOut(
         id=booking.id,
         event=BookingEventOut.model_validate(event),
@@ -409,7 +427,66 @@ def _out(booking: VenueBooking, event: Event, venue: Venue) -> VenueBookingOut:
         hold_expires_at=booking.hold_expires_at,
         held_by_user_id=booking.held_by_user_id,
         expired_at=booking.expired_at,
+        replaces_booking_id=booking.replaces_booking_id,
+        replacement_booking_id=replacement_id,
+        replaced_at=booking.replaced_at,
+        restore_requested_at=booking.restore_requested_at,
+        restore_requested_by_user_id=booking.restore_requested_by_user_id,
+        restore_declined_at=booking.restore_declined_at,
+        restore_decline_reason=booking.restore_decline_reason,
     )
+
+
+def _replacements(db: Session, originals: list[uuid.UUID]) -> dict[uuid.UUID, uuid.UUID]:
+    """US23b (SCRUM-91, D117): each booking's requested or approved replacement, by the booking it replaces."""
+    if not originals:
+        return {}
+    rows = db.execute(
+        select(VenueBooking.replaces_booking_id, VenueBooking.id).where(
+            VenueBooking.replaces_booking_id.in_(originals),
+            VenueBooking.status.in_((VenueBookingStatus.REQUESTED, VenueBookingStatus.APPROVED)),
+        )
+    ).all()
+    return {original: replacement for original, replacement in rows}
+
+
+def _replaceable(db: Session, event: Event, original_id: uuid.UUID, holding: bool) -> VenueBooking:
+    """US23b (SCRUM-91) AC 3 (D117): the booking a new request replaces, locked: one of this event's that needs
+    rearrangement, with no live replacement yet. Venue staff's holds don't replace bookings."""
+    if holding:
+        raise DomainError(
+            422,
+            "INVALID_BOOKING",
+            fields=["replaces_booking_id"],
+            errors={"replaces_booking_id": "Only the event's coordinator can request a replacement venue."},
+        )
+    original = db.scalars(
+        select(VenueBooking).where(VenueBooking.id == original_id).with_for_update()
+    ).one_or_none()
+    if original is None or original.event_id != event.id:
+        raise DomainError(
+            422,
+            "INVALID_BOOKING",
+            fields=["replaces_booking_id"],
+            errors={"replaces_booking_id": "Choose one of this event's bookings that needs rearrangement."},
+        )
+    if not _needs_rearrangement(original):
+        raise DomainError(
+            409,
+            "BOOKING_NOT_REPLACEABLE",
+            status=original.status.value,
+            message="Only a booking that needs rearrangement can be replaced.",
+        )
+    existing = _replacements(db, [original.id]).get(original.id)
+    if existing is not None:
+        reference = db.get(VenueBooking, existing).reference
+        raise DomainError(
+            409,
+            "REPLACEMENT_EXISTS",
+            reference=reference,
+            message=f"Booking {reference} is already the replacement. Withdraw it before requesting another.",
+        )
+    return original
 
 
 class VenueBookingService:
@@ -493,6 +570,8 @@ class VenueBookingService:
         # the venue with nobody to act on it until it lapsed. hold_events leaves such events out too (D112).
         if holding and event.coordinator_id is None:
             raise DomainError(409, "EVENT_NOT_BOOKABLE", status=event.status.value, reason="no_coordinator")
+        if cleaned.get("replaces_booking_id") is not None:
+            _replaceable(db, event, cleaned["replaces_booking_id"], holding)
         schedule_errors = _schedule_errors(event, cleaned["starts_at"], cleaned["ends_at"])
         if schedule_errors:
             raise DomainError(422, "INVALID_BOOKING", fields=list(schedule_errors), errors=schedule_errors)
@@ -578,6 +657,7 @@ class VenueBookingService:
         if booking.status not in BLOCKING_STATUSES:
             raise DomainError(409, "BOOKING_NOT_LIVE", status=booking.status.value)
         was_approved = booking.status == VenueBookingStatus.APPROVED
+        clear_restore_request(booking)
         booking.status = VenueBookingStatus.WITHDRAWN
         booking.withdrawn_at = now
         booking.updated_at = now
@@ -725,6 +805,17 @@ class VenueBookingService:
         # US25 AC 5: a confirmed hold must be approved before its expiry; past it, the sweep expires it and the
         # pending check below refuses it (BOOKING_NOT_PENDING, status expired).
         expire_lapsed_holds(db, now, notifier)
+        # US23b (SCRUM-91), Chloe's #135 review: a replacement's original is locked with it, both by id, before the
+        # event and the venue. Recording a block at the original's venue takes its bookings, then their events, then
+        # the venue, so taking the original after the event could deadlock with it.
+        replaces = db.scalar(select(VenueBooking.replaces_booking_id).where(VenueBooking.id == booking_id))
+        if replaces is not None:
+            db.execute(
+                select(VenueBooking.id)
+                .where(VenueBooking.id.in_([booking_id, replaces]))
+                .order_by(VenueBooking.id)
+                .with_for_update()
+            ).all()
         booking = self._lock_pending(db, booking_id, staff)
         # Other pending requests don't expire, so one can still be waiting after its start;
         # approving it would reserve a window that's gone. Create refuses a past start too.
@@ -757,7 +848,70 @@ class VenueBookingService:
             raise _outside_hours(evaluation.outside_hours, evaluation.occupied, status_code=409)
         if evaluation.conflicts:
             raise _approval_unavailable(evaluation.conflicts[0], booking)
-        return self._decide(db, notifier, staff, booking, event, venue, VenueBookingStatus.APPROVED, now)
+        changes = self._replace_original(db, booking, event, venue, now)
+        result = self._decide(db, notifier, staff, booking, event, venue, VenueBookingStatus.APPROVED, now)
+        for change in changes:
+            # After the commit and best effort: a failure is logged and the replacement stands.
+            try:
+                notifier.venue_changed(**change)
+            except Exception:
+                logger.exception("could not tell %s their event's venue changed", change["email"])
+        return result
+
+    def _replace_original(
+        self, db: Session, booking: VenueBooking, event: Event, venue: Venue, now: datetime
+    ) -> list[dict[str, object]]:
+        """US23b (SCRUM-91) AC 4 (D117): approving a replacement makes the booking it replaces Replaced, which frees
+        its window and keeps its details, and moves the primary venue across. AC 7: attendees hear only when what
+        they see, the primary venue or its times, changed. Returns those notices, to send after the commit."""
+        if booking.replaces_booking_id is None:
+            return []
+        # Already locked by approve, before the event (Chloe's #135 review); read again under that lock.
+        original = db.scalars(
+            select(VenueBooking)
+            .where(VenueBooking.id == booking.replaces_booking_id)
+            .execution_options(populate_existing=True)
+        ).one()
+        # Withdrawn or restored meanwhile: nothing to replace, and this is one more venue for the event.
+        if not _needs_rearrangement(original):
+            return []
+        primary = original.is_primary
+        original_venue = db.get(Venue, original.venue_id)
+        # AC 7: attendees see the primary venue. It is the replacement now if the original had it, or if the
+        # coordinator already made the pending replacement primary (US24, Chloe's #135 review); either way they're
+        # told when its venue or times differ from the original's.
+        changed = (primary or booking.is_primary) and (
+            original.venue_id != booking.venue_id
+            or (original.starts_at, original.ends_at) != (booking.starts_at, booking.ends_at)
+        )
+        original.status = VenueBookingStatus.REPLACED
+        original.replaced_at = now
+        clear_restore_request(original)
+        original.updated_at = now
+        # The original leaves the live set first, so the one-primary index never sees two.
+        db.flush()
+        if primary:
+            booking.is_primary = True
+        if not changed:
+            return []
+        name = event.name or event.request_reference or str(event.id)
+        emails = db.scalars(
+            select(Registration.attendee_email)
+            .where(Registration.event_id == event.id, Registration.status.in_(ACTIVE_STATUSES))
+            .order_by(Registration.attendee_email)
+        ).all()
+        logger.info("venue for event %s moved from %s to %s", event.id, original_venue.name, venue.name)
+        return [
+            {
+                "email": email,
+                "event_id": event.id,
+                "event_name": name,
+                "venue_name": venue.name,
+                "starts_at": booking.starts_at,
+                "ends_at": booking.ends_at,
+            }
+            for email in dict.fromkeys(emails)
+        ]
 
     def reject(
         self,
@@ -782,6 +936,7 @@ class VenueBookingService:
         # venue_bookings_rejection_notes_only_when_rejected, and loading anything could autoflush them.
         booking.rejection_reason = reason
         booking.alternative_suggestion = alternative
+        clear_restore_request(booking)
         return self._decide(db, notifier, staff, booking, event, venue, VenueBookingStatus.REJECTED, now)
 
     def _lock_pending(self, db: Session, booking_id: uuid.UUID, staff: User) -> VenueBooking:
@@ -899,8 +1054,9 @@ class VenueBookingService:
         ).all()
         live = [booking for booking, _ in rows if booking.status in LIVE_BOOKING_STATUSES]
         primary = next((booking for booking in live if booking.is_primary), None)
+        replacements = _replacements(db, [booking.id for booking, _ in rows if _needs_rearrangement(booking)])
         return EventVenueBookingsOut(
-            bookings=[_out(booking, event, venue) for booking, venue in rows],
+            bookings=[_out(booking, event, venue, replacements.get(booking.id)) for booking, venue in rows],
             venues_arranged=_arranged(event, live),
             primary_booking_id=primary.id if primary else None,
             allocated_attendees=sum(booking.expected_attendees for booking in live),
@@ -908,12 +1064,173 @@ class VenueBookingService:
             next_action="choose_primary" if live and primary is None else None,
         )
 
+    # --- US23b (SCRUM-91) AC 5: restoring a booking once its venue is free again (D118) ---
+
+    def request_restore(
+        self, db: Session, coordinator: User, booking_id: uuid.UUID, now: datetime, notifier: Notifier
+    ) -> VenueBookingOut:
+        """The event's coordinator asks Venue staff to restore a booking that needs rearrangement, once nothing
+        overlaps its whole occupied window (setup and turnaround included). Anyone else's booking is 404."""
+        expire_lapsed_holds(db, now, notifier)
+        booking = db.scalars(select(VenueBooking).where(VenueBooking.id == booking_id).with_for_update()).one_or_none()
+        event = db.get(Event, booking.event_id) if booking is not None else None
+        if booking is None or event is None or not may_book(event, coordinator):
+            raise DomainError(404, "NOT_FOUND")
+        self._check_restorable(db, booking)
+        if booking.restore_requested_at is not None:
+            raise DomainError(409, "RESTORE_ALREADY_REQUESTED", message="Venue staff are already asked to restore it.")
+        booking.restore_requested_at = now
+        booking.restore_requested_by_user_id = coordinator.id
+        # Asking again replaces Venue staff's last decline (Matt's #134 review).
+        booking.restore_declined_at = None
+        booking.restore_declined_by_user_id = None
+        booking.restore_decline_reason = None
+        booking.updated_at = now
+        db.commit()
+        db.refresh(booking)
+        venue = db.get(Venue, booking.venue_id)
+        result = _out(booking, event, venue)
+        try:
+            staff = db.scalars(
+                select(User)
+                .where(User.roles.any(UserRole.VENUE_STAFF), User.is_active.is_(True))
+                .order_by(User.email)
+            ).all()
+            for member in staff:
+                notifier.venue_restore_requested(
+                    email=member.email,
+                    booking_id=booking.id,
+                    booking_reference=booking.reference,
+                    event_name=event.name or event.request_reference or str(event.id),
+                    venue_name=venue.name,
+                    starts_at=booking.starts_at,
+                    ends_at=booking.ends_at,
+                )
+        except Exception:
+            logger.exception("could not tell Venue staff about the restore request for booking %s", booking.id)
+        return result
+
+    def restore_requests(self, db: Session, now: datetime, notifier: Notifier) -> list[VenueBookingOut]:
+        """Venue staff's restore requests, oldest first."""
+        expire_lapsed_holds(db, now, notifier)
+        rows = db.execute(
+            select(VenueBooking, Event, Venue)
+            .join(Event, Event.id == VenueBooking.event_id)
+            .join(Venue, Venue.id == VenueBooking.venue_id)
+            .where(VenueBooking.restore_requested_at.is_not(None), VenueBooking.status.in_(BLOCKING_STATUSES))
+            .order_by(VenueBooking.restore_requested_at, VenueBooking.id)
+        )
+        return [_out(booking, event, venue) for booking, event, venue in rows]
+
+    def confirm_restore(
+        self, db: Session, staff: User, booking_id: uuid.UUID, now: datetime, notifier: Notifier
+    ) -> VenueBookingOut:
+        """Venue staff confirm: checked again with the venue locked, so a block recorded meanwhile is seen, then
+        the booking no longer needs rearrangement and keeps its status, window and primary."""
+        booking, event = self._lock_restore(db, staff, booking_id, now, notifier)
+        # D22: the venue FOR UPDATE, as recording a block locks it, so a new block waits or is seen.
+        venue = db.scalars(select(Venue).where(Venue.id == booking.venue_id).with_for_update()).one()
+        self._check_restorable(db, booking)
+        booking.rearrangement_block_id = None
+        booking.rearrangement_flagged_at = None
+        return self._restore_decided(db, notifier, staff, booking, event, venue, "confirmed", None, now)
+
+    def decline_restore(
+        self, db: Session, staff: User, booking_id: uuid.UUID, body: RestoreDeclineWrite, now: datetime, notifier: Notifier
+    ) -> VenueBookingOut:
+        """Venue staff decline: the booking still needs rearrangement; the coordinator may ask again."""
+        reason = body.reason.strip() or None if body.reason is not None else None
+        booking, event = self._lock_restore(db, staff, booking_id, now, notifier)
+        venue = db.get(Venue, booking.venue_id)
+        return self._restore_decided(db, notifier, staff, booking, event, venue, "declined", reason, now)
+
+    def _check_restorable(self, db: Session, booking: VenueBooking) -> None:
+        if not _needs_rearrangement(booking):
+            raise DomainError(409, "BOOKING_NOT_REPLACEABLE", status=booking.status.value, message="This booking doesn't need rearrangement.")
+        replacement = _replacements(db, [booking.id]).get(booking.id)
+        if replacement is not None:
+            reference = db.get(VenueBooking, replacement).reference
+            raise DomainError(
+                409,
+                "REPLACEMENT_EXISTS",
+                reference=reference,
+                message=f"Booking {reference} is its replacement. Withdraw that request before restoring this one.",
+            )
+        # The whole occupied window, every block at the venue: not only the one that marked it (Matt's #131 review).
+        conflicts = block_conflicts(db, booking.venue_id, Window(booking.occupied_starts_at, booking.occupied_ends_at))
+        if conflicts:
+            raise _unavailable(conflicts[0], Window(booking.occupied_starts_at, booking.occupied_ends_at))
+
+    def _lock_restore(
+        self, db: Session, staff: User, booking_id: uuid.UUID, now: datetime, notifier: Notifier
+    ) -> tuple[VenueBooking, Event]:
+        expire_lapsed_holds(db, now, notifier)
+        booking = db.scalars(select(VenueBooking).where(VenueBooking.id == booking_id).with_for_update()).one_or_none()
+        if booking is None:
+            raise DomainError(404, "NOT_FOUND")
+        event = db.get(Event, booking.event_id)
+        # D51: not one they asked for, nor for an event they coordinate.
+        refuse_self_decision(staff, created_by_user_id=booking.restore_requested_by_user_id, event=event)
+        if booking.restore_requested_at is None or not _needs_rearrangement(booking):
+            raise DomainError(409, "RESTORE_NOT_REQUESTED", status=booking.status.value)
+        return booking, event
+
+    def _restore_decided(
+        self,
+        db: Session,
+        notifier: Notifier,
+        staff: User,
+        booking: VenueBooking,
+        event: Event,
+        venue: Venue,
+        decision: RestoreDecision,
+        reason: str | None,
+        now: datetime,
+    ) -> VenueBookingOut:
+        asked_by = booking.restore_requested_by_user_id
+        clear_restore_request(booking)
+        # Matt's #134 review: a decline is kept, with who and why, so the coordinator sees it until they ask again;
+        # a restore leaves nothing to show.
+        declined = decision == "declined"
+        booking.restore_declined_at = now if declined else None
+        booking.restore_declined_by_user_id = staff.id if declined else None
+        booking.restore_decline_reason = reason if declined else None
+        booking.updated_at = now
+        db.commit()
+        db.refresh(booking)
+        result = _out(booking, event, venue)
+        # The coordinator who asked, and the event's coordinator if that's someone else now, once each.
+        try:
+            recipients = db.scalars(
+                select(User)
+                .where(User.id.in_({asked_by, event.coordinator_id} - {None}), User.is_active.is_(True))
+                .order_by(User.email)
+            ).all()
+            for user in recipients:
+                notifier.venue_restore_decided(
+                    email=user.email,
+                    booking_id=booking.id,
+                    booking_reference=booking.reference,
+                    event_name=event.name or event.request_reference or str(event.id),
+                    venue_name=venue.name,
+                    decision=decision,
+                    reason=reason,
+                )
+        except Exception:
+            logger.exception("could not tell the coordinator about the restore decision for booking %s", booking.id)
+        return result
+
     def _commit(self, db: Session, venue: Venue, starts_at: datetime, ends_at: datetime) -> None:
         try:
             db.commit()
         except IntegrityError as error:
             db.rollback()
             constraint = getattr(getattr(error.orig, "diag", None), "constraint_name", None)
+            if constraint == ONE_LIVE_REPLACEMENT:
+                # D117: another replacement for the same booking committed first.
+                raise DomainError(
+                    409, "REPLACEMENT_EXISTS", message="This booking already has a replacement waiting or approved."
+                ) from None
             if constraint == NO_OVERLAP:
                 # AC 7: another request for an overlapping window committed first. It's visible now.
                 evaluation = evaluate_window(db, venue, starts_at, ends_at)

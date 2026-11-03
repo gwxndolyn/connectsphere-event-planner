@@ -66,6 +66,8 @@ class VenueBookingWrite(BaseModel):
     special_requirements: str | None = None
     # US24 (SCRUM-128) AC 1: what the venue is for, e.g. "Main hall" (D66).
     purpose: str | None = None
+    # US23b (SCRUM-91) AC 3: the booking needing rearrangement this request replaces (D117).
+    replaces_booking_id: uuid.UUID | None = None
 
 
 class VenueHoldWrite(VenueBookingWrite):
@@ -124,6 +126,9 @@ class BlockSummaryOut(BaseModel):
     ends_at: datetime
     reason: str  # one of VenueBlockReason
     note: str | None
+    # US23b (SCRUM-91) AC 5 (D118): Venue staff ended it early, so the venue may be free again; the end it had.
+    ended_early_at: datetime | None = None
+    scheduled_ends_at: datetime | None = None
 
 
 class BookingUnavailabilityOut(BaseModel):
@@ -171,11 +176,24 @@ class VenueBookingOut(BaseModel):
     preparation_status: str
     unavailability: BookingUnavailabilityOut | None
     # US25 (SCRUM-93): a hold waits for the coordinator to confirm or decline it.
-    next_action: Literal["venue_staff_to_decide", "coordinator_to_rebook", "coordinator_to_confirm", "none"]
+    # US23b (SCRUM-91): a restore request waits for Venue staff (AC 5).
+    next_action: Literal[
+        "venue_staff_to_decide", "coordinator_to_rebook", "coordinator_to_confirm", "venue_staff_to_restore", "none"
+    ]
     # US25: a hold's expiry (kept once it's confirmed, AC 5), who placed it, and when it lapsed. Null otherwise.
     hold_expires_at: datetime | None = None
     held_by_user_id: uuid.UUID | None = None
     expired_at: datetime | None = None
+    # US23b (SCRUM-91): the booking this one replaces, and, on that booking, its live or approved replacement and
+    # when it became Replaced (AC 3, 4, D117); a restore request waiting for Venue staff (AC 5, D118).
+    replaces_booking_id: uuid.UUID | None = None
+    replacement_booking_id: uuid.UUID | None = None
+    replaced_at: datetime | None = None
+    restore_requested_at: datetime | None = None
+    restore_requested_by_user_id: uuid.UUID | None = None
+    # Venue staff's last decline of a restore, and why, until the coordinator asks again (Matt's #134 review).
+    restore_declined_at: datetime | None = None
+    restore_decline_reason: str | None = None
 
 
 class BookingPreparationWrite(BaseModel):
@@ -339,6 +357,9 @@ class CalendarItemOut(BaseModel):
     booking: CalendarBookingOut | None
     note: str | None  # a block's note
     reason: str | None = None  # US23a (SCRUM-90): a block's reason, one of VenueBlockReason
+    # US23b (SCRUM-91): a block's id, for Venue staff to end it early, and when they did (D118).
+    block_id: uuid.UUID | None = None
+    ended_early_at: datetime | None = None
 
 
 class VenueCalendarOut(BaseModel):
@@ -391,3 +412,15 @@ class VenueBlockOut(BaseModel):
     # D115: bookings the period also overlaps that an earlier period already marked; they keep that one and nobody
     # is told again, but Venue staff see the period reached them (Matt's #133 review).
     already_affected_bookings: list[AffectedBookingOut] = []
+    # US23b (SCRUM-91) AC 5 (D118): set once Venue staff end it early; `ends_at` is then when they did.
+    ended_early_at: datetime | None = None
+    scheduled_ends_at: datetime | None = None
+
+
+class RestoreDeclineWrite(BaseModel):
+    """US23b (SCRUM-91) AC 5: Venue staff decline a restore request, optionally saying why."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Shown to the coordinator, so capped as a rejection reason is (Chloe's #135 review).
+    reason: str | None = Field(default=None, max_length=NOTE_MAX_LENGTH)

@@ -1,6 +1,7 @@
 // Shapes from backend/app/venue/schemas.py (US22, SCRUM-89). Datetimes are ISO 8601 from the API.
 // US25 (SCRUM-93): "held" until the coordinator confirms it, "expired" once it lapsed (D109).
-export type VenueBookingStatus = "requested" | "approved" | "rejected" | "withdrawn" | "held" | "expired";
+// US23b (SCRUM-91): "replaced" once its replacement is approved (D117).
+export type VenueBookingStatus = "requested" | "approved" | "rejected" | "withdrawn" | "held" | "expired" | "replaced";
 
 export interface BookingEvent {
   id: string;
@@ -51,6 +52,16 @@ export interface VenueBooking {
   hold_expires_at: string | null;
   held_by_user_id: string | null;
   expired_at: string | null;
+  // US23b (SCRUM-91): the booking this one replaces; on that booking, its waiting or approved replacement and when
+  // it was Replaced (AC 3, 4, D117); a restore request waiting for Venue staff (AC 5, D118).
+  replaces_booking_id?: string | null;
+  replacement_booking_id?: string | null;
+  replaced_at?: string | null;
+  restore_requested_at?: string | null;
+  restore_requested_by_user_id?: string | null;
+  // Venue staff's last decline of a restore, and why, until the coordinator asks again (Matt's #134 review).
+  restore_declined_at?: string | null;
+  restore_decline_reason?: string | null;
 }
 
 // US24 AC 7 (D73): how far Venue staff are with getting an approved venue ready.
@@ -58,7 +69,13 @@ export type PreparationStatus = "not_started" | "in_progress" | "ready";
 
 // US24 AC 4 (D71): who acts next on a booking.
 // US25: a hold waits for the coordinator to confirm or decline it.
-export type NextAction = "venue_staff_to_decide" | "coordinator_to_rebook" | "coordinator_to_confirm" | "none";
+// US23b (SCRUM-91): a restore request waits for Venue staff.
+export type NextAction =
+  | "venue_staff_to_decide"
+  | "coordinator_to_rebook"
+  | "coordinator_to_confirm"
+  | "venue_staff_to_restore"
+  | "none";
 
 // US23a (SCRUM-90) AC 1: why a venue is out of use (VenueBlockReason in backend/app/venue/models.py).
 export type VenueBlockReason = "maintenance" | "equipment_failure" | "renovation" | "safety" | "other";
@@ -70,6 +87,9 @@ export interface BlockSummary {
   ends_at: string;
   reason: VenueBlockReason;
   note: string | null;
+  // US23b (SCRUM-91) AC 5 (D118): Venue staff ended it early (ends_at is then), and the end it had.
+  ended_early_at?: string | null;
+  scheduled_ends_at?: string | null;
 }
 
 /**
@@ -168,6 +188,8 @@ export interface VenueBookingWrite {
   special_requirements?: string;
   // US24 (SCRUM-128): required; blank is left out so MISSING_REQUIRED_FIELD names it (D66).
   purpose?: string;
+  // US23b (SCRUM-91) AC 3: the booking needing rearrangement this request replaces (D117).
+  replaces_booking_id?: string;
 }
 
 // The form as typed. Date and times are Singapore wall-clock (D9).
@@ -235,4 +257,7 @@ export interface VenueBlock {
   affected_bookings: AffectedBooking[];
   // D115: bookings the period also overlaps that an earlier period already marked; nobody is told again.
   already_affected_bookings?: AffectedBooking[];
+  // US23b (SCRUM-91) AC 5 (D118): set once Venue staff end it early.
+  ended_early_at?: string | null;
+  scheduled_ends_at?: string | null;
 }

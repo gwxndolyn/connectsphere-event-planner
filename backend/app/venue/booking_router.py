@@ -18,6 +18,7 @@ from app.venue.schemas import (
     BookingRejectWrite,
     EventVenueBookingsOut,
     HoldEventsOut,
+    RestoreDeclineWrite,
     VenueBookingCreatedOut,
     VenueBookingOut,
     VenueBookingsOut,
@@ -59,6 +60,17 @@ def pending_bookings(
     notifier: Notifier = Depends(get_notifier),
 ) -> VenueBookingsOut:
     return VenueBookingsOut(bookings=booking_service.pending(db, now, notifier))
+
+
+# US23b (SCRUM-91) AC 5: Venue staff's restore requests (D118). Before /{booking_id} routes.
+@router.get("/restore-requests", response_model=VenueBookingsOut)
+def restore_requests(
+    _: VenueStaff,
+    db: Session = Depends(get_db),
+    now: datetime = Depends(get_now),
+    notifier: Notifier = Depends(get_notifier),
+) -> VenueBookingsOut:
+    return VenueBookingsOut(bookings=booking_service.restore_requests(db, now, notifier))
 
 
 @router.get("/{booking_id}/evaluation", response_model=BookingEvaluationOut)
@@ -167,3 +179,39 @@ def place_hold(
 @holds_router.get("/events", response_model=HoldEventsOut)
 def hold_events(_: VenueStaff, db: Session = Depends(get_db)) -> HoldEventsOut:
     return HoldEventsOut(events=booking_service.hold_events(db))
+
+
+# US23b (SCRUM-91) AC 5 (D118): the event's coordinator asks to restore a booking that needs rearrangement once its
+# venue is free again; Venue staff confirm or decline.
+@router.post("/{booking_id}/restore", response_model=VenueBookingOut)
+def request_restore(
+    booking_id: uuid.UUID,
+    coordinator: Coordinator,
+    db: Session = Depends(get_db),
+    now: datetime = Depends(get_now),
+    notifier: Notifier = Depends(get_notifier),
+) -> VenueBookingOut:
+    return booking_service.request_restore(db, coordinator, booking_id, now, notifier)
+
+
+@router.post("/{booking_id}/restore/confirm", response_model=VenueBookingOut)
+def confirm_restore(
+    booking_id: uuid.UUID,
+    staff: VenueStaff,
+    db: Session = Depends(get_db),
+    now: datetime = Depends(get_now),
+    notifier: Notifier = Depends(get_notifier),
+) -> VenueBookingOut:
+    return booking_service.confirm_restore(db, staff, booking_id, now, notifier)
+
+
+@router.post("/{booking_id}/restore/decline", response_model=VenueBookingOut)
+def decline_restore(
+    booking_id: uuid.UUID,
+    staff: VenueStaff,
+    body: RestoreDeclineWrite | None = Body(default=None),
+    db: Session = Depends(get_db),
+    now: datetime = Depends(get_now),
+    notifier: Notifier = Depends(get_notifier),
+) -> VenueBookingOut:
+    return booking_service.decline_restore(db, staff, booking_id, body or RestoreDeclineWrite(), now, notifier)

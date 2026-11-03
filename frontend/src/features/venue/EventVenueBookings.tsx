@@ -14,7 +14,7 @@ import {
 } from "./bookingApi";
 import type { EventVenueBooking, EventVenues, VenueBookingCreated } from "./bookingTypes";
 import { tagLabel } from "./tags";
-import { formatBlockPeriod } from "./blockApi";
+import { blockReasonLabel, formatBlockPeriod } from "./blockApi";
 import { VenueArrangements } from "./VenueArrangements";
 import { VenueBookingForm } from "./VenueBookingForm";
 import { WithdrawBookingDialog } from "./WithdrawBookingDialog";
@@ -32,7 +32,10 @@ type Notice =
   | { kind: "primary"; booking: EventVenueBooking }
   // US25 (SCRUM-93): a hold confirmed into a request (AC 5), or declined (AC 7).
   | { kind: "confirmed"; booking: EventVenueBooking }
-  | { kind: "declined"; booking: EventVenueBooking };
+  | { kind: "declined"; booking: EventVenueBooking }
+  // US23b (SCRUM-91): a replacement requested (AC 3), or a restore asked for (AC 5).
+  | { kind: "replacing"; booking: VenueBookingCreated; replaces: EventVenueBooking }
+  | { kind: "restore"; booking: EventVenueBooking };
 
 
 function live(booking: EventVenueBooking): boolean {
@@ -64,6 +67,8 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
   const [declining, setDeclining] = useState<string | null>(null);
   // The API refused this event's bookings (404): it's assigned to another coordinator (D20).
   const [notMine, setNotMine] = useState(false);
+  // US23b (SCRUM-91) AC 2: the booking needing rearrangement whose replacement is being found.
+  const [replacing, setReplacing] = useState<EventVenueBooking | null>(null);
   const assigned = event.coordinator !== null;
   const bookings = venues?.bookings ?? [];
 
@@ -139,6 +144,18 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
     await reload();
   }
 
+  /** US23b AC 5 (D118): ask Venue staff to restore a booking once its venue is free again. */
+  async function requestRestore(booking: EventVenueBooking) {
+    setError(null);
+    setNotice(null);
+    try {
+      setNotice({ kind: "restore", booking: { ...booking, ...(await bookingApi.requestRestore(booking.id)) } });
+    } catch (reason) {
+      setError(bookingErrorMessage(reason));
+    }
+    await reload();
+  }
+
   /** US24 AC 4 (D68): the venue attendees see, once it's approved (D70). */
   async function makePrimary(booking: EventVenueBooking) {
     setError(null);
@@ -156,7 +173,7 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
     <section className="venue-bookings" aria-labelledby="venue-bookings-title">
       <div className="venue-bookings__head">
         <h2 id="venue-bookings-title">Venue bookings</h2>
-        {!requesting && !blocked && (
+        {!requesting && !replacing && !blocked && (
           <button
             type="button"
             className="request-button request-button--primary"
@@ -193,6 +210,17 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
               approve it
               {notice.booking.hold_expires_at ? ` by ${formatInstantDateTime(notice.booking.hold_expires_at)}` : ""}.
             </p>
+          ) : notice.kind === "replacing" ? (
+            <p>
+              Replacement requested: {notice.booking.venue.name}, {formatBookingWindow(notice.booking)} (
+              {notice.booking.reference}). Venue staff have been notified; {notice.replaces.reference} at{" "}
+              {notice.replaces.venue.name} is replaced once they approve it.
+            </p>
+          ) : notice.kind === "restore" ? (
+            <p>
+              Restore requested: Venue staff have been asked to give {notice.booking.venue.name} back to this event (
+              {notice.booking.reference}).
+            </p>
           ) : notice.kind === "declined" ? (
             <p>Hold on {notice.booking.venue.name} declined. The venue is free again.</p>
           ) : notice.kind === "primary" ? (
@@ -217,6 +245,17 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
 
       {blocked ? (
         <p className="request-empty">{blocked}</p>
+      ) : replacing ? (
+        <VenueBookingForm
+          event={event}
+          replacing={replacing}
+          onCancel={() => setReplacing(null)}
+          onBooked={(booking) => {
+            setNotice({ kind: "replacing", booking, replaces: replacing });
+            setReplacing(null);
+            void reload();
+          }}
+        />
       ) : requesting ? (
         <VenueBookingForm
           event={event}
@@ -237,6 +276,11 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
           <ul className="venue-booking-list" aria-label="This event's venue bookings">
             {bookings.map((booking) => {
               const window = formatBookingWindow(booking);
+              // US23b (SCRUM-91): the replacement waiting for or approved by Venue staff, and the booking replaced.
+              const replacement = bookings.find((b) => b.id === booking.replacement_booking_id);
+              const replacedBy = bookings.find((b) => b.replaces_booking_id === booking.id && b.status === "approved");
+              const replaces = bookings.find((b) => b.id === booking.replaces_booking_id);
+              const block = booking.unavailability?.kind === "venue_unavailable" ? booking.unavailability.block : null;
               return (
                 <li key={booking.id} className="venue-booking-row" aria-label={`${booking.venue.name}, ${window}`}>
                   <div className="venue-booking-row__main">
@@ -284,13 +328,42 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
                       <span className="venue-booking-row__decision">This venue is no longer available.</span>
                     )}
                     {/* US23a (SCRUM-90) AC 3, 4: the venue became unavailable; the coordinator rearranges it. */}
-                    {booking.unavailability?.kind === "venue_unavailable" && booking.unavailability.block && (
+                    {block && !block.ended_early_at && (
                       <span className="venue-booking-row__decision">
-                        Needs rearrangement: the venue is unavailable from {formatBlockPeriod(booking.unavailability.block)}
-                        {booking.unavailability.block.note ? `: ${booking.unavailability.block.note}` : ""}. Find a
-                        replacement venue, or withdraw it.
+                        Needs rearrangement: the venue is unavailable from {formatBlockPeriod(block)}
+                        {block.note ? `: ${block.note}` : ""}. Find a replacement venue, or withdraw it.
                       </span>
                     )}
+                    {/* US23b (SCRUM-91) AC 5 (D118): Venue staff ended the period early, so it may be restored. */}
+                    {block?.ended_early_at && (
+                      <span className="venue-booking-row__decision">
+                        Needs rearrangement: the venue was unavailable ({blockReasonLabel(block.reason)}
+                        {block.note ? `: ${block.note}` : ""}), but Venue staff ended that early on{" "}
+                        {formatInstantDateTime(block.ended_early_at)}.{" "}
+                        {booking.restore_requested_at
+                          ? "You asked to restore this booking; Venue staff confirm it."
+                          : booking.restore_declined_at
+                            ? `Venue staff declined the restore on ${formatInstantDateTime(booking.restore_declined_at)}${
+                                booking.restore_decline_reason ? `: ${booking.restore_decline_reason}` : ""
+                              }. Ask again, or find a replacement.`
+                            : "Ask to restore this booking, or find a replacement."}
+                      </span>
+                    )}
+                    {block && replacement && (
+                      <span className="venue-booking-row__hold">
+                        Replacement {bookingStatusLabel(replacement.status).toLowerCase()}: {replacement.venue.name} (
+                        {replacement.reference}).{" "}
+                        {replacement.status === "requested" ? "This booking is replaced once Venue staff approve it." : ""}
+                      </span>
+                    )}
+                    {/* AC 4: the original keeps its details once replaced. */}
+                    {booking.status === "replaced" && (
+                      <span className="venue-booking-row__decision">
+                        Replaced{replacedBy ? ` by ${replacedBy.venue.name} (${replacedBy.reference})` : ""}
+                        {booking.replaced_at ? ` on ${formatInstantDateTime(booking.replaced_at)}` : ""}.
+                      </span>
+                    )}
+                    {replaces && <span>Replaces {replaces.reference} at {replaces.venue.name}.</span>}
                   </div>
                   {booking.is_primary && <span className="venue-badge venue-badge--primary">Primary</span>}
                   {needsRearrangement(booking) && (
@@ -340,6 +413,29 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
                         Decline hold
                       </button>
                     </div>
+                  )}
+                  {/* US23b (SCRUM-91) AC 2, 5: replace it, or once the period ended early, ask to restore it. */}
+                  {block && !replacement && (
+                    <button
+                      type="button"
+                      className="request-button request-button--primary"
+                      onClick={() => {
+                        setNotice(null);
+                        setError(null);
+                        setReplacing(booking);
+                      }}
+                    >
+                      Find a replacement
+                    </button>
+                  )}
+                  {block?.ended_early_at && !replacement && !booking.restore_requested_at && (
+                    <button
+                      type="button"
+                      className="request-button request-button--secondary"
+                      onClick={() => void requestRestore(booking)}
+                    >
+                      Ask to restore
+                    </button>
                   )}
                   {/* US24 (D69): an approved venue can be withdrawn too; Venue staff are told. */}
                   {live(booking) && (

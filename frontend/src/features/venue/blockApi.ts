@@ -5,6 +5,9 @@ import type { VenueBlock, VenueBlockReason, VenueBlockWrite } from "./bookingTyp
 
 // US23a (SCRUM-90): Venue staff mark a venue unavailable for a period.
 export const blockApi = {
+  // US23b (SCRUM-91) AC 5 (D118): Venue staff end a period early, so the venue may be free again.
+  endEarly: (venueId: string, blockId: string) =>
+    apiClient.post<VenueBlock>(`/api/v1/venues/${venueId}/blocks/${blockId}/end`, {}),
   markUnavailable: (venueId: string, body: VenueBlockWrite) =>
     apiClient.post<VenueBlock>(`/api/v1/venues/${venueId}/blocks`, body),
 };
@@ -71,6 +74,9 @@ export function blockErrorMessage(error: unknown): string {
       return "That venue no longer exists. Choose another.";
     case "FORBIDDEN":
       return "Only Venue staff can mark a venue unavailable.";
+    // US23b (SCRUM-91): ending a period that's already over.
+    case "BLOCK_ENDED":
+      return "This period has already ended. Reload the calendar to see it as it is now.";
     default:
       return FALLBACK_MESSAGE;
   }

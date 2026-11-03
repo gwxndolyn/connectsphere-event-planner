@@ -60,11 +60,37 @@ export const bookingApi = {
   },
 
   confirmHold: (id: string) => apiClient.post<VenueBooking>(`/api/v1/venue-bookings/${id}/confirm`, {}),
+
+  // US23b (SCRUM-91) AC 5 (D118): the coordinator asks to restore a booking once its venue is free again; Venue
+  // staff list the requests and confirm or decline them.
+  requestRestore: (id: string) => apiClient.post<VenueBooking>(`/api/v1/venue-bookings/${id}/restore`, {}),
+  async restoreRequests(): Promise<VenueBooking[]> {
+    return (await apiClient.get<VenueBookingsResponse>("/api/v1/venue-bookings/restore-requests")).bookings;
+  },
+  confirmRestore: (id: string) => apiClient.post<VenueBooking>(`/api/v1/venue-bookings/${id}/restore/confirm`, {}),
+  declineRestore: (id: string, reason?: string) =>
+    apiClient.post<VenueBooking>(`/api/v1/venue-bookings/${id}/restore/decline`, reason ? { reason } : {}),
 };
 
 // Every event is in Singapore (D9), so the window is sent with its +08:00 offset; the API refuses a
 // time without one (INVALID_BOOKING).
 const SINGAPORE_OFFSET = "+08:00";
+
+const SINGAPORE_PARTS = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Asia/Singapore",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+
+/** An instant as the form's Singapore date (YYYY-MM-DD) and time (HH:MM): singaporeInstant's inverse. */
+export function singaporeParts(instant: string): { date: string; time: string } {
+  const parts = Object.fromEntries(SINGAPORE_PARTS.formatToParts(new Date(instant)).map((part) => [part.type, part.value]));
+  return { date: `${parts.year}-${parts.month}-${parts.day}`, time: `${parts.hour}:${parts.minute}` };
+}
 
 export function singaporeInstant(date: string, time: string): string | undefined {
   return date && time ? `${date}T${time}:00${SINGAPORE_OFFSET}` : undefined;
@@ -170,6 +196,8 @@ const STATUS_LABELS: Record<VenueBookingStatus, string> = {
   // US25 (SCRUM-93).
   held: "Held",
   expired: "Hold expired",
+  // US23b (SCRUM-91, D117).
+  replaced: "Replaced",
 };
 
 export function bookingStatusLabel(status: VenueBookingStatus): string {
@@ -193,6 +221,8 @@ const NEXT_ACTION_LABELS: Record<NextAction, string> = {
   venue_staff_to_decide: "Waiting for Venue staff",
   coordinator_to_rebook: "Coordinator to rebook",
   coordinator_to_confirm: "Coordinator to confirm the hold",
+  // US23b (SCRUM-91, D118).
+  venue_staff_to_restore: "Waiting for Venue staff to restore it",
   none: "Nothing to do",
 };
 
@@ -315,6 +345,13 @@ export function bookingErrorMessage(error: unknown): string {
       return "Review the hold's expiry, marked below.";
     case "HOLD_NOT_HELD":
       return `This hold can't be confirmed${status ? `: it's ${status} now` : ""}. Reload to see its status.`;
+    // US23b (SCRUM-91): the API's own words name the booking in the way.
+    case "BOOKING_NOT_REPLACEABLE":
+    case "REPLACEMENT_EXISTS":
+    case "RESTORE_ALREADY_REQUESTED":
+      return typeof error.body.message === "string" ? error.body.message : FALLBACK_MESSAGE;
+    case "RESTORE_NOT_REQUESTED":
+      return "Nobody is waiting for this booking to be restored any more. Reload to see where it is now.";
     case "NOT_FOUND":
       return "This event, venue or booking is no longer available. Reload and try again.";
     case "FORBIDDEN":

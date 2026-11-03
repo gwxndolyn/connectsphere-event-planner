@@ -10,10 +10,11 @@ import {
   formatWindowTimes,
   missingForVenue,
   occupiedPreview,
+  singaporeParts,
   toBookingBody,
   toHoldBody,
 } from "./bookingApi";
-import type { BookingFormValues, VenueBookingCreated } from "./bookingTypes";
+import type { BookingFormValues, EventVenueBooking, VenueBookingCreated } from "./bookingTypes";
 import { ACCESSIBILITY_FEATURES, FACILITIES, ROOM_LAYOUTS, tagLabel } from "./tags";
 import type { Venue } from "./types";
 import "../eventRequest/eventRequests.css";
@@ -60,8 +61,24 @@ function toggle(list: string[], tag: string): string[] {
   return list.includes(tag) ? list.filter((t) => t !== tag) : [...list, tag];
 }
 
-/** The event's own preferences (US1) as a starting point; the coordinator can change any of them. */
-function initialValues(event: BookingFormEvent): BookingFormValues {
+/** The event's own preferences (US1) as a starting point; the coordinator can change any of them. US23b (SCRUM-91)
+ * AC 2: a replacement starts from the booking it replaces: its date, times, attendance, layout and needs. */
+function initialValues(event: BookingFormEvent, replacing?: EventVenueBooking): BookingFormValues {
+  if (replacing) {
+    const start = singaporeParts(replacing.starts_at);
+    return {
+      venueId: "",
+      date: start.date,
+      startTime: start.time,
+      endTime: singaporeParts(replacing.ends_at).time,
+      attendees: String(replacing.expected_attendees),
+      roomLayout: replacing.room_layout,
+      facilities: replacing.required_facilities,
+      accessibility: replacing.required_accessibility_features,
+      specialRequirements: replacing.special_requirements ?? "",
+      purpose: replacing.purpose,
+    };
+  }
   return {
     venueId: "",
     date: event.preferred_dates?.[0] ?? "",
@@ -94,6 +111,29 @@ interface VenueBookingFormProps {
   onCancel: () => void;
   // US25 (SCRUM-93) AC 1: Venue staff hold the venue until an expiry, instead of requesting it.
   hold?: boolean;
+  // US23b (SCRUM-91) AC 2, 3: the booking needing rearrangement this request replaces.
+  replacing?: EventVenueBooking;
+}
+
+/** US23b AC 2: what the venue search (US2) is asked: the form's date, times and attendance. */
+function searchForm(values: BookingFormValues) {
+  return {
+    date: values.date,
+    startTime: values.startTime,
+    endTime: values.endTime,
+    attendees: values.attendees,
+    location: "",
+    facilities: [],
+    accessibility: [],
+  };
+}
+
+/** US23b AC 2: the search's criteria in words, e.g. "Fri 20 Nov, 10:00 AM – 12:00 PM for 30 attendees". */
+function searchText(form: BookingFormValues): string {
+  const window = toBookingBody("", form);
+  const when =
+    window.starts_at && window.ends_at ? formatBookingWindow({ starts_at: window.starts_at, ends_at: window.ends_at }) : "";
+  return `${when}${form.attendees.trim() ? ` for ${form.attendees.trim()} attendees` : ""}`;
 }
 
 /**
@@ -103,8 +143,8 @@ interface VenueBookingFormProps {
  * previews the window the venue's setup and turnaround make it occupy; whether that fits its hours and
  * clears other bookings is still the API's call (VENUE_OUTSIDE_HOURS, VENUE_UNAVAILABLE).
  */
-export function VenueBookingForm({ event, onBooked, onCancel, hold = false }: VenueBookingFormProps) {
-  const [form, setForm] = useState<BookingFormValues>(() => initialValues(event));
+export function VenueBookingForm({ event, onBooked, onCancel, hold = false, replacing }: VenueBookingFormProps) {
+  const [form, setForm] = useState<BookingFormValues>(() => initialValues(event, replacing));
   const [expiryDate, setExpiryDate] = useState("");
   const [expiryTime, setExpiryTime] = useState("17:00");
   const [venues, setVenues] = useState<Venue[]>([]);
@@ -112,6 +152,46 @@ export function VenueBookingForm({ event, onBooked, onCancel, hold = false }: Ve
   // Keyed by the API's field names (venue_id, starts_at, …), as the errors arrive.
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [sending, setSending] = useState(false);
+  // US23b AC 2: the venues free for the replacement's time and attendance, and the criteria they were found for.
+  const [found, setFound] = useState<{ venues: Venue[]; criteria: string } | null>(null);
+  const [searching, setSearching] = useState(replacing !== undefined);
+
+  /** "Search again", with the date, times and attendance as the coordinator changed them. */
+  async function search(values: BookingFormValues) {
+    setSearching(true);
+    setError(null);
+    try {
+      const result = await venueApi.search(searchForm(values));
+      setFound({ venues: result.venues, criteria: searchText(values) });
+      setForm((current) => (result.venues.some((v) => v.id === current.venueId) ? current : { ...current, venueId: "" }));
+    } catch (reason) {
+      setFound(null);
+      setError(venueErrorMessage(reason));
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  useEffect(() => {
+    // The search starts as the form opens, with the booking's own date, times and attendance (AC 2).
+    if (!replacing) return;
+    let current = true;
+    const values = initialValues(event, replacing);
+    venueApi
+      .search(searchForm(values))
+      .then((result) => {
+        if (current) setFound({ venues: result.venues, criteria: searchText(values) });
+      })
+      .catch((reason: unknown) => {
+        if (current) setError(venueErrorMessage(reason));
+      })
+      .finally(() => {
+        if (current) setSearching(false);
+      });
+    return () => {
+      current = false;
+    };
+  }, [event, replacing]);
 
   useEffect(() => {
     let current = true;
@@ -150,7 +230,10 @@ export function VenueBookingForm({ event, onBooked, onCancel, hold = false }: Ve
       onBooked(
         hold
           ? await bookingApi.placeHold(toHoldBody(event.id, form, expiryDate, expiryTime))
-          : await bookingApi.create(toBookingBody(event.id, form)),
+          : await bookingApi.create({
+              ...toBookingBody(event.id, form),
+              ...(replacing ? { replaces_booking_id: replacing.id } : {}),
+            }),
       );
     } catch (reason) {
       setError(bookingErrorMessage(reason));
@@ -184,8 +267,33 @@ export function VenueBookingForm({ event, onBooked, onCancel, hold = false }: Ve
 
   return (
     <form className="venue-booking-form" noValidate onSubmit={(submitted) => void handleSubmit(submitted)}>
-      <h3>{hold ? "Hold a venue" : "Request a venue"}</h3>
+      <h3>{hold ? "Hold a venue" : replacing ? "Find a replacement venue" : "Request a venue"}</h3>
       {schedule && <p className="venue-booking__schedule">Event schedule: {schedule}</p>}
+      {replacing && (
+        <div className="venue-replacement-search" role="status">
+          <p>
+            Replacing {replacing.reference}: {replacing.venue.name}, {formatBookingWindow(replacing)}. Venue staff
+            approve the replacement like any request; the original stays until then.
+          </p>
+          {searching ? (
+            <p>Searching for free venues…</p>
+          ) : found && (
+            <p>
+              {found.venues.length === 0
+                ? `No venue is free ${found.criteria}. Change the date, times or attendance below and search again, or withdraw the booking.`
+                : `${found.venues.length} ${found.venues.length === 1 ? "venue is" : "venues are"} free ${found.criteria}. Choose one below.`}
+            </p>
+          )}
+          <button
+            type="button"
+            className="request-button request-button--secondary"
+            disabled={searching}
+            onClick={() => void search(form)}
+          >
+            Search again
+          </button>
+        </div>
+      )}
       {error && (
         <div className="request-alert" role="alert">
           {error}
@@ -202,7 +310,7 @@ export function VenueBookingForm({ event, onBooked, onCancel, hold = false }: Ve
             {...invalid("venue_id")}
           >
             <option value="">Choose a venue</option>
-            {venues.map((v) => (
+            {(replacing ? (found?.venues ?? []) : venues).map((v) => (
               <option key={v.id} value={v.id}>
                 {v.name} (capacity {v.capacity})
               </option>

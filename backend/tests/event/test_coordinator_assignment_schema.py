@@ -17,6 +17,7 @@ from app.seed import (
     MULTI_VENUE_EVENT,
     PLANNING_EVENT,
     SAFETY_REVIEW_EVENT,
+    REPLACEMENT_EVENT,
     UNAVAILABILITY_EVENT,
     seed,
     seed_id,
@@ -96,5 +97,6 @@ def test_tc_us10a_04_seed_adds_two_active_leads_and_leaves_events_unassigned(db:
             seed_id("event", CANCELLATION_EVENT.slug),
             seed_id("event", HOLD_EVENT.slug),  # US25 (SCRUM-93): the hold E2E's event
             seed_id("event", UNAVAILABILITY_EVENT.slug),  # US23a (SCRUM-90): the unavailability E2E's event
+            seed_id("event", REPLACEMENT_EVENT.slug),  # US23b (SCRUM-91): the replacement E2E's event
         ]
     )

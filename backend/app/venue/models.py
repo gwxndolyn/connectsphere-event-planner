@@ -118,6 +118,14 @@ LIVE_BOOKING_STATUSES = (VenueBookingStatus.REQUESTED, VenueBookingStatus.APPROV
 BLOCKING_STATUSES = (*LIVE_BOOKING_STATUSES, VenueBookingStatus.HELD)
 
 
+def clear_restore_request(booking: "VenueBooking") -> None:
+    """US23b (SCRUM-91, Chloe's #134 review): a restore request lives only on a live booking or hold
+    (venue_bookings_restore_consistent), so whatever closes one (withdraw, reject, a hold's expiry, a cancellation)
+    clears it in the same update."""
+    booking.restore_requested_at = None
+    booking.restore_requested_by_user_id = None
+
+
 def occupied_window(venue: "Venue", starts_at: datetime, ends_at: datetime) -> tuple[datetime, datetime]:
     """US13 AC 2: the venue is occupied from the start of setup to the end of turnaround, with the
     venue's own buffers (AC 1). 10:00-12:00 with 30/45 occupies 09:30-12:45; 0/0 is the plain window.

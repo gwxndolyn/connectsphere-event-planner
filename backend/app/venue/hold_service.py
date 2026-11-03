@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.event.models import Event
 from app.notification.service import HoldStage, Notifier
 from app.user.models import User
-from app.venue.models import Venue, VenueBooking, VenueBookingStatus
+from app.venue.models import Venue, VenueBooking, VenueBookingStatus, clear_restore_request
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +122,7 @@ def expire_lapsed_holds(db: Session, now: datetime, notifier: Notifier) -> int:
         ).one()
         notice = None
         if _lapsed(booking, now):
+            clear_restore_request(booking)
             booking.status = VenueBookingStatus.EXPIRED
             booking.expired_at = now
             # A confirmed hold may have become the event's primary venue; an expired one can't stay it (AC 6).

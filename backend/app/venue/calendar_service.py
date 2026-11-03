@@ -130,6 +130,8 @@ def _block_items(db: Session, venue_id: uuid.UUID, window: Window) -> list[tuple
                 booking=None,
                 note=block.note,
                 reason=block.reason,
+                block_id=block.block_id,
+                ended_early_at=block.ended_early_at,
             ),
         )
         for block in block_conflicts(db, venue_id, window)

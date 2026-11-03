@@ -2,7 +2,7 @@ import { type CSSProperties, useEffect, useId, useState } from "react";
 import { statusLabel } from "../eventRequest/clarificationSections";
 import { formatInstantDateTime, formatInstantTime } from "../registration/datetime";
 import { calendarErrorMessage, venueApi, venueErrorMessage } from "./api";
-import { blockReasonLabel } from "./blockApi";
+import { blockApi, blockErrorMessage, blockReasonLabel } from "./blockApi";
 import {
   PREPARATION_STATUSES,
   bookingApi,
@@ -229,6 +229,7 @@ export function VenueCalendar({ staff, today = singaporeToday() }: VenueCalendar
       {selected && (
         <ItemDetails
           item={selected}
+          venueId={venueId}
           staff={staff}
           onClose={() => setSelected(null)}
           onChanged={replaceItem}
@@ -407,6 +408,8 @@ function MonthGrid({ days, month, items, onOpen }: MonthGridProps) {
 
 interface ItemDetailsProps {
   item: CalendarItem;
+  // US23b (SCRUM-91): the calendar's venue, for Venue staff to end one of its periods early.
+  venueId: string;
   // Venue Staff record an approved booking's preparation here (US24, D73, D78); others read it.
   staff: boolean;
   onClose: () => void;
@@ -478,8 +481,79 @@ function PreparationControl({ item, onChanged, onStale }: PreparationControlProp
   );
 }
 
+/**
+ * US23b (SCRUM-91) AC 5 (D118): Venue staff end a period early, so the venue can be free again. Its bookings still
+ * need rearrangement until their coordinators ask to restore them and Venue staff confirm. Asks first: it can't be
+ * undone.
+ */
+function EndEarlyControl({ item, venueId, onStale }: { item: CalendarItem; venueId: string; onStale: () => void }) {
+  const [asking, setAsking] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [done, setDone] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function end() {
+    setSaving(true);
+    setError(null);
+    try {
+      const block = await blockApi.endEarly(venueId, item.block_id!);
+      const affected = block.affected_bookings.length;
+      setDone(
+        `Ended early. ${
+          affected === 0
+            ? "No booking was waiting on this period."
+            : `${affected} ${affected === 1 ? "booking" : "bookings"} can now be restored once ${affected === 1 ? "its coordinator asks" : "their coordinators ask"}.`
+        }`,
+      );
+      onStale();
+    } catch (reason) {
+      setError(blockErrorMessage(reason));
+    } finally {
+      setSaving(false);
+      setAsking(false);
+    }
+  }
+
+  if (done) {
+    return (
+      <p className="request-notice" role="status">
+        {done}
+      </p>
+    );
+  }
+  return (
+    <div className="venue-calendar__preparation">
+      {asking ? (
+        <>
+          <span>End this period now? The venue is available again from now on.</span>
+          <button type="button" className="request-button request-button--quiet" onClick={() => setAsking(false)}>
+            Keep it
+          </button>
+          <button
+            type="button"
+            className="request-button request-button--secondary"
+            disabled={saving}
+            onClick={() => void end()}
+          >
+            End period
+          </button>
+        </>
+      ) : (
+        <button type="button" className="request-button request-button--secondary" onClick={() => setAsking(true)}>
+          End early
+        </button>
+      )}
+      {error && (
+        <p className="request-alert" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
 /** AC 3: what an item is. The reference only when the API gives it (D58); no link into the request. */
-function ItemDetails({ item, staff, onClose, onChanged, onStale }: ItemDetailsProps) {
+function ItemDetails({ item, venueId, staff, onClose, onChanged, onStale }: ItemDetailsProps) {
   const titleId = useId();
   const { booking } = item;
 
@@ -563,6 +637,9 @@ function ItemDetails({ item, staff, onClose, onChanged, onStale }: ItemDetailsPr
         </dl>
         {booking?.status === "approved" && staff && (
           <PreparationControl key={booking.id} item={item} onChanged={onChanged} onStale={onStale} />
+        )}
+        {!booking && staff && item.block_id && !item.ended_early_at && (
+          <EndEarlyControl item={item} venueId={venueId} onStale={onStale} />
         )}
       </div>
     </div>

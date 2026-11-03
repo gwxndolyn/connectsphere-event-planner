@@ -114,6 +114,11 @@ class FakeNotifier:
         # US25 (SCRUM-93): each hold notice, with its stage (placed, expiring, expired).
         self.holds: list[dict[str, object]] = []
         self.unavailable: list[dict[str, object]] = []
+        # US23b (SCRUM-91): restore requests and decisions, and attendees told their event's venue changed.
+        self.restore_requests: list[dict[str, object]] = []
+        self.restore_decisions: list[dict[str, object]] = []
+        self.venue_changes: list[dict[str, object]] = []
+        self.periods_ended: list[dict[str, object]] = []
         self.confirmations: list[dict[str, object]] = []
         self.safety_reviews: list[dict[str, object]] = []
         self.safety_changes: list[dict[str, object]] = []
@@ -358,6 +363,26 @@ class FakeNotifier:
         if self.fail:
             raise RuntimeError("mail server unavailable")
         self.unavailable.append(call)
+
+    def venue_restore_requested(self, **call: object) -> None:
+        if self.fail:
+            raise RuntimeError("mail server unavailable")
+        self.restore_requests.append(call)
+
+    def venue_restore_decided(self, **call: object) -> None:
+        if self.fail:
+            raise RuntimeError("mail server unavailable")
+        self.restore_decisions.append(call)
+
+    def venue_changed(self, **call: object) -> None:
+        if self.fail:
+            raise RuntimeError("mail server unavailable")
+        self.venue_changes.append(call)
+
+    def venue_period_ended(self, **call: object) -> None:
+        if self.fail:
+            raise RuntimeError("mail server unavailable")
+        self.periods_ended.append(call)
 
 
 @pytest.fixture

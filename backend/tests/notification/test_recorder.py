@@ -86,6 +86,11 @@ CALLS = [
     ("venue_held", lambda c: dict(booking_id=c.booking.id, event_name="Alumni night", venue_name="SCIS Room", starts_at=STARTS, ends_at=ENDS, expires_at=STARTS, stage="expiring"), "expires within 24 hours", "booking"),
     ("venue_unavailable", lambda c: dict(recipient="coordinator", event_id=c.event.id, event_name="Alumni night", venue_name="SCIS Room", starts_at=STARTS, ends_at=ENDS, reason="Maintenance", booking_references=["VB-2026-000009"], next_action="Choose another venue"), "is unavailable Fri 13 Nov 2026, 14:00 SGT to Fri 13 Nov 2026, 16:00 SGT (Maintenance). Affected: VB-2026-000009. Next: Choose another venue", "id"),
     ("change_requested", lambda c: dict(event_id=c.event.id, event_name="Alumni night", organiser_name="Olivia", fields=["capacity"], reason="Bigger room", to_lead=False), "Olivia asked to change capacity. Reason: Bigger room", "id"),
+    # US23b (SCRUM-91): replacements and restores.
+    ("venue_restore_requested", lambda c: dict(booking_id=c.booking.id, booking_reference="VB-2026-000009", event_name="Alumni night", venue_name="SCIS Room", starts_at=STARTS, ends_at=ENDS), "The coordinator asked to restore VB-2026-000009 at SCIS Room", "booking"),
+    ("venue_restore_decided", lambda c: dict(booking_id=c.booking.id, booking_reference="VB-2026-000009", event_name="Alumni night", venue_name="SCIS Room", decision="declined", reason="Still testing"), "declined to restore VB-2026-000009 at SCIS Room; it still needs rearrangement. Reason: Still testing", "booking"),
+    ("venue_changed", lambda c: dict(event_id=c.event.id, event_name="Alumni night", venue_name="Hall B", starts_at=STARTS, ends_at=ENDS), "it is now at Hall B, Fri 13 Nov 2026, 14:00 SGT", "id"),
+    ("venue_period_ended", lambda c: dict(booking_id=c.booking.id, booking_reference="VB-2026-000009", event_name="Alumni night", venue_name="SCIS Room", ended_at=STARTS), "SCIS Room is available again: the period that affected VB-2026-000009 ended early", "booking"),
 ]
 
 

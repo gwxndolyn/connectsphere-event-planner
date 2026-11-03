@@ -21,6 +21,8 @@ HoldStage = Literal["placed", "expiring", "expired"]
 CancellationRecipient = Literal["organiser", "venue_staff", "tech_support", "attendee"]
 # Who hears a venue became unavailable under their event's booking (US23a, SCRUM-90, AC 4). Never attendees.
 UnavailabilityRecipient = Literal["coordinator", "organiser"]
+# What Venue staff decided on a coordinator's request to restore a booking (US23b, SCRUM-91, AC 5).
+RestoreDecision = Literal["confirmed", "declined"]
 
 
 class Notifier(Protocol):
@@ -251,6 +253,52 @@ class Notifier(Protocol):
         reason: str,
         booking_references: list[str],
         next_action: str,
+    ) -> None: ...
+
+    def venue_restore_requested(
+        self,
+        *,
+        email: str,
+        booking_id: uuid.UUID,
+        booking_reference: str,
+        event_name: str,
+        venue_name: str,
+        starts_at: datetime,
+        ends_at: datetime,
+    ) -> None: ...
+
+    def venue_restore_decided(
+        self,
+        *,
+        email: str,
+        booking_id: uuid.UUID,
+        booking_reference: str,
+        event_name: str,
+        venue_name: str,
+        decision: RestoreDecision,
+        reason: str | None,
+    ) -> None: ...
+
+    def venue_changed(
+        self,
+        *,
+        email: str,
+        event_id: uuid.UUID,
+        event_name: str,
+        venue_name: str,
+        starts_at: datetime,
+        ends_at: datetime,
+    ) -> None: ...
+
+    def venue_period_ended(
+        self,
+        *,
+        email: str,
+        booking_id: uuid.UUID,
+        booking_reference: str,
+        event_name: str,
+        venue_name: str,
+        ended_at: datetime,
     ) -> None: ...
 
     def cancellation_rejected(
@@ -728,6 +776,95 @@ class LoggingNotifier:
             event_id,
             ", ".join(booking_references),
             next_action,
+        )
+
+    def venue_restore_requested(
+        self,
+        *,
+        email: str,
+        booking_id: uuid.UUID,
+        booking_reference: str,
+        event_name: str,
+        venue_name: str,
+        starts_at: datetime,
+        ends_at: datetime,
+    ) -> None:
+        # US23b (SCRUM-91) AC 5: every active Venue staff member hears a coordinator asked to restore a booking.
+        logger.info(
+            "venue restore requested: %s, %s at %s %s to %s for %r (%s)",
+            email,
+            booking_reference,
+            venue_name,
+            starts_at.isoformat(),
+            ends_at.isoformat(),
+            event_name,
+            booking_id,
+        )
+
+    def venue_restore_decided(
+        self,
+        *,
+        email: str,
+        booking_id: uuid.UUID,
+        booking_reference: str,
+        event_name: str,
+        venue_name: str,
+        decision: RestoreDecision,
+        reason: str | None,
+    ) -> None:
+        # US23b AC 5: the coordinator who asked, and the event's coordinator, hear Venue staff's decision.
+        logger.info(
+            "venue restore %s: %s, %s at %s for %r (%s)%s",
+            decision,
+            email,
+            booking_reference,
+            venue_name,
+            event_name,
+            booking_id,
+            f"; reason: {reason}" if reason else "",
+        )
+
+    def venue_changed(
+        self,
+        *,
+        email: str,
+        event_id: uuid.UUID,
+        event_name: str,
+        venue_name: str,
+        starts_at: datetime,
+        ends_at: datetime,
+    ) -> None:
+        # US23b AC 7: an attendee hears only once a replacement is approved and the venue or times they see changed.
+        logger.info(
+            "venue changed: %s, %r (%s) now at %s, %s to %s",
+            email,
+            event_name,
+            event_id,
+            venue_name,
+            starts_at.isoformat(),
+            ends_at.isoformat(),
+        )
+
+    def venue_period_ended(
+        self,
+        *,
+        email: str,
+        booking_id: uuid.UUID,
+        booking_reference: str,
+        event_name: str,
+        venue_name: str,
+        ended_at: datetime,
+    ) -> None:
+        # US23b AC 5 (Matt's #134 review): the coordinator hears a period that marked their booking ended early, so
+        # they know they can ask to restore it.
+        logger.info(
+            "venue period ended early: %s, %s at %s for %r (%s) ended %s",
+            email,
+            booking_reference,
+            venue_name,
+            event_name,
+            booking_id,
+            ended_at.isoformat(),
         )
 
 
