@@ -4,6 +4,9 @@ import type { VenueBooking } from "./bookingTypes";
 import "../eventRequest/eventRequests.css";
 import "./venues.css";
 
+// The API refuses longer reasons (RestoreDeclineWrite in backend/app/venue/schemas.py).
+const REASON_MAX_LENGTH = 1000;
+
 type Notice = { kind: "confirmed" | "declined"; booking: VenueBooking };
 
 /**
@@ -98,7 +101,7 @@ export function RestoreRequests() {
                   <input
                     id={`restore-decline-${booking.id}`}
                     type="text"
-                    maxLength={500}
+                    maxLength={REASON_MAX_LENGTH}
                     value={declining.reason}
                     onChange={(changed) => setDeclining({ id: booking.id, reason: changed.target.value })}
                   />

@@ -422,4 +422,5 @@ class RestoreDeclineWrite(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    reason: str | None = None
+    # Shown to the coordinator, so capped as a rejection reason is (Chloe's #135 review).
+    reason: str | None = Field(default=None, max_length=NOTE_MAX_LENGTH)

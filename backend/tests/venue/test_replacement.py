@@ -632,6 +632,23 @@ async def test_tc_us23b_11_venue_staff_decline_with_a_reason(
     assert (again.json()["restore_declined_at"], again.json()["restore_decline_reason"]) == (None, None)
 
 
+async def test_tc_us23b_11_a_decline_reason_is_at_most_1000_characters(
+    client: AsyncClient, db: Session, staff: User, coordinator: User, venue: Venue, original: VenueBooking,
+) -> None:
+    """Chloe's #135 review: capped as US4's rejection reason is."""
+    block = await mark(client, staff, venue)
+    await end_early(client, staff, venue, block["id"])
+    await client.post(f"/api/v1/venue-bookings/{original.id}/restore", headers=auth(coordinator))
+    decline = f"/api/v1/venue-bookings/{original.id}/restore/decline"
+
+    too_long = await client.post(decline, headers=auth(staff), json={"reason": "x" * 1001})
+
+    assert too_long.status_code == 422
+    db.refresh(original)
+    assert original.restore_requested_at is not None
+    assert (await client.post(decline, headers=auth(staff), json={"reason": "x" * 1000})).status_code == 200
+
+
 async def test_tc_us23b_11_nothing_to_decide_without_a_request(
     client: AsyncClient, db: Session, staff: User, venue: Venue, original: VenueBooking,
 ) -> None:
