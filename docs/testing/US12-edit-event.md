@@ -58,6 +58,7 @@
 | TC-US12-23 | 3 | Frontend | Change capacity | "awaiting approval"; details keep 80; "Capacity: 80 → 100" pending. **E2E:** end before start refused on End time; History newest first |
 | TC-US12-24 | 4 | Frontend | The API refuses the end time | "Nothing was saved."; End time marked with the API's message; form stays open |
 | TC-US12-25 | 5 | Frontend | Two saves, then History | Rows newest first with who (name and id), previous and new values |
+| TC-US12-26 | — | A seeded database | Seed at 00:21, 07:00 and 15:30 SGT | Event Planning Demo runs 10:00 to 12:00 SGT, 21 days ahead, every time |
 
 ## Evidence
 
@@ -84,4 +85,4 @@ Screenshots from the running app (local Postgres, seeded, acting as the seeded c
 - Frontend: `npm run lint`, `npm run build`, `npm test` — 337 passed (TC-US12-21 to 25).
 - E2E: `npx playwright test --project=chromium` — 37 passed, `event-edit.spec.ts` 4/4. The `login` project needs Supabase secrets and wasn't run.
 
-3 Nov 2026, SCRUM-15 flake fixes, local Docker Postgres: two clock dependencies in TC-US12-23. (1) It now fills Start time 10:00 and End time 09:00, so the end is before the start whatever time the seed ran (it failed on `main` after #130 when the seed ran at 00:21 SGT, putting the start before 08:00). (2) History's check that nothing was saved now asserts no row names Start time or End time, instead of `not.toContainText` on the times, which matched the When column when the saves happened at 10:00 SGT. `event-edit.spec.ts` 4/4 twice, reseeded between; full E2E 54 passed, 10 skipped (Supabase-gated).
+3 Nov 2026, SCRUM-15 flake fix, local Docker Postgres: TC-US12-23's end before the start depended on the seed's clock time (it failed on `main` after #130 when the seed ran at 00:21 SGT, putting the start before 08:00, and a seed at 07:00 SGT loads End time 09:00, so filling 09:00 sent no end). Fixed in the seed (Calvin's review on #132): Event Planning Demo now runs 10:00 to 12:00 SGT, 21 days ahead, whatever the clock time (TC-US12-26, failing before the change), so the test's Start time 10:00 sends nothing and End time 09:00 is refused on End time. History's check that nothing was saved asserts no row names Start time or End time, not the times, which matched the When column when the saves happened at 10:00 SGT. Backend `pytest` 1740 passed; `event-edit.spec.ts` 4/4 twice, reseeded between; full E2E 55 passed, 10 skipped (Supabase-gated).
