@@ -57,7 +57,8 @@ test("TC-US12-22: a critical change waits for approval and the event keeps its c
 test("TC-US12-23: an end before the start is refused on the end time, and History lists saves newest first (AC 4, 5)", async ({ page }) => {
   await openEvent(page);
   await page.getByRole("button", { name: "Edit" }).click();
-  // Fixed start and end, so the end is before the start whatever clock time the seed ran at.
+  // The seed puts the event at 10:00 to 12:00 SGT, so the start loads as 10:00, only the end is sent, and the
+  // error is on End time.
   await page.getByLabel("Start time").fill("10:00");
   await page.getByLabel("End time").fill("09:00");
   await page.getByRole("button", { name: "Save changes" }).click();
