@@ -18,7 +18,7 @@
 
 | PR | Work | Tests |
 | --- | --- | --- |
-| 1 | Booking status `replaced` with `replaced_at`; `replaces_booking_id` on a replacement request, at most one live replacement each; the coordinator's restore request on a marked booking; a venue block ended early (`ended_early_at`, `ended_early_by_user_id`, `scheduled_ends_at`). Migration `20261117_1200_us23b_replacement` | `backend/tests/venue/test_replacement_schema.py` (TC-US23B-01 to 04) |
+| 1 | Booking status `replaced` with `replaced_at`; `replaces_booking_id` on a replacement request, at most one live replacement each; the coordinator's restore request on a marked booking and Venue staff's last decline of one; a venue block ended early (`ended_early_at`, `ended_early_by_user_id`, `scheduled_ends_at`). Migration `20261117_1200_us23b_replacement` | `backend/tests/venue/test_replacement_schema.py` (TC-US23B-01 to 04) |
 | 2 | Moving an affected event back to Planning; replacement requests from the notice; Replaced on approval; ending a block early, restore requests and Venue staff's decision; attendee notices | To come |
 
 ## Decisions for this story
@@ -32,6 +32,6 @@
 | ID | AC | Given | When | Then |
 | --- | --- | --- | --- | --- |
 | TC-US23B-01 | 4 | Migrations applied; an approved booking marked by a block | Make it Replaced; store Replaced without a time, or a time without Replaced; book the same window | One migration head; it keeps its reference, window, decision and block; both halves refused (`venue_bookings_replaced_consistent`); the window is free again |
-| TC-US23B-02 | 3 | A marked booking | Request a replacement naming it; name the booking itself; a second while one is requested or approved; a second after one was rejected or withdrawn | Stored; refused (`venue_bookings_replaces_another`); refused (`venue_bookings_one_live_replacement`); stored |
-| TC-US23B-03 | 5 | A marked booking; an unmarked one | Ask to restore with who and when; only one of them; on the unmarked booking | Stored; refused (`venue_bookings_restore_consistent`) for both |
+| TC-US23B-02 | 3 | A marked booking | Request a replacement naming it; name the booking itself; a second while one is requested, approved or held; a second after one was rejected or withdrawn | Stored; refused (`venue_bookings_replaces_another`); refused (`venue_bookings_one_live_replacement`); stored |
+| TC-US23B-03 | 5 | A marked booking; an unmarked one | Ask to restore with who and when; only one of them; on the unmarked booking | Stored; refused (`venue_bookings_restore_consistent`) for both. A decline with who, when and a reason is stored; one missing who or when, or a reason with no decline, is refused (`venue_bookings_restore_decline_consistent`) |
 | TC-US23B-04 | 5 | A block | End it early; end one before it began; store an empty block not ended early; leave out who, when or the scheduled end, or a scheduled end not after the new end | The new end and the scheduled one kept; an empty block overlapping nothing; refused (`venue_blocks_window_valid`); refused (`venue_blocks_ended_early_consistent`); the status type lists `replaced` last |
