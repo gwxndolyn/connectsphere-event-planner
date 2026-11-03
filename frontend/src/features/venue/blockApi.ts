@@ -5,7 +5,7 @@ import type { VenueBlock, VenueBlockReason, VenueBlockWrite } from "./bookingTyp
 
 // US23a (SCRUM-90): Venue staff mark a venue unavailable for a period.
 export const blockApi = {
-  // US23b (SCRUM-91) AC 5 (D117): Venue staff end a period early, so the venue may be free again.
+  // US23b (SCRUM-91) AC 5 (D118): Venue staff end a period early, so the venue may be free again.
   endEarly: (venueId: string, blockId: string) =>
     apiClient.post<VenueBlock>(`/api/v1/venues/${venueId}/blocks/${blockId}/end`, {}),
   markUnavailable: (venueId: string, body: VenueBlockWrite) =>

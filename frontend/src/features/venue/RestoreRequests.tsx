@@ -7,7 +7,7 @@ import "./venues.css";
 type Notice = { kind: "confirmed" | "declined"; booking: VenueBooking };
 
 /**
- * US23b (SCRUM-91) AC 5 (D117): a coordinator asked to restore a booking that needed rearrangement, once its venue
+ * US23b (SCRUM-91) AC 5 (D118): a coordinator asked to restore a booking that needed rearrangement, once its venue
  * was free again. Venue staff confirm, which checks the whole occupied window again and gives the event its venue
  * back, or decline, optionally saying why. Hidden when none waits.
  */

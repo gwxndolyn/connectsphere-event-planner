@@ -61,7 +61,7 @@ export const bookingApi = {
 
   confirmHold: (id: string) => apiClient.post<VenueBooking>(`/api/v1/venue-bookings/${id}/confirm`, {}),
 
-  // US23b (SCRUM-91) AC 5 (D117): the coordinator asks to restore a booking once its venue is free again; Venue
+  // US23b (SCRUM-91) AC 5 (D118): the coordinator asks to restore a booking once its venue is free again; Venue
   // staff list the requests and confirm or decline them.
   requestRestore: (id: string) => apiClient.post<VenueBooking>(`/api/v1/venue-bookings/${id}/restore`, {}),
   async restoreRequests(): Promise<VenueBooking[]> {
@@ -196,7 +196,7 @@ const STATUS_LABELS: Record<VenueBookingStatus, string> = {
   // US25 (SCRUM-93).
   held: "Held",
   expired: "Hold expired",
-  // US23b (SCRUM-91, D116).
+  // US23b (SCRUM-91, D117).
   replaced: "Replaced",
 };
 
@@ -221,7 +221,7 @@ const NEXT_ACTION_LABELS: Record<NextAction, string> = {
   venue_staff_to_decide: "Waiting for Venue staff",
   coordinator_to_rebook: "Coordinator to rebook",
   coordinator_to_confirm: "Coordinator to confirm the hold",
-  // US23b (SCRUM-91, D117).
+  // US23b (SCRUM-91, D118).
   venue_staff_to_restore: "Waiting for Venue staff to restore it",
   none: "Nothing to do",
 };

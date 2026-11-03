@@ -115,7 +115,7 @@ export interface CalendarItem {
   note: string | null;
   // US23a (SCRUM-90): a block's reason, one of VenueBlockReason.
   reason?: string | null;
-  // US23b (SCRUM-91): a block's id, for Venue staff to end it early, and when they did (D117).
+  // US23b (SCRUM-91): a block's id, for Venue staff to end it early, and when they did (D118).
   block_id?: string | null;
   ended_early_at?: string | null;
 }

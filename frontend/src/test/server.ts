@@ -165,7 +165,7 @@ export interface FakeVenueBlock {
   reason: string;
   // The bookings and holds it marked as needing rearrangement (D113), by id.
   affects: string[];
-  // US23b (SCRUM-91, D117): Venue staff ended it early (ends_at is then); the end it had.
+  // US23b (SCRUM-91, D118): Venue staff ended it early (ends_at is then); the end it had.
   ended_early_at?: string | null;
   scheduled_ends_at?: string | null;
 }
@@ -1309,7 +1309,7 @@ function isLive(booking: VenueBooking): boolean {
   return booking.status === "requested" || booking.status === "approved";
 }
 
-/** US23b (SCRUM-91, D116): a booking's requested or approved replacement, if any. */
+/** US23b (SCRUM-91, D117): a booking's requested or approved replacement, if any. */
 function liveReplacementOf(booking: VenueBooking): VenueBooking | undefined {
   return db.bookings.find((b) => b.replaces_booking_id === booking.id && isLive(b));
 }
@@ -1738,7 +1738,7 @@ const handlers = [
         note: null,
       }));
     const blocks = db.blocks
-      // An empty period (ended before it began, D117) overlaps nothing.
+      // An empty period (ended before it began, D118) overlaps nothing.
       .filter((block) => block.venue_id === venue.id && block.ends_at > block.starts_at && overlaps(block.starts_at, block.ends_at))
       .map((block) => ({
         kind: "block",
@@ -1804,7 +1804,7 @@ const handlers = [
     if (event.status !== "approved" && event.status !== "planning") {
       return error(409, "EVENT_NOT_BOOKABLE", { status: event.status });
     }
-    // US23b (SCRUM-91) AC 3 (D116): a replacement names a booking of this event that needs rearrangement, with no live
+    // US23b (SCRUM-91) AC 3 (D117): a replacement names a booking of this event that needs rearrangement, with no live
     // replacement yet. The rest (overlap, hours, capacity) is the API's (backend/tests/venue/test_replacement.py).
     const replaces = typeof sent.replaces_booking_id === "string" ? sent.replaces_booking_id : null;
     if (replaces) {
@@ -1994,7 +1994,7 @@ const handlers = [
   // US23a (SCRUM-90): Venue staff mark a venue unavailable. The rules (AC 2's order, a period already over, the
   // reasons) are the API's (backend/tests/venue/test_unavailability.py); this marks the live bookings and holds
   // whose occupied window the period overlaps, so a flow sees its own writes.
-  // US23b (SCRUM-91) AC 5 (D117): Venue staff end a period early.
+  // US23b (SCRUM-91) AC 5 (D118): Venue staff end a period early.
   route("post", "/api/v1/venues/:venueId/blocks/:blockId/end", ({ request, params }) => {
     if (userRole(request) !== "venue_staff") return error(403, "FORBIDDEN");
     const block = db.blocks.find((b) => b.id === params.blockId && b.venue_id === params.venueId);
@@ -2148,7 +2148,7 @@ const handlers = [
   }),
 
   // US24 AC 4 (D68): the event's coordinator makes one of its live bookings the primary venue.
-  // US23b (SCRUM-91) AC 5 (D117): the event's coordinator asks to restore a marked booking once its period ended
+  // US23b (SCRUM-91) AC 5 (D118): the event's coordinator asks to restore a marked booking once its period ended
   // early; Venue staff list, confirm or decline. Whether every block over the whole occupied window is gone is the
   // API's check; here, only that the marking period was ended early.
   route("post", "/api/v1/venue-bookings/:id/restore", ({ request, params }) => {
@@ -2164,6 +2164,8 @@ const handlers = [
     }
     booking.restore_requested_at = "2026-11-03T01:00:00Z";
     booking.restore_requested_by_user_id = request.headers.get("X-User-Id");
+    booking.restore_declined_at = null;
+    booking.restore_decline_reason = null;
     return HttpResponse.json(booking);
   }),
 
@@ -2172,7 +2174,7 @@ const handlers = [
     return HttpResponse.json({ bookings: db.bookings.filter((b) => b.restore_requested_at && rearrangementOf(b)) });
   }),
 
-  route("post", "/api/v1/venue-bookings/:id/restore/:decision", ({ request, params }) => {
+  route("post", "/api/v1/venue-bookings/:id/restore/:decision", ({ request, params, body }) => {
     if (userRole(request) !== "venue_staff") return error(403, "FORBIDDEN");
     const booking = db.bookings.find((b) => b.id === params.id);
     if (!booking) return error(404, "NOT_FOUND");
@@ -2181,6 +2183,11 @@ const handlers = [
     if (params.decision === "confirm") marked.affects = marked.affects.filter((id) => id !== booking.id);
     booking.restore_requested_at = null;
     booking.restore_requested_by_user_id = null;
+    // Matt's #134 review: a decline is kept, with any reason, until the coordinator asks again.
+    const declined = params.decision === "decline";
+    const reason = (body as { reason?: string } | null)?.reason;
+    booking.restore_declined_at = declined ? "2026-11-03T02:00:00Z" : null;
+    booking.restore_decline_reason = declined ? (reason ?? null) : null;
     return HttpResponse.json(booking);
   }),
 

@@ -144,7 +144,7 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
     await reload();
   }
 
-  /** US23b AC 5 (D117): ask Venue staff to restore a booking once its venue is free again. */
+  /** US23b AC 5 (D118): ask Venue staff to restore a booking once its venue is free again. */
   async function requestRestore(booking: EventVenueBooking) {
     setError(null);
     setNotice(null);
@@ -334,7 +334,7 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
                         {block.note ? `: ${block.note}` : ""}. Find a replacement venue, or withdraw it.
                       </span>
                     )}
-                    {/* US23b (SCRUM-91) AC 5 (D117): Venue staff ended the period early, so it may be restored. */}
+                    {/* US23b (SCRUM-91) AC 5 (D118): Venue staff ended the period early, so it may be restored. */}
                     {block?.ended_early_at && (
                       <span className="venue-booking-row__decision">
                         Needs rearrangement: the venue was unavailable ({blockReasonLabel(block.reason)}
@@ -342,7 +342,11 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
                         {formatInstantDateTime(block.ended_early_at)}.{" "}
                         {booking.restore_requested_at
                           ? "You asked to restore this booking; Venue staff confirm it."
-                          : "Ask to restore this booking, or find a replacement."}
+                          : booking.restore_declined_at
+                            ? `Venue staff declined the restore on ${formatInstantDateTime(booking.restore_declined_at)}${
+                                booking.restore_decline_reason ? `: ${booking.restore_decline_reason}` : ""
+                              }. Ask again, or find a replacement.`
+                            : "Ask to restore this booking, or find a replacement."}
                       </span>
                     )}
                     {block && replacement && (

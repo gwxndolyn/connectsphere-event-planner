@@ -149,6 +149,22 @@ describe("replacement venue (US23b)", () => {
     expect(within(after).queryByRole("button", { name: "Ask to restore" })).not.toBeInTheDocument();
   });
 
+  it("TC-US23B-16: after Venue staff decline, the coordinator sees why and can ask again (AC 5)", async () => {
+    const { original } = markedBooking({ ended_early_at: "2026-11-03T01:00:00Z" });
+    original.restore_declined_at = "2026-11-03T02:00:00Z";
+    original.restore_decline_reason = "Still testing the aircon";
+    const user = await signIn("coordinator", "Event requests");
+    await openEvent(user);
+
+    const row = await bookings().findByRole("listitem", { name: /^Hall A/ });
+    expect(row).toHaveTextContent(/Venue staff declined the restore on .*: Still testing the aircon\. Ask again, or find a replacement\./);
+    await user.click(within(row).getByRole("button", { name: "Ask to restore" }));
+
+    const after = await bookings().findByRole("listitem", { name: /^Hall A/ });
+    expect(after).toHaveTextContent("You asked to restore this booking; Venue staff confirm it.");
+    expect(after).not.toHaveTextContent("declined");
+  });
+
   it("TC-US23B-17: Venue staff confirm one restore request and decline another with a reason (AC 5)", async () => {
     const { original } = markedBooking({ ended_early_at: "2026-11-03T01:00:00Z" });
     original.restore_requested_at = "2026-11-03T01:30:00Z";

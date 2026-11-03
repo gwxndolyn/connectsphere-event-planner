@@ -1,6 +1,6 @@
 // Shapes from backend/app/venue/schemas.py (US22, SCRUM-89). Datetimes are ISO 8601 from the API.
 // US25 (SCRUM-93): "held" until the coordinator confirms it, "expired" once it lapsed (D109).
-// US23b (SCRUM-91): "replaced" once its replacement is approved (D116).
+// US23b (SCRUM-91): "replaced" once its replacement is approved (D117).
 export type VenueBookingStatus = "requested" | "approved" | "rejected" | "withdrawn" | "held" | "expired" | "replaced";
 
 export interface BookingEvent {
@@ -53,12 +53,15 @@ export interface VenueBooking {
   held_by_user_id: string | null;
   expired_at: string | null;
   // US23b (SCRUM-91): the booking this one replaces; on that booking, its waiting or approved replacement and when
-  // it was Replaced (AC 3, 4, D116); a restore request waiting for Venue staff (AC 5, D117).
+  // it was Replaced (AC 3, 4, D117); a restore request waiting for Venue staff (AC 5, D118).
   replaces_booking_id?: string | null;
   replacement_booking_id?: string | null;
   replaced_at?: string | null;
   restore_requested_at?: string | null;
   restore_requested_by_user_id?: string | null;
+  // Venue staff's last decline of a restore, and why, until the coordinator asks again (Matt's #134 review).
+  restore_declined_at?: string | null;
+  restore_decline_reason?: string | null;
 }
 
 // US24 AC 7 (D73): how far Venue staff are with getting an approved venue ready.
@@ -84,7 +87,7 @@ export interface BlockSummary {
   ends_at: string;
   reason: VenueBlockReason;
   note: string | null;
-  // US23b (SCRUM-91) AC 5 (D117): Venue staff ended it early (ends_at is then), and the end it had.
+  // US23b (SCRUM-91) AC 5 (D118): Venue staff ended it early (ends_at is then), and the end it had.
   ended_early_at?: string | null;
   scheduled_ends_at?: string | null;
 }
@@ -185,7 +188,7 @@ export interface VenueBookingWrite {
   special_requirements?: string;
   // US24 (SCRUM-128): required; blank is left out so MISSING_REQUIRED_FIELD names it (D66).
   purpose?: string;
-  // US23b (SCRUM-91) AC 3: the booking needing rearrangement this request replaces (D116).
+  // US23b (SCRUM-91) AC 3: the booking needing rearrangement this request replaces (D117).
   replaces_booking_id?: string;
 }
 
@@ -254,7 +257,7 @@ export interface VenueBlock {
   affected_bookings: AffectedBooking[];
   // D115: bookings the period also overlaps that an earlier period already marked; nobody is told again.
   already_affected_bookings?: AffectedBooking[];
-  // US23b (SCRUM-91) AC 5 (D117): set once Venue staff end it early.
+  // US23b (SCRUM-91) AC 5 (D118): set once Venue staff end it early.
   ended_early_at?: string | null;
   scheduled_ends_at?: string | null;
 }

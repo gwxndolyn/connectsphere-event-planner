@@ -482,7 +482,7 @@ function PreparationControl({ item, onChanged, onStale }: PreparationControlProp
 }
 
 /**
- * US23b (SCRUM-91) AC 5 (D117): Venue staff end a period early, so the venue can be free again. Its bookings still
+ * US23b (SCRUM-91) AC 5 (D118): Venue staff end a period early, so the venue can be free again. Its bookings still
  * need rearrangement until their coordinators ask to restore them and Venue staff confirm. Asks first: it can't be
  * undone.
  */
