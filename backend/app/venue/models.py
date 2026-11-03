@@ -212,7 +212,9 @@ class VenueBooking(Base):
         # live replacement each; the original is Replaced once the replacement is approved. The status is compared
         # as text so the migration needn't commit the new value first.
         CheckConstraint(
-            "(status::text = 'replaced') = (replaced_at IS NOT NULL)", name="venue_bookings_replaced_consistent"
+            "(status::text = 'replaced') = (replaced_at IS NOT NULL) "
+            "AND (status::text <> 'replaced' OR rearrangement_block_id IS NOT NULL)",
+            name="venue_bookings_replaced_consistent",
         ),
         CheckConstraint(
             "replaces_booking_id IS NULL OR replaces_booking_id <> id", name="venue_bookings_replaces_another"
@@ -226,7 +228,8 @@ class VenueBooking(Base):
         # DECISION-PENDING: D118 — US23b AC 5: the coordinator asks to restore a marked booking; Venue staff decide.
         CheckConstraint(
             "(restore_requested_at IS NULL) = (restore_requested_by_user_id IS NULL) "
-            "AND (restore_requested_at IS NULL OR rearrangement_block_id IS NOT NULL)",
+            "AND (restore_requested_at IS NULL OR rearrangement_block_id IS NOT NULL) "
+            "AND (restore_requested_at IS NULL OR status::text IN ('requested', 'approved', 'held'))",
             name="venue_bookings_restore_consistent",
         ),
         # Matt's #134 review: Venue staff's last decline of a restore, with any reason, until the coordinator asks again.

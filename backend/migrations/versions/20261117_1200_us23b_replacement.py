@@ -27,7 +27,9 @@ def upgrade() -> None:
     op.create_check_constraint(
         "venue_bookings_replaced_consistent",
         "venue_bookings",
-        "(status::text = 'replaced') = (replaced_at IS NOT NULL)",
+        # Only a booking needing rearrangement is replaced, so it keeps the block's marker (Chloe's #134 review).
+        "(status::text = 'replaced') = (replaced_at IS NOT NULL) "
+        "AND (status::text <> 'replaced' OR rearrangement_block_id IS NOT NULL)",
     )
 
     # AC 3: a replacement is a new request that names the booking it replaces.
@@ -42,7 +44,9 @@ def upgrade() -> None:
     op.create_check_constraint(
         "venue_bookings_replaces_another", "venue_bookings", "replaces_booking_id IS NULL OR replaces_booking_id <> id"
     )
-    # D117: at most one live replacement per booking. One that is rejected or withdrawn makes way for another. Over
+    # D117: at most one live replacement per booking. It is requested as non-primary while the original holds the
+    # primary (venue_bookings_one_primary_per_event, D68, which isn't deferrable); approving it makes the original
+    # Replaced first and then the replacement primary, in one transaction (Chloe's #134 review). One that is rejected or withdrawn makes way for another. Over
     # every status that holds a window (BLOCKING_STATUSES), so a held one would count too (Matt's #134 review), though
     # a replacement is always a request.
     op.create_index(
@@ -68,7 +72,10 @@ def upgrade() -> None:
         "venue_bookings_restore_consistent",
         "venue_bookings",
         "(restore_requested_at IS NULL) = (restore_requested_by_user_id IS NULL) "
-        "AND (restore_requested_at IS NULL OR rearrangement_block_id IS NOT NULL)",
+        "AND (restore_requested_at IS NULL OR rearrangement_block_id IS NOT NULL) "
+        # Only while the booking or hold is live (BLOCKING_STATUSES): replacing, withdrawing, rejecting, cancelling or
+        # expiring it clears the request in the same update (Chloe's #134 review).
+        "AND (restore_requested_at IS NULL OR status::text IN ('requested', 'approved', 'held'))",
     )
     # AC 5 (D118, Matt's #134 review): Venue staff's last decline, when, who and why, so the coordinator sees it on the
     # event. Kept until the coordinator asks again; a reason only with a decline.

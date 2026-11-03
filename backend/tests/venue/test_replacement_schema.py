@@ -98,6 +98,51 @@ def test_tc_us23b_01_replaced_and_its_time_go_together(
     db.rollback()
 
 
+def test_tc_us23b_01_only_a_booking_needing_rearrangement_is_replaced(
+    db: Session, event: Event, venue: Venue, coordinator: User
+) -> None:
+    """Chloe's #134 review: a replaced booking keeps the marker of the block that left it needing rearrangement."""
+    with pytest.raises(IntegrityError, match="venue_bookings_replaced_consistent"):
+        make_venue_booking(
+            db, event=event, venue=venue, user=coordinator, starts_at=START, status=VenueBookingStatus.REPLACED,
+            decided_at=NOW,
+        )
+    db.rollback()
+
+
+def test_tc_us23b_02_a_primary_replacement_is_swapped_in_after_the_original_is_replaced(
+    db: Session, original: VenueBooking, coordinator: User
+) -> None:
+    """Chloe's #134 review (D68, D117): the replacement waits as non-primary; on approval the original is Replaced first,
+    then the replacement becomes primary, so the event has one primary throughout."""
+    replacement = _replacement(db, original, coordinator, status=VenueBookingStatus.APPROVED, decided_at=NOW)
+    original.status = VenueBookingStatus.REPLACED
+    original.replaced_at = NOW
+    db.flush()
+    replacement.is_primary = True
+    db.flush()
+
+    primaries = db.scalars(
+        select(VenueBooking.id).where(
+            VenueBooking.event_id == original.event_id,
+            VenueBooking.is_primary.is_(True),
+            VenueBooking.status.in_((VenueBookingStatus.REQUESTED, VenueBookingStatus.APPROVED)),
+        )
+    ).all()
+    assert primaries == [replacement.id]
+
+
+def test_tc_us23b_02_a_primary_replacement_waits_while_the_original_is_live(
+    db: Session, original: VenueBooking, coordinator: User
+) -> None:
+    """The other order: making the replacement primary while the original is still approved is refused."""
+    replacement = _replacement(db, original, coordinator, status=VenueBookingStatus.APPROVED, decided_at=NOW)
+    replacement.is_primary = True
+    with pytest.raises(IntegrityError, match="venue_bookings_one_primary_per_event"):
+        db.flush()
+    db.rollback()
+
+
 def test_tc_us23b_02_a_replacement_names_the_booking_it_replaces(
     db: Session, original: VenueBooking, coordinator: User
 ) -> None:
@@ -187,6 +232,36 @@ def test_tc_us23b_03_a_restore_request_is_whole_and_only_on_a_marked_booking(
     with pytest.raises(IntegrityError, match="venue_bookings_restore_consistent"):
         db.flush()
     db.rollback()
+
+
+@pytest.mark.parametrize(
+    "status", [VenueBookingStatus.REPLACED, VenueBookingStatus.WITHDRAWN], ids=["replaced", "withdrawn"]
+)
+def test_tc_us23b_03_a_closed_booking_cant_wait_to_be_restored(
+    db: Session, original: VenueBooking, coordinator: User, status: VenueBookingStatus
+) -> None:
+    """Chloe's #134 review: only a live booking or hold; closing one clears the request in the same update."""
+    original.status = status
+    original.replaced_at = NOW if status == VenueBookingStatus.REPLACED else None
+    original.withdrawn_at = NOW if status == VenueBookingStatus.WITHDRAWN else None
+    original.restore_requested_at = NOW
+    original.restore_requested_by_user_id = coordinator.id
+    with pytest.raises(IntegrityError, match="venue_bookings_restore_consistent"):
+        db.flush()
+    db.rollback()
+
+
+def test_tc_us23b_03_a_marked_hold_can_wait_to_be_restored(
+    db: Session, event: Event, venue: Venue, staff: User, coordinator: User, block: VenueBlock
+) -> None:
+    hold = make_venue_booking(
+        db, event=event, venue=venue, user=staff, starts_at=START + timedelta(hours=3), status=VenueBookingStatus.HELD,
+        is_primary=False, hold_expires_at=NOW + timedelta(days=2), held_by_user_id=staff.id,
+        rearrangement_block_id=block.id, rearrangement_flagged_at=NOW,
+        restore_requested_at=NOW, restore_requested_by_user_id=coordinator.id,
+    )
+
+    assert hold.restore_requested_at == NOW
 
 
 def test_tc_us23b_03_a_declined_restore_keeps_who_when_and_why(db: Session, original: VenueBooking, staff: User) -> None:
