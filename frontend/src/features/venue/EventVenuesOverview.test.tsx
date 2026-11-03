@@ -160,6 +160,36 @@ describe("EventVenuesOverview (US24, TC-US24-24)", () => {
     );
   });
 
+  it("TC-US23A-17: tells the Organiser a venue needs rearrangement, when, why and who acts (AC 4)", async () => {
+    read.mockResolvedValue(
+      venues({
+        bookings: [
+          booking({
+            unavailability: {
+              kind: "venue_unavailable",
+              reason: null,
+              alternative_suggestion: null,
+              block: {
+                id: "block-1",
+                starts_at: "2026-11-20T00:00:00Z",
+                ends_at: "2026-11-20T10:00:00Z",
+                reason: "equipment_failure",
+                note: "Projector failed",
+              },
+              flagged_at: "2026-11-02T01:00:00Z",
+            },
+            next_action: "coordinator_to_rebook",
+          }),
+        ],
+      }),
+    );
+    render(<EventVenuesOverview event={EVENT} />);
+
+    const row = await screen.findByRole("listitem", { name: /^Main hall/ });
+    expect(row).toHaveTextContent(/Needs rearrangement: the venue is unavailable from .* to .* \(Equipment failure\)\./);
+    expect(row).toHaveTextContent("The coordinator will arrange a replacement.");
+  });
+
   it("TC-US24-29: shows an approved venue's preparation status, read-only", async () => {
     render(<EventVenuesOverview event={EVENT} />);
 

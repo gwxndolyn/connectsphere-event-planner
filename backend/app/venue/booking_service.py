@@ -25,6 +25,7 @@ from app.venue.models import (
     VenueBookingStatus,
 )
 from app.venue.schemas import (
+    BlockSummaryOut,
     HoldEventOut,
     VenueHoldWrite,
     BookingConflictOut,
@@ -291,11 +292,22 @@ def _hold_expiry(value: datetime | None, starts_at: datetime | None, now: dateti
     raise DomainError(422, "INVALID_HOLD", fields=["hold_expires_at"], errors={"hold_expires_at": message})
 
 
+def _needs_rearrangement(booking: VenueBooking) -> bool:
+    """US23a (SCRUM-90) AC 3: a venue unavailability period overlaps this live booking or hold (D113)."""
+    return booking.rearrangement_block_id is not None and booking.status in BLOCKING_STATUSES
+
+
 def _unavailability(booking: VenueBooking, venue: Venue) -> BookingUnavailabilityOut | None:
     """US24 AC 4 (D71): why this venue needs replacing, if it does."""
     if booking.status == VenueBookingStatus.REJECTED:
         return BookingUnavailabilityOut(
             kind="rejected", reason=booking.rejection_reason, alternative_suggestion=booking.alternative_suggestion
+        )
+    if _needs_rearrangement(booking):
+        return BookingUnavailabilityOut(
+            kind="venue_unavailable",
+            block=BlockSummaryOut.model_validate(booking.rearrangement_block),
+            flagged_at=booking.rearrangement_flagged_at,
         )
     if booking.status in LIVE_BOOKING_STATUSES and not venue.is_active:
         return BookingUnavailabilityOut(kind="venue_inactive")
@@ -305,7 +317,10 @@ def _unavailability(booking: VenueBooking, venue: Venue) -> BookingUnavailabilit
 def _next_action(
     booking: VenueBooking, venue: Venue
 ) -> Literal["venue_staff_to_decide", "coordinator_to_rebook", "coordinator_to_confirm", "none"]:
-    """US24 AC 4 (D71): who acts next on this booking. US25: a hold waits for the coordinator (AC 5)."""
+    """US24 AC 4 (D71): who acts next on this booking. US25: a hold waits for the coordinator (AC 5). US23a: one the
+    venue's unavailability overlaps, hold or not, is the coordinator's to rearrange (AC 4)."""
+    if _needs_rearrangement(booking):
+        return "coordinator_to_rebook"
     if booking.status == VenueBookingStatus.HELD:
         return "coordinator_to_confirm"
     # DECISION-PENDING: D71 — an inactive venue can't be approved (D39) or used, so it's rebooked.
@@ -323,6 +338,9 @@ def _arranged(event: Event, live: list[VenueBooking]) -> bool:
     if event.delivery_mode == DeliveryMode.ONLINE:
         return True
     if not live or any(booking.status != VenueBookingStatus.APPROVED for booking in live):
+        return False
+    # US23a (SCRUM-90): an approved venue that has since become unavailable is not arranged (D113).
+    if any(_needs_rearrangement(booking) for booking in live):
         return False
     if sum(booking.is_primary for booking in live) != 1:
         return False
@@ -592,6 +610,13 @@ class VenueBookingService:
         ).one()
         if booking.status != VenueBookingStatus.HELD:
             raise DomainError(409, "HOLD_NOT_HELD", status=booking.status.value)
+        # US23a (SCRUM-90): Venue staff couldn't approve it in the unavailable period (AC 5), so it can't be confirmed.
+        if _needs_rearrangement(booking):
+            raise DomainError(
+                409,
+                "VENUE_UNAVAILABLE",
+                message="This venue has become unavailable for part of the held time, so the hold can't be confirmed.",
+            )
         if event.status not in BOOKABLE_STATUSES:
             raise DomainError(409, "EVENT_NOT_BOOKABLE", status=event.status.value)
         has_primary = db.scalar(

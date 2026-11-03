@@ -1,5 +1,6 @@
 import { useEffect, useId, useState } from "react";
 import type { EventRequest } from "../eventRequest/types";
+import { formatBlockPeriod } from "./blockApi";
 import { bookingApi, bookingStatusLabel, formatBookingWindow, nextActionLabel, preparationLabel } from "./bookingApi";
 import type { BookingUnavailability, EventVenues } from "./bookingTypes";
 import { VenueArrangements } from "./VenueArrangements";
@@ -9,6 +10,11 @@ import "./venues.css";
 /** Why a venue needs replacing, as the Organiser reads it (D71). */
 function unavailabilityText(unavailability: BookingUnavailability): string {
   if (unavailability.kind === "venue_inactive") return "This venue is no longer available.";
+  // US23a (SCRUM-90) AC 4: the Organiser reads why and that the coordinator is rearranging it.
+  if (unavailability.kind === "venue_unavailable") {
+    const period = unavailability.block ? ` from ${formatBlockPeriod(unavailability.block)}` : "";
+    return `Needs rearrangement: the venue is unavailable${period}. The coordinator will arrange a replacement.`;
+  }
   const reason = unavailability.reason ? `: ${unavailability.reason}` : "";
   // A reason Venue staff already ended with ., ! or ? gets no second full stop.
   const stop = /[.!?]$/.test(reason) ? "" : ".";

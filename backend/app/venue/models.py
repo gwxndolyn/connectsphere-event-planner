@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime, time, timedelta
 
 from sqlalchemy import ARRAY, Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, Text, Time, func, text
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base, pg_enum
 
@@ -252,6 +252,7 @@ class VenueBooking(Base):
     # and when it was marked. The status is untouched, so US23b (SCRUM-91) can replace or restore it (D113).
     rearrangement_block_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("venue_blocks.id"))
     rearrangement_flagged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    rearrangement_block: Mapped["VenueBlock | None"] = relationship(viewonly=True)
     rejection_reason: Mapped[str | None] = mapped_column(Text)
     alternative_suggestion: Mapped[str | None] = mapped_column(Text)
     # US24 (SCRUM-92) AC 1: what this venue is for, e.g. "Main hall" or "Breakout A". Required since PR 2
