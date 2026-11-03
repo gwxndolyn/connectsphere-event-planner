@@ -5,6 +5,7 @@ import type { ActiveFilter, Venue, VenueFilters } from "./types";
 import { HoldVenue } from "./HoldVenue";
 import { MarkVenueUnavailable } from "./MarkVenueUnavailable";
 import { PendingBookings } from "./PendingBookings";
+import { RestoreRequests } from "./RestoreRequests";
 import { VenueCalendar } from "./VenueCalendar";
 import { VenueForm } from "./VenueForm";
 import { VenueSearch } from "./VenueSearch";
@@ -128,6 +129,8 @@ export function VenuesPage({ staff, canSearch = false, calendar = false }: Venue
       )}
 
       {staff && <PendingBookings />}
+      {/* US23b (SCRUM-91) AC 5: coordinators' requests to restore a booking once its venue is free again. */}
+      {staff && <RestoreRequests />}
       {/* US25 (SCRUM-93): Venue staff hold a venue for an event until an expiry. */}
       {staff && <HoldVenue />}
       {/* US23a (SCRUM-90): Venue staff mark a venue unavailable; its bookings in the period need rearranging. */}

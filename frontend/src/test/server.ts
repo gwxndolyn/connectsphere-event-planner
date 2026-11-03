@@ -165,6 +165,9 @@ export interface FakeVenueBlock {
   reason: string;
   // The bookings and holds it marked as needing rearrangement (D113), by id.
   affects: string[];
+  // US23b (SCRUM-91, D117): Venue staff ended it early (ends_at is then); the end it had.
+  ended_early_at?: string | null;
+  scheduled_ends_at?: string | null;
 }
 
 export interface RecordedCall {
@@ -1306,6 +1309,11 @@ function isLive(booking: VenueBooking): boolean {
   return booking.status === "requested" || booking.status === "approved";
 }
 
+/** US23b (SCRUM-91, D116): a booking's requested or approved replacement, if any. */
+function liveReplacementOf(booking: VenueBooking): VenueBooking | undefined {
+  return db.bookings.find((b) => b.replaces_booking_id === booking.id && isLive(b));
+}
+
 /** US23a (SCRUM-90): the block that left this live booking or hold needing rearrangement, if any (D113). */
 function rearrangementOf(booking: VenueBooking): FakeVenueBlock | undefined {
   if (!isLive(booking) && booking.status !== "held") return undefined;
@@ -1730,9 +1738,12 @@ const handlers = [
         note: null,
       }));
     const blocks = db.blocks
-      .filter((block) => block.venue_id === venue.id && overlaps(block.starts_at, block.ends_at))
+      // An empty period (ended before it began, D117) overlaps nothing.
+      .filter((block) => block.venue_id === venue.id && block.ends_at > block.starts_at && overlaps(block.starts_at, block.ends_at))
       .map((block) => ({
         kind: "block",
+        block_id: block.id,
+        ended_early_at: block.ended_early_at ?? null,
         label: "Unavailable",
         starts_at: block.starts_at,
         ends_at: block.ends_at,
@@ -1793,7 +1804,23 @@ const handlers = [
     if (event.status !== "approved" && event.status !== "planning") {
       return error(409, "EVENT_NOT_BOOKABLE", { status: event.status });
     }
+    // US23b (SCRUM-91) AC 3 (D116): a replacement names a booking of this event that needs rearrangement, with no live
+    // replacement yet. The rest (overlap, hours, capacity) is the API's (backend/tests/venue/test_replacement.py).
+    const replaces = typeof sent.replaces_booking_id === "string" ? sent.replaces_booking_id : null;
+    if (replaces) {
+      const original = db.bookings.find((b) => b.id === replaces && b.event.id === event.id);
+      if (!original) return error(422, "INVALID_BOOKING", { fields: ["replaces_booking_id"], errors: {} });
+      if (!rearrangementOf(original)) return error(409, "BOOKING_NOT_REPLACEABLE", { status: original.status });
+      const existing = liveReplacementOf(original);
+      if (existing) {
+        return error(409, "REPLACEMENT_EXISTS", {
+          reference: existing.reference,
+          message: `Booking ${existing.reference} is already the replacement. Withdraw it before requesting another.`,
+        });
+      }
+    }
     const booking = seedBooking(event, venue, {
+      replaces_booking_id: replaces,
       requested_by_user_id: request.headers.get("X-User-Id")!,
       starts_at: String(sent.starts_at),
       ends_at: String(sent.ends_at),
@@ -1917,20 +1944,31 @@ const handlers = [
                   kind: "venue_unavailable",
                   reason: null,
                   alternative_suggestion: null,
-                  block: { id: marked.id, starts_at: marked.starts_at, ends_at: marked.ends_at, reason: marked.reason, note: marked.note },
+                  block: {
+                    id: marked.id,
+                    starts_at: marked.starts_at,
+                    ends_at: marked.ends_at,
+                    reason: marked.reason,
+                    note: marked.note,
+                    ended_early_at: marked.ended_early_at ?? null,
+                    scheduled_ends_at: marked.scheduled_ends_at ?? null,
+                  },
                   flagged_at: "2026-11-02T01:00:00Z",
                 }
               : isLive(b) && !active
                 ? { kind: "venue_inactive", reason: null, alternative_suggestion: null }
                 : null;
-        const next_action = unavailability
+        const next_action = marked && b.restore_requested_at
+          ? "venue_staff_to_restore"
+          : unavailability
           ? "coordinator_to_rebook"
           : b.status === "requested"
             ? "venue_staff_to_decide"
             : b.status === "held"
               ? "coordinator_to_confirm"
               : "none";
-        return { ...b, unavailability, next_action };
+        const replacement_booking_id = marked ? (liveReplacementOf(b)?.id ?? null) : null;
+        return { ...b, unavailability, next_action, replacement_booking_id };
       });
     const live = db.bookings.filter((b) => b.event.id === event.id && isLive(b));
     const primary = live.find((b) => b.is_primary) ?? null;
@@ -1956,6 +1994,37 @@ const handlers = [
   // US23a (SCRUM-90): Venue staff mark a venue unavailable. The rules (AC 2's order, a period already over, the
   // reasons) are the API's (backend/tests/venue/test_unavailability.py); this marks the live bookings and holds
   // whose occupied window the period overlaps, so a flow sees its own writes.
+  // US23b (SCRUM-91) AC 5 (D117): Venue staff end a period early.
+  route("post", "/api/v1/venues/:venueId/blocks/:blockId/end", ({ request, params }) => {
+    if (userRole(request) !== "venue_staff") return error(403, "FORBIDDEN");
+    const block = db.blocks.find((b) => b.id === params.blockId && b.venue_id === params.venueId);
+    const venue = db.venues.find((v) => v.id === params.venueId);
+    if (!block || !venue) return error(404, "NOT_FOUND");
+    if (block.ended_early_at) return error(409, "BLOCK_ENDED");
+    const now = new Date().toISOString();
+    block.scheduled_ends_at = block.ends_at;
+    block.ends_at = now > block.starts_at ? now : block.starts_at;
+    block.ended_early_at = now;
+    const still = db.bookings.filter((b) => block.affects.includes(b.id) && rearrangementOf(b) === block);
+    const { id, name, location, capacity } = venue;
+    return HttpResponse.json({
+      id: block.id,
+      venue: { id, name, location, capacity },
+      starts_at: block.starts_at,
+      ends_at: block.ends_at,
+      reason: block.reason,
+      note: block.note,
+      created_by_user_id: null,
+      created_at: "2026-11-02T01:00:00Z",
+      ended_early_at: block.ended_early_at,
+      scheduled_ends_at: block.scheduled_ends_at,
+      affected_bookings: still.map((b) => ({
+        id: b.id, reference: b.reference, status: b.status, event: b.event, starts_at: b.starts_at, ends_at: b.ends_at,
+      })),
+      already_affected_bookings: [],
+    });
+  }),
+
   route("post", "/api/v1/venues/:venueId/blocks", ({ request, params, body }) => {
     if (userRole(request) !== "venue_staff") return error(403, "FORBIDDEN");
     const sent = (body ?? {}) as Record<string, unknown>;
@@ -2079,6 +2148,42 @@ const handlers = [
   }),
 
   // US24 AC 4 (D68): the event's coordinator makes one of its live bookings the primary venue.
+  // US23b (SCRUM-91) AC 5 (D117): the event's coordinator asks to restore a marked booking once its period ended
+  // early; Venue staff list, confirm or decline. Whether every block over the whole occupied window is gone is the
+  // API's check; here, only that the marking period was ended early.
+  route("post", "/api/v1/venue-bookings/:id/restore", ({ request, params }) => {
+    if (userRole(request) !== "coordinator") return error(403, "FORBIDDEN");
+    const booking = db.bookings.find((b) => b.id === params.id);
+    const event = booking && db.requests.find((r) => r.id === booking.event.id);
+    if (!booking || !event || !assignedTo(event, request.headers.get("X-User-Id")!)) return error(404, "NOT_FOUND");
+    const marked = rearrangementOf(booking);
+    if (!marked) return error(409, "BOOKING_NOT_REPLACEABLE", { status: booking.status, message: "This booking doesn't need rearrangement." });
+    if (!marked.ended_early_at) return error(409, "VENUE_UNAVAILABLE", { conflict: { starts_at: marked.starts_at, ends_at: marked.ends_at } });
+    if (booking.restore_requested_at) {
+      return error(409, "RESTORE_ALREADY_REQUESTED", { message: "Venue staff are already asked to restore it." });
+    }
+    booking.restore_requested_at = "2026-11-03T01:00:00Z";
+    booking.restore_requested_by_user_id = request.headers.get("X-User-Id");
+    return HttpResponse.json(booking);
+  }),
+
+  route("get", "/api/v1/venue-bookings/restore-requests", ({ request }) => {
+    if (userRole(request) !== "venue_staff") return error(403, "FORBIDDEN");
+    return HttpResponse.json({ bookings: db.bookings.filter((b) => b.restore_requested_at && rearrangementOf(b)) });
+  }),
+
+  route("post", "/api/v1/venue-bookings/:id/restore/:decision", ({ request, params }) => {
+    if (userRole(request) !== "venue_staff") return error(403, "FORBIDDEN");
+    const booking = db.bookings.find((b) => b.id === params.id);
+    if (!booking) return error(404, "NOT_FOUND");
+    const marked = rearrangementOf(booking);
+    if (!marked || !booking.restore_requested_at) return error(409, "RESTORE_NOT_REQUESTED", { status: booking.status });
+    if (params.decision === "confirm") marked.affects = marked.affects.filter((id) => id !== booking.id);
+    booking.restore_requested_at = null;
+    booking.restore_requested_by_user_id = null;
+    return HttpResponse.json(booking);
+  }),
+
   route("post", "/api/v1/venue-bookings/:id/make-primary", ({ request, params }) => {
     const role = userRole(request);
     if (!role) return error(401, "UNAUTHENTICATED");
