@@ -81,6 +81,10 @@ CALLS = [
     ("cancellation_requested", lambda c: dict(event_id=c.event.id, event_name="Alumni night", organiser_name="Olivia", reason="Speaker unwell"), "Olivia asked to cancel the event. Reason: Speaker unwell", "id"),
     ("cancellation_rejected", lambda c: dict(event_id=c.event.id, event_name="Alumni night", reason="Speaker unwell", rejection_reason="Find a stand-in"), "was rejected, so it goes ahead. Reason: Find a stand-in", "id"),
     ("event_cancelled", lambda c: dict(event_id=c.event.id, event_name="Alumni night", reason="Venue closed", recipient="organiser"), "The event was cancelled. Reason: Venue closed", "id"),
+    ("change_request_decided", lambda c: dict(event_id=c.event.id, event_name="Alumni night", decision="approved", fields=["capacity"], rejection_reason=None, status_change="planning", safety_review_required=True, to_requester=True), "Your request to change capacity was approved. The event goes back to planning. A new safety review is needed.", "id"),
+    ("arrangement_flagged", lambda c: dict(event_id=c.event.id, event_name="Alumni night", kind="venue booking", label="VB-2026-000009", fields=["start_at"]), "may affect the venue booking VB-2026-000009 arranged for this event", "id"),
+    ("venue_held", lambda c: dict(booking_id=c.booking.id, event_name="Alumni night", venue_name="SCIS Room", starts_at=STARTS, ends_at=ENDS, expires_at=STARTS, stage="expiring"), "expires within 24 hours", "booking"),
+    ("venue_unavailable", lambda c: dict(recipient="coordinator", event_id=c.event.id, event_name="Alumni night", venue_name="SCIS Room", starts_at=STARTS, ends_at=ENDS, reason="Maintenance", booking_references=["VB-2026-000009"], next_action="Choose another venue"), "is unavailable Fri 13 Nov 2026, 06:00 UTC to Fri 13 Nov 2026, 08:00 UTC (Maintenance). Affected: VB-2026-000009. Next: Choose another venue", "id"),
     ("change_requested", lambda c: dict(event_id=c.event.id, event_name="Alumni night", organiser_name="Olivia", fields=["capacity"], reason="Bigger room", to_lead=False), "Olivia asked to change capacity. Reason: Bigger room", "id"),
 ]
 

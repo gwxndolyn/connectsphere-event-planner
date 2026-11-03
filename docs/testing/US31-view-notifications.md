@@ -31,7 +31,7 @@
 | ID | Given | When | Then |
 |---|---|---|---|
 | TC-US31-01 | The `Notifier` protocol | List its methods | Every one is in the recorder's test table, so a new notice can't be raised without being kept (AC 6) |
-| TC-US31-02 | Each of the 19 `Notifier` methods | Called with the recipient's email | One row for that user: the kind, the event name, the sentence, the event found from its id, reference, booking, equipment line or registration; the call is still logged through the wrapped notifier (AC 2, 6) |
+| TC-US31-02 | Each of the 23 `Notifier` methods | Called with the recipient's email | One row for that user: the kind, the event name, the sentence, the event found from its id, reference, booking, equipment line or registration; the call is still logged through the wrapped notifier (AC 2, 6) |
 | TC-US31-03 | The same address in another case | A notice | The same person's row |
 | TC-US31-04 | An address no user holds | A notice | Nothing kept, a warning logged, the call still logged |
 | TC-US31-05 | A reference no event has | A notice | Kept, with no event |
@@ -108,12 +108,12 @@ Opening it shows the request, and the notification is read (the link has no coun
 
 ### AC 6: every notice the system raises
 
-TC-US31-01 fails until each of the 19 `Notifier` methods is in the recorder's test table, and TC-US31-02 checks each one: a row for its recipient with the event name, the sentence and the event it is about. A notice raised in future must be added to the recorder before the tests pass.
+TC-US31-01 fails until each of the 23 `Notifier` methods is in the recorder's test table, and TC-US31-02 checks each one: a row for its recipient with the event name, the sentence and the event it is about. A notice raised in future must be added to the recorder before the tests pass.
 
 ## Run log
 
 | Date | Where | Result |
 |---|---|---|
-| 1 Nov 2026 | Backend, `pytest`, rebased onto `main` at SCRUM-140 and SCRUM-141 | 1631 passed |
-| 1 Nov 2026 | Frontend, Vitest, lint, build | 490 passed; lint and build clean |
-| 1 Nov 2026 | E2E, the full suite against a fresh local database | 53 passed, 10 skipped (the Supabase login and sign-up cases, which need credentials), 0 failed |
+| 1 Nov 2026 | Backend, `pytest`, rebased onto `main` at SCRUM-90 (US23a) and SCRUM-93 (US25) | 1788 passed |
+| 1 Nov 2026 | Frontend, Vitest, lint, build | 535 passed; lint and build clean |
+| 1 Nov 2026 | E2E, the full suite against a fresh local database | 56 passed, 10 skipped (the Supabase login and sign-up cases, which need credentials), 0 failed |

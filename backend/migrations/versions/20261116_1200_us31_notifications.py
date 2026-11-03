@@ -1,7 +1,7 @@
 """keep the notices the system raises, one row per recipient, so each user can read their own
 
 Revision ID: 20261116_1200_us31_notifications
-Revises: 20261115_1200_us29b_decisions
+Revises: 20261116_1200_us23a_blocks
 Create Date: 2026-11-16
 
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 revision: str = "20261116_1200_us31_notifications"
-down_revision: Union[str, None] = "20261115_1200_us29b_decisions"
+down_revision: Union[str, None] = "20261116_1200_us23a_blocks"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

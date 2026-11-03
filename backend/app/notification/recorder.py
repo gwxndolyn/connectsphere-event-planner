@@ -14,11 +14,13 @@ from app.notification.service import (
     AssignmentRecipient,
     BookingDecision,
     CancellationRecipient,
+    HoldStage,
     LoggingNotifier,
     Notifier,
     ReassignmentRecipient,
     RequestDecision,
     SafetyOutcome,
+    UnavailabilityRecipient,
 )
 from app.registration.models import Registration
 from app.user.models import User
@@ -601,6 +603,125 @@ class RecordingNotifier:
             email=email,
             event_name=event_name,
             message=f"The event was cancelled. Reason: {reason}",
+            event_id=event_id,
+        )
+
+    def change_request_decided(
+        self,
+        *,
+        email: str,
+        event_id: uuid.UUID,
+        event_name: str,
+        decision: str,
+        fields: list[str],
+        rejection_reason: str | None,
+        status_change: str | None,
+        safety_review_required: bool,
+        to_requester: bool,
+    ) -> None:
+        self._delegate.change_request_decided(
+            email=email,
+            event_id=event_id,
+            event_name=event_name,
+            decision=decision,
+            fields=fields,
+            rejection_reason=rejection_reason,
+            status_change=status_change,
+            safety_review_required=safety_review_required,
+            to_requester=to_requester,
+        )
+        changed = ", ".join(fields)
+        message = (
+            f"Your request to change {changed} was {decision}."
+            if to_requester
+            else f"A change to {changed} was approved for your event."
+        )
+        if rejection_reason:
+            message += f" Reason: {rejection_reason}"
+        if status_change:
+            message += f" The event goes back to {status_change}."
+        if safety_review_required:
+            message += " A new safety review is needed."
+        self._record("change_request_decided", email=email, event_name=event_name, message=message, event_id=event_id)
+
+    def arrangement_flagged(
+        self, *, email: str, event_id: uuid.UUID, event_name: str, kind: str, label: str, fields: list[str]
+    ) -> None:
+        self._delegate.arrangement_flagged(
+            email=email, event_id=event_id, event_name=event_name, kind=kind, label=label, fields=fields
+        )
+        self._record(
+            "arrangement_flagged",
+            email=email,
+            event_name=event_name,
+            message=f"A change to {', '.join(fields)} may affect the {kind} {label} arranged for this event. Please review it.",
+            event_id=event_id,
+        )
+
+    def venue_held(
+        self,
+        *,
+        email: str,
+        booking_id: uuid.UUID,
+        event_name: str,
+        venue_name: str,
+        starts_at: datetime,
+        ends_at: datetime,
+        expires_at: datetime,
+        stage: HoldStage,
+    ) -> None:
+        self._delegate.venue_held(
+            email=email,
+            booking_id=booking_id,
+            event_name=event_name,
+            venue_name=venue_name,
+            starts_at=starts_at,
+            ends_at=ends_at,
+            expires_at=expires_at,
+            stage=stage,
+        )
+        when = f"{_when(starts_at)} to {_when(ends_at)}"
+        message = {
+            "placed": f"{venue_name} is held for {when}. The hold expires {_when(expires_at)}.",
+            "expiring": f"The hold on {venue_name} for {when} expires within 24 hours, at {_when(expires_at)}.",
+            "expired": f"The hold on {venue_name} for {when} has expired.",
+        }[stage]
+        self._record("venue_held", email=email, event_name=event_name, message=message, booking_id=booking_id)
+
+    def venue_unavailable(
+        self,
+        *,
+        email: str,
+        recipient: UnavailabilityRecipient,
+        event_id: uuid.UUID,
+        event_name: str,
+        venue_name: str,
+        starts_at: datetime,
+        ends_at: datetime,
+        reason: str,
+        booking_references: list[str],
+        next_action: str,
+    ) -> None:
+        self._delegate.venue_unavailable(
+            email=email,
+            recipient=recipient,
+            event_id=event_id,
+            event_name=event_name,
+            venue_name=venue_name,
+            starts_at=starts_at,
+            ends_at=ends_at,
+            reason=reason,
+            booking_references=booking_references,
+            next_action=next_action,
+        )
+        self._record(
+            "venue_unavailable",
+            email=email,
+            event_name=event_name,
+            message=(
+                f"{venue_name} is unavailable {_when(starts_at)} to {_when(ends_at)} ({reason}). "
+                f"Affected: {', '.join(booking_references)}. Next: {next_action}"
+            ),
             event_id=event_id,
         )
 
