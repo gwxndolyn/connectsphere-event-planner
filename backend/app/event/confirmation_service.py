@@ -166,16 +166,21 @@ class ConfirmationService:
         items = []
         for booking, venue in bookings:
             approved = booking.status == VenueBookingStatus.APPROVED
+            # US23a (SCRUM-90, D113): a live booking a venue unavailability period overlaps keeps its status, so it
+            # is outstanding here until it is rearranged, approved or not, as venues_arranged also says.
+            flagged = booking.rearrangement_block_id is not None
+            if flagged:
+                detail = f"Booking {booking.reference} needs rearrangement: the venue has become unavailable."
+            elif approved:
+                detail = f"Booking {booking.reference} is approved."
+            else:
+                detail = f"Booking {booking.reference} is waiting for Venue staff to approve it."
             items.append(
                 ReadinessItemOut(
                     kind="venue",
                     name=f"{venue.name}, {booking.purpose}",
-                    complete=approved,
-                    detail=(
-                        f"Booking {booking.reference} is approved."
-                        if approved
-                        else f"Booking {booking.reference} is waiting for Venue staff to approve it."
-                    ),
+                    complete=approved and not flagged,
+                    detail=detail,
                 )
             )
         primaries = sum(booking.is_primary for booking, _ in bookings)

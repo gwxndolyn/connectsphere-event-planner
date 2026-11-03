@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime, time, timedelta
 
 from sqlalchemy import ARRAY, Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, Text, Time, func, text
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base, pg_enum
 
@@ -91,6 +91,17 @@ class PreparationStatus(enum.StrEnum):
     NOT_STARTED = "not_started"
     IN_PROGRESS = "in_progress"
     READY = "ready"
+
+
+class VenueBlockReason(enum.StrEnum):
+    """US23a (SCRUM-90) AC 1: why a venue is out of use. Stored as text under venue_blocks_reason_known; the
+    migration 20261116_1200_us23a_blocks holds a copy. Change both together."""
+
+    MAINTENANCE = "maintenance"
+    EQUIPMENT_FAILURE = "equipment_failure"
+    RENOVATION = "renovation"
+    SAFETY = "safety"
+    OTHER = "other"
 
 
 # D21 (decided by the team): Requested and Approved both block the window, from the sessions 1-2
@@ -184,6 +195,16 @@ class VenueBooking(Base):
             "preparation_status IN ('not_started', 'in_progress', 'ready')",
             name="venue_bookings_preparation_status_known",
         ),
+        # DECISION-PENDING: D113 — US23a (SCRUM-90) AC 3: "Needs rearrangement" names the block; the status stays.
+        CheckConstraint(
+            "(rearrangement_block_id IS NULL) = (rearrangement_flagged_at IS NULL)",
+            name="venue_bookings_rearrangement_consistent",
+        ),
+        Index(
+            "ix_venue_bookings_rearrangement_block_id",
+            "rearrangement_block_id",
+            postgresql_where=text("rearrangement_block_id IS NOT NULL"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, server_default=text("gen_random_uuid()"))
@@ -227,6 +248,11 @@ class VenueBooking(Base):
     held_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
     hold_warned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     expired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # US23a (SCRUM-90) AC 3: the venue block this booking or hold overlaps, which leaves it needing rearrangement,
+    # and when it was marked. The status is untouched, so US23b (SCRUM-91) can replace or restore it (D113).
+    rearrangement_block_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("venue_blocks.id"))
+    rearrangement_flagged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    rearrangement_block: Mapped["VenueBlock | None"] = relationship(viewonly=True)
     rejection_reason: Mapped[str | None] = mapped_column(Text)
     alternative_suggestion: Mapped[str | None] = mapped_column(Text)
     # US24 (SCRUM-92) AC 1: what this venue is for, e.g. "Main hall" or "Breakout A". Required since PR 2
@@ -242,11 +268,16 @@ class VenueBlock(Base):
     """A time a venue is out of use with no event behind it, e.g. maintenance or a closure (US2 AC 5,
     SCRUM-7). Search leaves a venue out while a block overlaps the requested time, as it does for a
     live booking. US23a (SCRUM-90, CR-02) adds Venue Staff's screens for these. Blocks may overlap
-    each other; only bookings are kept apart."""
+    each other; only bookings are kept apart. Since US23a a block has a reason, and marks the bookings and
+    holds it overlaps as needing rearrangement (VenueBooking.rearrangement_block_id)."""
 
     __tablename__ = "venue_blocks"
     __table_args__ = (
         CheckConstraint("ends_at > starts_at", name="venue_blocks_window_valid"),
+        CheckConstraint(
+            "reason IN ('maintenance', 'equipment_failure', 'renovation', 'safety', 'other')",
+            name="venue_blocks_reason_known",
+        ),
         # Also venue_blocks_venue_window: GiST on (venue_id, tstzrange(starts_at, ends_at, '[)')),
         # defined in the migration, the expression search's && overlap uses.
     )
@@ -256,4 +287,8 @@ class VenueBlock(Base):
     starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     note: Mapped[str | None] = mapped_column(Text)
+    # US23a (SCRUM-90) AC 1: one of VenueBlockReason; blocks older than US23a read "other".
+    reason: Mapped[str] = mapped_column(Text)
+    # Who recorded it; null for blocks older than US23a.
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

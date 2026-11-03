@@ -113,6 +113,8 @@ export interface CalendarItem {
   occupied: TimeWindow;
   booking: CalendarBooking | null;
   note: string | null;
+  // US23a (SCRUM-90): a block's reason, one of VenueBlockReason.
+  reason?: string | null;
 }
 
 export interface VenueCalendar {

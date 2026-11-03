@@ -10,9 +10,18 @@ from app.core.database import get_db
 from app.notification.service import Notifier, get_notifier
 from app.user.dependencies import get_current_user, require_user_roles
 from app.user.models import User
+from app.venue.block_service import block_service
 from app.venue.calendar_service import calendar_service
 from app.venue.hold_service import expire_lapsed_holds
-from app.venue.schemas import VenueCalendarOut, VenueOut, VenueSearchOut, VenuesOut, VenueWrite
+from app.venue.schemas import (
+    VenueBlockOut,
+    VenueBlockWrite,
+    VenueCalendarOut,
+    VenueOut,
+    VenueSearchOut,
+    VenuesOut,
+    VenueWrite,
+)
 from app.venue.service import CALENDAR_ROLES, VENUE_SEARCH_ROLES, VENUE_STAFF_ROLES, venue_service
 
 router = APIRouter(prefix="/api/v1/venues", tags=["venues"])
@@ -102,6 +111,19 @@ def venue_calendar(
     # US25 (SCRUM-93): a lapsed hold leaves the calendar first (AC 6, D109).
     expire_lapsed_holds(db, now, notifier)
     return calendar_service.calendar(db, venue_id, reader, start, end)
+
+
+@router.post("/{venue_id}/blocks", status_code=201, response_model=VenueBlockOut)
+def mark_venue_unavailable(
+    venue_id: uuid.UUID,
+    body: VenueBlockWrite,
+    staff: VenueStaff,
+    db: Session = Depends(get_db),
+    now: datetime = Depends(get_now),
+    notifier: Notifier = Depends(get_notifier),
+) -> VenueBlockOut:
+    """US23a (SCRUM-90): the venue is unavailable for a period; the bookings and holds it overlaps need rearranging."""
+    return block_service.create(db, staff, venue_id, body, now, notifier)
 
 
 @router.post("", status_code=201, response_model=VenueOut)

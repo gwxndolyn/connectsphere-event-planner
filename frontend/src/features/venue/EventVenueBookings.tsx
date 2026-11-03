@@ -14,6 +14,7 @@ import {
 } from "./bookingApi";
 import type { EventVenueBooking, EventVenues, VenueBookingCreated } from "./bookingTypes";
 import { tagLabel } from "./tags";
+import { formatBlockPeriod } from "./blockApi";
 import { VenueArrangements } from "./VenueArrangements";
 import { VenueBookingForm } from "./VenueBookingForm";
 import { WithdrawBookingDialog } from "./WithdrawBookingDialog";
@@ -36,6 +37,11 @@ type Notice =
 
 function live(booking: EventVenueBooking): boolean {
   return booking.status === "requested" || booking.status === "approved";
+}
+
+/** US23a (SCRUM-90) AC 3: the venue became unavailable for part of this booking's or hold's window. */
+function needsRearrangement(booking: EventVenueBooking): boolean {
+  return booking.unavailability?.kind === "venue_unavailable";
 }
 
 /**
@@ -277,8 +283,19 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
                     {booking.unavailability?.kind === "venue_inactive" && (
                       <span className="venue-booking-row__decision">This venue is no longer available.</span>
                     )}
+                    {/* US23a (SCRUM-90) AC 3, 4: the venue became unavailable; the coordinator rearranges it. */}
+                    {booking.unavailability?.kind === "venue_unavailable" && booking.unavailability.block && (
+                      <span className="venue-booking-row__decision">
+                        Needs rearrangement: the venue is unavailable from {formatBlockPeriod(booking.unavailability.block)}
+                        {booking.unavailability.block.note ? `: ${booking.unavailability.block.note}` : ""}. Find a
+                        replacement venue, or withdraw it.
+                      </span>
+                    )}
                   </div>
                   {booking.is_primary && <span className="venue-badge venue-badge--primary">Primary</span>}
+                  {needsRearrangement(booking) && (
+                    <span className="venue-badge venue-badge--rearrange">Needs rearrangement</span>
+                  )}
                   <span className={`venue-booking-status venue-booking-status--${booking.status}`}>
                     {bookingStatusLabel(booking.status)}
                   </span>
@@ -293,13 +310,16 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
                   )}
                   {booking.status === "held" && declining !== booking.id && (
                     <>
-                      <button
-                        type="button"
-                        className="request-button request-button--primary"
-                        onClick={() => void decideHold(booking, "confirmed")}
-                      >
-                        Confirm hold
-                      </button>
+                      {/* US23a: a hold the venue's unavailability overlaps can't be confirmed, only declined. */}
+                      {!needsRearrangement(booking) && (
+                        <button
+                          type="button"
+                          className="request-button request-button--primary"
+                          onClick={() => void decideHold(booking, "confirmed")}
+                        >
+                          Confirm hold
+                        </button>
+                      )}
                       <button type="button" className="request-button request-button--quiet" onClick={() => setDeclining(booking.id)}>
                         Decline hold
                       </button>

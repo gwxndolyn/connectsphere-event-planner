@@ -19,6 +19,8 @@ SafetyOutcome = Literal["approved", "rejected"]
 HoldStage = Literal["placed", "expiring", "expired"]
 # Who a cancellation notice is for (US9, SCRUM-12, AC 6).
 CancellationRecipient = Literal["organiser", "venue_staff", "tech_support", "attendee"]
+# Who hears a venue became unavailable under their event's booking (US23a, SCRUM-90, AC 4). Never attendees.
+UnavailabilityRecipient = Literal["coordinator", "organiser"]
 
 
 class Notifier(Protocol):
@@ -234,6 +236,21 @@ class Notifier(Protocol):
         ends_at: datetime,
         expires_at: datetime,
         stage: HoldStage,
+    ) -> None: ...
+
+    def venue_unavailable(
+        self,
+        *,
+        email: str,
+        recipient: UnavailabilityRecipient,
+        event_id: uuid.UUID,
+        event_name: str,
+        venue_name: str,
+        starts_at: datetime,
+        ends_at: datetime,
+        reason: str,
+        booking_references: list[str],
+        next_action: str,
     ) -> None: ...
 
     def cancellation_rejected(
@@ -681,6 +698,36 @@ class LoggingNotifier:
             ends_at.isoformat(),
             expires_at.isoformat(),
             booking_id,
+        )
+
+    def venue_unavailable(
+        self,
+        *,
+        email: str,
+        recipient: UnavailabilityRecipient,
+        event_id: uuid.UUID,
+        event_name: str,
+        venue_name: str,
+        starts_at: datetime,
+        ends_at: datetime,
+        reason: str,
+        booking_references: list[str],
+        next_action: str,
+    ) -> None:
+        # US23a (SCRUM-90) AC 4: the coordinator and the organiser of an event whose booking or hold the period
+        # overlaps hear the venue, the period, the reason and what happens next.
+        logger.info(
+            "venue unavailable (%s): %s, %s %s to %s (%s) under %r (%s) bookings %s; next: %s",
+            recipient,
+            email,
+            venue_name,
+            starts_at.isoformat(),
+            ends_at.isoformat(),
+            reason,
+            event_name,
+            event_id,
+            ", ".join(booking_references),
+            next_action,
         )
 
 

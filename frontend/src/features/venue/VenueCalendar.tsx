@@ -2,6 +2,7 @@ import { type CSSProperties, useEffect, useId, useState } from "react";
 import { statusLabel } from "../eventRequest/clarificationSections";
 import { formatInstantDateTime, formatInstantTime } from "../registration/datetime";
 import { calendarErrorMessage, venueApi, venueErrorMessage } from "./api";
+import { blockReasonLabel } from "./blockApi";
 import {
   PREPARATION_STATUSES,
   bookingApi,
@@ -55,7 +56,7 @@ function itemLabel(item: CalendarItem): string {
 
 /** The event's name for a booking (D58), the note for a block. */
 function itemTitle(item: CalendarItem): string {
-  return item.booking ? eventName(item.booking.event) : item.note || "Venue closed";
+  return item.booking ? eventName(item.booking.event) : item.note || (item.reason ? blockReasonLabel(item.reason) : "Venue closed");
 }
 
 /** What a screen reader hears for an item: its label, what it is, its times and, for a booking, its occupied window. */
@@ -537,6 +538,13 @@ function ItemDetails({ item, staff, onClose, onChanged, onStale }: ItemDetailsPr
             <div>
               <dt>Reference</dt>
               <dd>{booking.reference}</dd>
+            </div>
+          )}
+          {/* US23a (SCRUM-90) AC 6: why the venue is unavailable. */}
+          {!booking && item.reason && (
+            <div>
+              <dt>Reason</dt>
+              <dd>{blockReasonLabel(item.reason)}</dd>
             </div>
           )}
           {!booking && item.note && (

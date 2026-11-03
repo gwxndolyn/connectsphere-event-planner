@@ -129,6 +129,7 @@ def _block_items(db: Session, venue_id: uuid.UUID, window: Window) -> list[tuple
                 occupied=_window_out(block.occupied),
                 booking=None,
                 note=block.note,
+                reason=block.reason,
             ),
         )
         for block in block_conflicts(db, venue_id, window)
