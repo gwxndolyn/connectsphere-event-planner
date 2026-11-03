@@ -83,3 +83,5 @@ Screenshots from the running app (local Postgres, seeded, acting as the seeded c
 - Backend: `pytest` — 1025 passed (TC-US12-01 to 20 in `tests/event/test_event_edits.py`, 37 tests).
 - Frontend: `npm run lint`, `npm run build`, `npm test` — 337 passed (TC-US12-21 to 25).
 - E2E: `npx playwright test --project=chromium` — 37 passed, `event-edit.spec.ts` 4/4. The `login` project needs Supabase secrets and wasn't run.
+
+3 Nov 2026, SCRUM-15 flake fix, local Docker Postgres: TC-US12-23 now fills Start time 10:00 and End time 09:00, so the end is before the start whatever time the seed ran (it failed on `main` after #130 when the seed ran at 00:21 SGT, putting the start before 08:00). `event-edit.spec.ts` 4/4 twice, reseeded between; full E2E 54 passed, 10 skipped (Supabase-gated).
