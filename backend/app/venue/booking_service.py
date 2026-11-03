@@ -805,6 +805,17 @@ class VenueBookingService:
         # US25 AC 5: a confirmed hold must be approved before its expiry; past it, the sweep expires it and the
         # pending check below refuses it (BOOKING_NOT_PENDING, status expired).
         expire_lapsed_holds(db, now, notifier)
+        # US23b (SCRUM-91), Chloe's #135 review: a replacement's original is locked with it, both by id, before the
+        # event and the venue. Recording a block at the original's venue takes its bookings, then their events, then
+        # the venue, so taking the original after the event could deadlock with it.
+        replaces = db.scalar(select(VenueBooking.replaces_booking_id).where(VenueBooking.id == booking_id))
+        if replaces is not None:
+            db.execute(
+                select(VenueBooking.id)
+                .where(VenueBooking.id.in_([booking_id, replaces]))
+                .order_by(VenueBooking.id)
+                .with_for_update()
+            ).all()
         booking = self._lock_pending(db, booking_id, staff)
         # Other pending requests don't expire, so one can still be waiting after its start;
         # approving it would reserve a window that's gone. Create refuses a past start too.
@@ -855,8 +866,11 @@ class VenueBookingService:
         they see, the primary venue or its times, changed. Returns those notices, to send after the commit."""
         if booking.replaces_booking_id is None:
             return []
+        # Already locked by approve, before the event (Chloe's #135 review); read again under that lock.
         original = db.scalars(
-            select(VenueBooking).where(VenueBooking.id == booking.replaces_booking_id).with_for_update()
+            select(VenueBooking)
+            .where(VenueBooking.id == booking.replaces_booking_id)
+            .execution_options(populate_existing=True)
         ).one()
         # Withdrawn or restored meanwhile: nothing to replace, and this is one more venue for the event.
         if not _needs_rearrangement(original):

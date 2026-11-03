@@ -261,6 +261,20 @@ class VenueBlockService:
         to now, or to its start if it hadn't begun (an empty period, overlapping nothing), keeping the end it had.
         A booking it marked still needs rearrangement until Venue staff confirm the coordinator's restore request.
         One that another period still overlaps now names that period instead (Matt's #131 review)."""
+        marking = (
+            select(VenueBooking)
+            .where(
+                VenueBooking.venue_id == venue_id,
+                VenueBooking.rearrangement_block_id == block_id,
+                VenueBooking.status.in_(BLOCKING_STATUSES),
+            )
+            .order_by(VenueBooking.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        # Lock order (Chloe's #135 review): the bookings it marks first, by id, then the venue, then the block, as
+        # recording a block, an approval and confirming a restore all take bookings before the venue (#133's rule).
+        db.scalars(marking).all()
         # D22: the venue FOR UPDATE, as recording a block locks it.
         venue = db.scalars(select(Venue).where(Venue.id == venue_id).with_for_update()).one_or_none()
         block = db.scalars(
@@ -276,14 +290,9 @@ class VenueBlockService:
         block.ended_early_by_user_id = staff.id
         db.flush()
 
-        marked = list(
-            db.scalars(
-                select(VenueBooking)
-                .where(VenueBooking.rearrangement_block_id == block.id, VenueBooking.status.in_(BLOCKING_STATUSES))
-                .order_by(VenueBooking.id)
-                .with_for_update()
-            )
-        )
+        # Read again under the venue lock: another period ending early may have moved a booking to this one's marker
+        # while this waited. It committed first, so taking that booking now waits on nobody.
+        marked = list(db.scalars(marking))
         still_marked = []
         for booking in marked:
             occupied = func.tstzrange(literal(booking.occupied_starts_at), literal(booking.occupied_ends_at), literal("[)"))
