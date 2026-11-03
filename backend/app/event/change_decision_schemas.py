@@ -43,7 +43,7 @@ class ChangeRequestReviewOut(BaseModel):
     event_name: str | None
     request_reference: str | None
     event_status: str
-    # DECISION-PENDING: D102 — an Organiser's request (US29a) or a coordinator's own US12 edit, told apart by
+    # D102: an Organiser's request (US29a) or a coordinator's own US12 edit, told apart by
     # whether the requester created the event.
     source: Literal["organiser", "coordinator"]
     requested_by: PersonOut

@@ -46,8 +46,8 @@ BOOKINGS, RESERVATIONS, REGISTRATIONS = (
     ReviewFlagKind.REGISTRATIONS,
 )
 SCHEDULE_KINDS = (BOOKINGS, RESERVATIONS, REGISTRATIONS)
-# DECISION-PENDING: D103 — the significant fields (the schedule, attendance, layout, venue and equipment), and,
-# DECISION-PENDING: D104 — which arrangements each one flags. Name, category, purpose and join link aren't significant.
+# D103: the significant fields (the schedule, attendance, layout, venue and equipment).
+# D104: which arrangements each one flags. Name, category, purpose and join link aren't significant.
 SIGNIFICANT_FIELDS: dict[str, tuple[ReviewFlagKind, ...]] = {
     "start_at": SCHEDULE_KINDS,
     "end_at": SCHEDULE_KINDS,
@@ -61,7 +61,7 @@ SIGNIFICANT_FIELDS: dict[str, tuple[ReviewFlagKind, ...]] = {
     "delivery_mode": (BOOKINGS, REGISTRATIONS),
     "equipment_needs": (RESERVATIONS,),
 }
-# DECISION-PENDING: D105 — flags, Planning and the safety approval apply once the event is being arranged; at the
+# D105: flags, Planning and the safety approval apply once the event is being arranged; at the
 # request stage a significant change just takes its values. Approving is refused once the event is past changing.
 ARRANGED_STATUSES = (EventStatus.APPROVED, EventStatus.PLANNING, EventStatus.CONFIRMED)
 NOT_APPROVABLE = (EventStatus.PREPARATION, EventStatus.CANCELLED, EventStatus.COMPLETED, EventStatus.REJECTED)
@@ -80,7 +80,7 @@ def _lock_event(db: Session, event_id: uuid.UUID) -> Event:
 
 
 def _source(request: EventChangeRequest, event: Event) -> str:
-    # DECISION-PENDING: D102 — the event's creator asked (US29a), or a coordinator saved a critical edit (US12).
+    # D102: the event's creator asked (US29a), or a coordinator saved a critical edit (US12).
     return "organiser" if request.requested_by_user_id == event.created_by_user_id else "coordinator"
 
 
@@ -208,7 +208,7 @@ class ChangeDecisionService:
         self, db: Session, user: User, request_id: uuid.UUID, now: datetime, notifier: Notifier
     ) -> ChangeDecisionOut:
         request, event = self._lock(db, user, request_id)
-        # DECISION-PENDING: D105 — nothing changes an event past the point of changing it; it can still be rejected.
+        # D105: nothing changes an event past the point of changing it; it can still be rejected.
         if event.status in NOT_APPROVABLE:
             raise DomainError(409, "CHANGE_NOT_ALLOWED", status=event.status.value)
         cleaned = self._recheck(request, event, now)
@@ -226,7 +226,7 @@ class ChangeDecisionService:
         significant = _significant(request)
         if significant and event.status in ARRANGED_STATUSES:
             flags = self._flag(db, event, request, significant, now)
-            # DECISION-PENDING: D105 — a Confirmed event goes back to Planning and is no longer confirmed.
+            # D105: a Confirmed event goes back to Planning and is no longer confirmed.
             if event.status == EventStatus.CONFIRMED:
                 self._entry(db, event, user, request, now, AuditAction.STATUS_CHANGED, "status", "confirmed", "planning")
                 self._entry(
@@ -239,7 +239,7 @@ class ChangeDecisionService:
                 event.confirmed_at = None
                 event.confirmed_by_user_id = None
                 status_change = {"from": "confirmed", "to": "planning"}
-            # DECISION-PENDING: D106 — the safety approval no longer covers the event; its review row stays.
+            # D106: the safety approval no longer covers the event; its review row stays.
             if event.safety_approved_at is not None:
                 self._entry(
                     db, event, user, request, now, AuditAction.SAFETY_APPROVAL_CLEARED, "safety_approval",
@@ -346,7 +346,7 @@ class ChangeDecisionService:
     def _recheck(self, request: EventChangeRequest, event: Event, now: datetime) -> dict[str, Any]:
         reasons, cleaned = self._stale(request, event, now)
         if reasons:
-            # DECISION-PENDING: D107 — nothing is applied; the request can still be rejected.
+            # D107: nothing is applied; the request can still be rejected.
             raise DomainError(
                 409,
                 "CHANGE_REQUEST_STALE",
@@ -368,7 +368,7 @@ class ChangeDecisionService:
     def _flag(
         self, db: Session, event: Event, request: EventChangeRequest, significant: list[str], now: datetime
     ) -> list[EventReviewFlag]:
-        """DECISION-PENDING: D104 — one open flag per affected item; a later change adds its fields to it. Nothing on
+        """D104: one open flag per affected item; a later change adds its fields to it. Nothing on
         the booking, reservation or registrations changes (AC 3)."""
         kinds = _kinds(significant)
         targets: list[tuple[ReviewFlagKind, dict[str, uuid.UUID]]] = []
@@ -487,7 +487,7 @@ class ChangeDecisionService:
         self, db: Session, request: EventChangeRequest, event: Event, decision: str, status_change: dict | None,
         safety_cleared: bool, flags: list[EventReviewFlag],
     ) -> list[tuple[str, dict]]:
-        """Gathered before the commit, sent after it. DECISION-PENDING: D102 — the requester hears, and the event's
+        """Gathered before the commit, sent after it. D102: the requester hears, and the event's
         organiser too when an approved US12 edit changed their event."""
         name = event.name or event.request_reference or str(event.id)
         common = {
@@ -507,7 +507,7 @@ class ChangeDecisionService:
             organiser = db.get(User, event.created_by_user_id)
             if organiser is not None and organiser.is_active and organiser.id != request.requested_by_user_id:
                 notices.append(("change_request_decided", common | {"email": organiser.email, "to_requester": False}))
-        # DECISION-PENDING: D104 — Venue staff about each flagged booking, Tech support about each reservation.
+        # D104: Venue staff about each flagged booking, Tech support about each reservation.
         staff_for = {BOOKINGS: UserRole.VENUE_STAFF, RESERVATIONS: UserRole.TECH_SUPPORT}
         for flag in flags:
             role = staff_for.get(flag.kind)

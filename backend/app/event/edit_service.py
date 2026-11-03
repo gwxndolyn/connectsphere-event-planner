@@ -225,8 +225,8 @@ class EventEditService:
             for field, _, new in changes:
                 setattr(event, field, new)
 
-        # DECISION-PENDING: D89 — a critical edit is a successful save too, so it's logged, tied to its
-        # change request. Who approves one (and so what then changes the event) isn't decided.
+        # D89 (settled by D102): a critical edit is a successful save too, so it's logged, tied to its
+        # change request; the coordinator or a Lead then decides it (US29b).
         for field, old, new in changes:
             db.add(
                 EventAuditEntry(

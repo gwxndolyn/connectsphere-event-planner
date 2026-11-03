@@ -582,14 +582,18 @@ AGENDA_DAY_IN_DAYS = 21
 
 # US12 (SCRUM-15): the dev coordinator edits it (Events, TC-US12-20 to 23). Planning is the only status that
 # takes edits, and it's the only seeded planning event assigned to the coordinator (US15's Agenda Demo has
-# none). Registration is off, so it stays off the events board.
+# none). Registration is off, so it stays off the events board. It runs 10:00 to 12:00 SEED_TIMEZONE, 21 days
+# ahead, whatever the clock time of the seed, so TC-US12-23's end before the start is the same on every run.
+PLANNING_DAY_IN_DAYS = 21
+PLANNING_STARTS = time(10, 0)
+PLANNING_ENDS = time(12, 0)
 PLANNING_EVENT = EventSpec(
     slug="planning-edit-demo",
     name="Event Planning Demo",
     note="planning, assigned to the seeded coordinator, registration off (US12)",
     status=EventStatus.PLANNING,
     registration_enabled=False,
-    starts_in=timedelta(days=21),
+    starts_in=timedelta(days=PLANNING_DAY_IN_DAYS),
     capacity=80,
 )
 
@@ -985,6 +989,9 @@ def upsert_planning_event(
     """The planning event the Events screen edits, assigned to `coordinator`. A reseed puts its details back
     and removes its edit history and change requests, so E2E reruns (TC-US12-22, 23) start from the same event."""
     event = upsert_event(db, spec, now, organiser)
+    day = now.astimezone(SEED_TIMEZONE).date() + timedelta(days=PLANNING_DAY_IN_DAYS)
+    event.start_at = datetime.combine(day, PLANNING_STARTS, SEED_TIMEZONE)
+    event.end_at = datetime.combine(day, PLANNING_ENDS, SEED_TIMEZONE)
     event.coordinator_id = coordinator.id
     event.event_category = "Workshop"
     event.purpose = "Seeded for editing an event in planning (US12)"

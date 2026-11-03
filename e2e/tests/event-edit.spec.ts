@@ -57,7 +57,10 @@ test("TC-US12-22: a critical change waits for approval and the event keeps its c
 test("TC-US12-23: an end before the start is refused on the end time, and History lists saves newest first (AC 4, 5)", async ({ page }) => {
   await openEvent(page);
   await page.getByRole("button", { name: "Edit" }).click();
-  await page.getByLabel("End time").fill("08:00");
+  // The seed puts the event at 10:00 to 12:00 SGT, so the start loads as 10:00, only the end is sent, and the
+  // error is on End time.
+  await page.getByLabel("Start time").fill("10:00");
+  await page.getByLabel("End time").fill("09:00");
   await page.getByRole("button", { name: "Save changes" }).click();
 
   await expect(page.getByRole("alert")).toContainText("Nothing was saved.");
@@ -72,5 +75,6 @@ test("TC-US12-23: an end before the start is refused on the end time, and Histor
   await expect(rows.nth(2)).toContainText("Equipment needs");
   await expect(rows.nth(2)).toContainText(`Sticky notes ${stamp}`);
   await expect(rows.nth(1)).toContainText("Casey Tan");
-  await expect(page.getByRole("table")).not.toContainText("08:00");
+  // No row names the refused save's fields. Not the times: the When column holds the save's own time.
+  await expect(rows.filter({ hasText: /Start time|End time/ })).toHaveCount(0);
 });
