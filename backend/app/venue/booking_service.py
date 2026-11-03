@@ -877,7 +877,10 @@ class VenueBookingService:
             return []
         primary = original.is_primary
         original_venue = db.get(Venue, original.venue_id)
-        changed = primary and (
+        # AC 7: attendees see the primary venue. It is the replacement now if the original had it, or if the
+        # coordinator already made the pending replacement primary (US24, Chloe's #135 review); either way they're
+        # told when its venue or times differ from the original's.
+        changed = (primary or booking.is_primary) and (
             original.venue_id != booking.venue_id
             or (original.starts_at, original.ends_at) != (booking.starts_at, booking.ends_at)
         )

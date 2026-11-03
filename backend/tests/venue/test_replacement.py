@@ -366,6 +366,25 @@ async def test_tc_us23b_08_attendees_arent_told_about_a_venue_they_dont_see(
     assert original.is_primary
 
 
+async def test_tc_us23b_08_attendees_hear_when_the_replacement_was_made_primary_first(
+    client: AsyncClient, db: Session, staff: User, coordinator: User, event: Event, venue: Venue,
+    original: VenueBooking, notifier: FakeNotifier,
+) -> None:
+    """Chloe's #135 review: the coordinator makes the pending replacement primary (US24) before Venue staff approve
+    it, so the original isn't primary at approval. Attendees still see the venue change, so they're told."""
+    registered = make_attendee(db)
+    make_registration(db, event, registered)
+    await mark(client, staff, venue)
+    replacement = (await request_replacement(client, coordinator, event, make_venue(db, name="Hall B"), original)).json()
+    made = await client.post(f"/api/v1/venue-bookings/{replacement['id']}/make-primary", headers=auth(coordinator))
+    assert made.status_code == 200, made.text
+    assert notifier.venue_changes == []
+
+    await client.post(f"/api/v1/venue-bookings/{replacement['id']}/approve", headers=auth(staff))
+
+    assert [(call["email"], call["venue_name"]) for call in notifier.venue_changes] == [(registered.email, "Hall B")]
+
+
 async def test_tc_us23b_08_a_failed_attendee_notice_leaves_the_replacement_approved(
     client: AsyncClient, db: Session, staff: User, coordinator: User, event: Event, venue: Venue,
     original: VenueBooking, notifier: FakeNotifier,
