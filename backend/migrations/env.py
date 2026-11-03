@@ -7,6 +7,7 @@ from sqlalchemy import create_engine, pool
 import app.agenda.models  # noqa: F401
 import app.equipment.models  # noqa: F401
 import app.event.models  # noqa: F401
+import app.notification.models  # noqa: F401
 import app.registration.models  # noqa: F401
 import app.safety.models  # noqa: F401
 import app.user.models  # noqa: F401

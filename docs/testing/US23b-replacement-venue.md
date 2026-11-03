@@ -23,8 +23,8 @@
 
 ## Decisions for this story
 
-- **Replaced is a status** (D116, the story owner's choice, 3 Nov, `DECISION-PENDING`). A replacement is a new request naming the booking it replaces; once it is approved, the original becomes `replaced` and, like a withdrawn booking, stops holding its window, keeping its reference, venue, times and the block that marked it. One live replacement at a time.
-- **A venue comes back when Venue staff end the block early** (D117, the story owner's choice, 3 Nov, `DECISION-PENDING`). The block's `ends_at` moves to then, or to its start if it hadn't begun (an empty block, overlapping nothing), and `scheduled_ends_at` keeps the original end. The coordinator then asks to restore; Venue staff confirm or decline.
+- **Replaced is a status** (D117, the story owner's choice, 3 Nov, `DECISION-PENDING`). A replacement is a new request naming the booking it replaces; once it is approved, the original becomes `replaced` and, like a withdrawn booking, stops holding its window, keeping its reference, venue, times and the block that marked it. One live replacement at a time.
+- **A venue comes back when Venue staff end the block early** (D118, the story owner's choice, 3 Nov, `DECISION-PENDING`). The block's `ends_at` moves to then, or to its start if it hadn't begun (an empty block, overlapping nothing), and `scheduled_ends_at` keeps the original end. The coordinator then asks to restore; Venue staff confirm or decline.
 - **The event goes back to Planning when the venue is marked** (the story owner's choice, 3 Nov): PR 2 changes US23a's `POST /venues/{id}/blocks` so an affected Confirmed or Preparation event moves to Planning, clearing its confirmation as an approved change request does (US29b).
 
 ## Test cases

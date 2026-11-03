@@ -1,0 +1,71 @@
+/* US31 (SCRUM-107): the Notifications screen and the unread count on its header link. */
+.notification-list {
+  display: grid;
+  gap: 12px;
+  margin: 16px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.notification {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  text-align: left;
+}
+
+.notification--unread {
+  border-color: var(--accent, #d4380d);
+  border-left-width: 5px;
+  background: var(--badge-bg);
+}
+
+.notification__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.notification__event {
+  font-weight: 700;
+}
+
+.notification__time {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.notification__message {
+  margin: 0;
+}
+
+.notification__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.notifications-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.site-header__count {
+  display: inline-block;
+  min-width: 20px;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: var(--accent, #d4380d);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+}

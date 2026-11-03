@@ -196,6 +196,19 @@ export type FakeChangeRequest = OrganiserChangeRequest & {
   decided_by?: { id: string; name: string } | null;
 };
 
+// US31 (SCRUM-107): a stored notification, as GET /api/v1/me/notifications returns it, with its recipient.
+export interface FakeNotification {
+  id: string;
+  user_id: string;
+  kind: string;
+  event_id: string | null;
+  event_name: string | null;
+  message: string;
+  created_at: string;
+  read: boolean;
+  can_open: boolean;
+}
+
 interface Db {
   venues: Venue[];
   // What GET /venues/available returns next (see nextSearchResult).
@@ -228,6 +241,8 @@ interface Db {
   // US30a: every safety review, and the events whose rejected arrangement was sent back for another one.
   safetyReviews: FakeSafetyReview[];
   safetyResent: Record<string, boolean>;
+  // US31: every user's notifications; the routes show the caller's own.
+  notifications: FakeNotification[];
   // US28: the events each managing role sees, and what each event's registrations call returns.
   managedEvents: Record<"organiser" | "coordinator", EventRegistrations[]>;
   // US12 (SCRUM-15): the coordinator's events and each one's History, newest first.
@@ -279,6 +294,7 @@ function emptyDb(): Db {
     techStaffRows: [],
     safetyReviews: [],
     safetyResent: {},
+    notifications: [],
     calls: [],
     nextId: 1,
     nextReference: 1,
@@ -336,6 +352,24 @@ export function fillSeats(event: FakeEvent, count: number) {
   for (let i = 0; i < count; i++) {
     seedRegistration(event, { attendee_id: `other-${db.nextId}`, email: `other${db.nextId}@smu.edu.sg` });
   }
+}
+
+/** US31: a notification for `userId`, unread unless `read` says otherwise. */
+export function seedNotification(userId: string, overrides: Partial<FakeNotification> = {}): FakeNotification {
+  const notification: FakeNotification = {
+    id: newId("notification"),
+    user_id: userId,
+    kind: "request_decided",
+    event_id: null,
+    event_name: "Alumni night",
+    message: "Your request ER-2026-000101 was approved.",
+    created_at: `2026-10-04T03:${String(db.notifications.length).padStart(2, "0")}:00Z`,
+    read: false,
+    can_open: false,
+    ...overrides,
+  };
+  db.notifications.push(notification);
+  return notification;
 }
 
 export function seedRequest(overrides: Partial<EventRequest> = {}): EventRequest {
@@ -2724,6 +2758,44 @@ const handlers = [
     db.safetyResent[found.id] = false;
     if (review.outcome === "approved") found.safety_approved_at = created_at;
     return HttpResponse.json(review, { status: 201 });
+  }),
+
+  // US31 (SCRUM-107): the caller's own notifications, newest first, as app/notification/router.py has them.
+  route("get", "/api/v1/me/notifications", ({ request }) => {
+    const user = request.headers.get("X-User-Id");
+    if (!user || !userRole(request)) return error(401, "UNAUTHENTICATED");
+    const mine = db.notifications.filter((n) => n.user_id === user).sort((a, b) => b.created_at.localeCompare(a.created_at));
+    const url = new URL(request.url);
+    const shown = url.searchParams.get("unread_only") === "true" ? mine.filter((n) => !n.read) : mine;
+    const limit = Number(url.searchParams.get("limit") ?? 50);
+    return HttpResponse.json({
+      notifications: shown.slice(0, limit).map(({ user_id: _user, ...rest }) => rest),
+      unread_count: mine.filter((n) => !n.read).length,
+    });
+  }),
+
+  route("get", "/api/v1/me/notifications/unread-count", ({ request }) => {
+    const user = request.headers.get("X-User-Id");
+    if (!user || !userRole(request)) return error(401, "UNAUTHENTICATED");
+    return HttpResponse.json({ unread_count: db.notifications.filter((n) => n.user_id === user && !n.read).length });
+  }),
+
+  route("post", "/api/v1/me/notifications/read-all", ({ request }) => {
+    const user = request.headers.get("X-User-Id");
+    if (!user || !userRole(request)) return error(401, "UNAUTHENTICATED");
+    const unread = db.notifications.filter((n) => n.user_id === user && !n.read);
+    for (const n of unread) n.read = true;
+    return HttpResponse.json({ updated: unread.length, unread_count: 0 });
+  }),
+
+  route("post", "/api/v1/me/notifications/:id/read", ({ request, params }) => {
+    const user = request.headers.get("X-User-Id");
+    if (!user || !userRole(request)) return error(401, "UNAUTHENTICATED");
+    const found = db.notifications.find((n) => n.id === params.id && n.user_id === user);
+    if (!found) return error(404, "NOT_FOUND");
+    found.read = true;
+    const { user_id: _user, ...rest } = found;
+    return HttpResponse.json(rest);
   }),
 
   route("get", "/api/v1/event-requests/:id/safety-reviews", ({ request, params }) => {

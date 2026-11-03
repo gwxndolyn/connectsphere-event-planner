@@ -82,7 +82,7 @@ class VenueBookingStatus(enum.StrEnum):
     # not yet approved, at that expiry (AC 3, 5). Neither is a booking (AC 6): only BLOCKING_STATUSES count a hold.
     HELD = "held"
     EXPIRED = "expired"
-    # US23b (SCRUM-91) AC 4 (D116): a booking needing rearrangement whose replacement was approved. Like withdrawn and
+    # US23b (SCRUM-91) AC 4 (D117): a booking needing rearrangement whose replacement was approved. Like withdrawn and
     # expired, it no longer holds its window, and keeps its details for the event's history.
     REPLACED = "replaced"
 
@@ -208,7 +208,7 @@ class VenueBooking(Base):
             "rearrangement_block_id",
             postgresql_where=text("rearrangement_block_id IS NOT NULL"),
         ),
-        # DECISION-PENDING: D116 — US23b (SCRUM-91) AC 3, 4: a replacement names the booking it replaces, at most one
+        # DECISION-PENDING: D117 — US23b (SCRUM-91) AC 3, 4: a replacement names the booking it replaces, at most one
         # live replacement each; the original is Replaced once the replacement is approved. The status is compared
         # as text so the migration needn't commit the new value first.
         CheckConstraint(
@@ -223,7 +223,7 @@ class VenueBooking(Base):
             unique=True,
             postgresql_where=text("replaces_booking_id IS NOT NULL AND status IN ('requested', 'approved', 'held')"),
         ),
-        # DECISION-PENDING: D117 — US23b AC 5: the coordinator asks to restore a marked booking; Venue staff decide.
+        # DECISION-PENDING: D118 — US23b AC 5: the coordinator asks to restore a marked booking; Venue staff decide.
         CheckConstraint(
             "(restore_requested_at IS NULL) = (restore_requested_by_user_id IS NULL) "
             "AND (restore_requested_at IS NULL OR rearrangement_block_id IS NOT NULL)",
@@ -314,7 +314,7 @@ class VenueBlock(Base):
 
     __tablename__ = "venue_blocks"
     __table_args__ = (
-        # US23b (SCRUM-91, D117): a block ended before it began is left empty (ends_at = starts_at), overlapping nothing.
+        # US23b (SCRUM-91, D118): a block ended before it began is left empty (ends_at = starts_at), overlapping nothing.
         CheckConstraint(
             "ends_at > starts_at OR (ended_early_at IS NOT NULL AND ends_at = starts_at)",
             name="venue_blocks_window_valid",
@@ -343,7 +343,7 @@ class VenueBlock(Base):
     # Who recorded it; null for blocks older than US23a.
     created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    # US23b (SCRUM-91) AC 5 (D117): Venue staff ended it early, so ends_at moved to then (or to starts_at, if it
+    # US23b (SCRUM-91) AC 5 (D118): Venue staff ended it early, so ends_at moved to then (or to starts_at, if it
     # hadn't begun); scheduled_ends_at keeps the end it was recorded with.
     ended_early_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     ended_early_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))

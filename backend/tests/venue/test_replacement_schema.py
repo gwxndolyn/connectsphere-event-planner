@@ -67,7 +67,7 @@ def test_tc_us23b_01_migrations_have_one_head() -> None:
 def test_tc_us23b_01_a_replaced_booking_frees_its_window_and_keeps_its_details(
     db: Session, event: Event, venue: Venue, coordinator: User, block: VenueBlock, original: VenueBooking
 ) -> None:
-    """AC 4 (D116): Replaced is a status with its time; like withdrawn, it no longer holds the venue, and the
+    """AC 4 (D117): Replaced is a status with its time; like withdrawn, it no longer holds the venue, and the
     booking keeps its reference, window, decision and the block that marked it."""
     reference, window = original.reference, (original.starts_at, original.ends_at)
     original.status = VenueBookingStatus.REPLACED
@@ -122,7 +122,7 @@ def test_tc_us23b_02_a_booking_doesnt_replace_itself(db: Session, original: Venu
 def test_tc_us23b_02_one_live_replacement_at_a_time(
     db: Session, original: VenueBooking, coordinator: User, first: VenueBookingStatus
 ) -> None:
-    """D116: a second replacement waits until the first is rejected or withdrawn."""
+    """D117: a second replacement waits until the first is rejected or withdrawn."""
     _replacement(db, original, coordinator, status=first)
 
     with pytest.raises(IntegrityError, match="venue_bookings_one_live_replacement"):
@@ -158,7 +158,7 @@ def test_tc_us23b_02_a_closed_replacement_makes_way_for_another(
 def test_tc_us23b_03_a_marked_booking_can_be_asked_to_be_restored(
     db: Session, original: VenueBooking, coordinator: User
 ) -> None:
-    """AC 5 (D117): who asked and when, until Venue staff decide."""
+    """AC 5 (D118): who asked and when, until Venue staff decide."""
     original.restore_requested_at = NOW
     original.restore_requested_by_user_id = coordinator.id
     db.flush()
@@ -220,7 +220,7 @@ def test_tc_us23b_03_a_decline_is_whole(
 
 
 def test_tc_us23b_04_a_block_ended_early_keeps_its_scheduled_end(db: Session, block: VenueBlock, staff: User) -> None:
-    """AC 5 (D117): ends_at moves to when it was ended; scheduled_ends_at keeps the end it had."""
+    """AC 5 (D118): ends_at moves to when it was ended; scheduled_ends_at keeps the end it had."""
     scheduled = block.ends_at
     block.scheduled_ends_at = scheduled
     block.ends_at = START

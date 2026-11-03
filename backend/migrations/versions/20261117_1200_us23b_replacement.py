@@ -1,7 +1,7 @@
 """replace or restore a booking that needs rearrangement, and let Venue staff end a venue block early
 
 Revision ID: 20261117_1200_us23b_replacement
-Revises: 20261116_1200_us23a_blocks
+Revises: 20261116_1200_us31_notifications
 Create Date: 2026-11-17
 
 """
@@ -12,13 +12,13 @@ import sqlalchemy as sa
 
 
 revision: str = "20261117_1200_us23b_replacement"
-down_revision: Union[str, None] = "20261116_1200_us23a_blocks"
+down_revision: Union[str, None] = "20261116_1200_us31_notifications"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # US23b (SCRUM-91) AC 4 (D116): once its replacement is approved, the original booking is Replaced. Like withdrawn
+    # US23b (SCRUM-91) AC 4 (D117): once its replacement is approved, the original booking is Replaced. Like withdrawn
     # and expired, a replaced booking no longer holds its window. Added with ADD VALUE (as US10a did) rather than by
     # rebuilding the type: nothing below compares the status with the new value as an enum, only as text, so it
     # needn't be committed first.
@@ -42,7 +42,7 @@ def upgrade() -> None:
     op.create_check_constraint(
         "venue_bookings_replaces_another", "venue_bookings", "replaces_booking_id IS NULL OR replaces_booking_id <> id"
     )
-    # D116: at most one live replacement per booking. One that is rejected or withdrawn makes way for another. Over
+    # D117: at most one live replacement per booking. One that is rejected or withdrawn makes way for another. Over
     # every status that holds a window (BLOCKING_STATUSES), so a held one would count too (Matt's #134 review), though
     # a replacement is always a request.
     op.create_index(
@@ -53,7 +53,7 @@ def upgrade() -> None:
         postgresql_where=sa.text("replaces_booking_id IS NOT NULL AND status IN ('requested', 'approved', 'held')"),
     )
 
-    # AC 5 (D117): the coordinator asks to restore a booking that needs rearrangement; Venue staff confirm or decline,
+    # AC 5 (D118): the coordinator asks to restore a booking that needs rearrangement; Venue staff confirm or decline,
     # which clears the request. Only a marked booking can be asked for.
     op.add_column("venue_bookings", sa.Column("restore_requested_at", sa.DateTime(timezone=True), nullable=True))
     op.add_column("venue_bookings", sa.Column("restore_requested_by_user_id", sa.Uuid(), nullable=True))
@@ -70,7 +70,7 @@ def upgrade() -> None:
         "(restore_requested_at IS NULL) = (restore_requested_by_user_id IS NULL) "
         "AND (restore_requested_at IS NULL OR rearrangement_block_id IS NOT NULL)",
     )
-    # AC 5 (D117, Matt's #134 review): Venue staff's last decline, when, who and why, so the coordinator sees it on the
+    # AC 5 (D118, Matt's #134 review): Venue staff's last decline, when, who and why, so the coordinator sees it on the
     # event. Kept until the coordinator asks again; a reason only with a decline.
     op.add_column("venue_bookings", sa.Column("restore_declined_at", sa.DateTime(timezone=True), nullable=True))
     op.add_column("venue_bookings", sa.Column("restore_declined_by_user_id", sa.Uuid(), nullable=True))
@@ -89,7 +89,7 @@ def upgrade() -> None:
         "AND (restore_decline_reason IS NULL OR restore_declined_at IS NOT NULL)",
     )
 
-    # AC 5 (D117): Venue staff end a block early, so its venue can be free again. ends_at moves to when it was ended
+    # AC 5 (D118): Venue staff end a block early, so its venue can be free again. ends_at moves to when it was ended
     # (or to its start, if it hadn't begun: an empty range, which overlaps nothing), and scheduled_ends_at keeps the
     # end it had. Search, the availability check and the calendar read ends_at as before.
     op.add_column("venue_blocks", sa.Column("ended_early_at", sa.DateTime(timezone=True), nullable=True))

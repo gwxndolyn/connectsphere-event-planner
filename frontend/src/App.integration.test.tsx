@@ -61,6 +61,7 @@ describe("role switcher (US16b AC 2)", () => {
       "Registrations",
       "Venues",
       "Equipment",
+      "Notifications",
       "Log out",
     ]);
   });

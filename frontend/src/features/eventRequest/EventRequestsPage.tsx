@@ -96,7 +96,13 @@ function errorMessage(error: unknown): string {
   return `The backend rejected the request (${error.status}).`;
 }
 
-export function EventRequestsPage() {
+interface EventRequestsPageProps {
+  // US31 (SCRUM-107) AC 5: a request to open straight away, from a notification, and the call that says it was.
+  openId?: string | null;
+  onOpened?: () => void;
+}
+
+export function EventRequestsPage({ openId, onOpened }: EventRequestsPageProps = {}) {
   const [requests, setRequests] = useState<EventRequest[]>([]);
   const [screen, setScreen] = useState<Screen>("list");
   const [activeRequest, setActiveRequest] = useState<EventRequest | null>(null);
@@ -131,6 +137,17 @@ export function EventRequestsPage() {
       current = false;
     };
   }, []);
+
+  // Once the list is read, open the request a notification named; one that isn't the user's says so.
+  useEffect(() => {
+    if (!openId || loading) return;
+    const wanted = requests.find((request) => request.id === openId);
+    if (wanted) void openRequest(wanted);
+    else setError("This request is no longer available to your account.");
+    onOpened?.();
+    // Once per notification clicked.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openId, loading]);
 
   function openNewRequest() {
     setActiveRequest(null);

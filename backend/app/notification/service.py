@@ -735,4 +735,8 @@ notifier = LoggingNotifier()
 
 
 def get_notifier() -> Notifier:
-    return notifier
+    # US31 (SCRUM-107): the logging notifier plus a row for each recipient. Imported here because the
+    # recorder reads the other stories' models, and those modules import this one for the Notifier type.
+    from app.notification.recorder import recording_notifier
+
+    return recording_notifier

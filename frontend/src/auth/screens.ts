@@ -5,15 +5,16 @@ import type { View } from "../components/SiteHeader";
 // Registrations is US28's (SCRUM-96), for the organiser and coordinator. Equipment is US26's (SCRUM-110): the coordinator
 // requests it, and it's Tech support's only screen.
 // Events is US12's (SCRUM-15): the coordinator opens, edits and reads the history of their events in planning onwards.
+// Notifications (US31, SCRUM-107) is every role's last screen: everyone reads their own.
 const SCREENS: Record<string, View[]> = {
-  organiser: ["event-requests", "registrations", "venues"],
-  coordinator: ["event-requests", "events", "registrations", "venues", "equipment"],
-  coordinator_lead: ["event-requests", "venues"],
-  venue_staff: ["venues"],
-  tech_support: ["equipment"],
-  // US30a (SCRUM-99): the Safety Officer's queue and checklist are their only screen.
-  safety_officer: ["safety-reviews"],
-  attendee: ["discovery", "my-events"],
+  organiser: ["event-requests", "registrations", "venues", "notifications"],
+  coordinator: ["event-requests", "events", "registrations", "venues", "equipment", "notifications"],
+  coordinator_lead: ["event-requests", "venues", "notifications"],
+  venue_staff: ["venues", "notifications"],
+  tech_support: ["equipment", "notifications"],
+  // US30a (SCRUM-99): the Safety Officer's queue and checklist are their home screen.
+  safety_officer: ["safety-reviews", "notifications"],
+  attendee: ["discovery", "my-events", "notifications"],
 };
 
 /** A role's screens, or undefined for a role this frontend doesn't know yet (e.g. one US16b adds). */

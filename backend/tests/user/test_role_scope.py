@@ -339,6 +339,11 @@ SIGNED_IN_ROUTES = {
     ("GET", "/api/v1/venues"),
     ("GET", "/api/v1/venues/{venue_id}"),
     ("GET", "/api/v1/equipment-types"),
+    # SCRUM-107 (US31): everyone reads their own notifications, whatever role they hold.
+    ("GET", "/api/v1/me/notifications"),
+    ("GET", "/api/v1/me/notifications/unread-count"),
+    ("POST", "/api/v1/me/notifications/read-all"),
+    ("POST", "/api/v1/me/notifications/{notification_id}/read"),
 }
 ATTENDEE_ROUTES = {
     ("GET", "/api/v1/events/available"),
