@@ -820,6 +820,21 @@ function visibleTo(request: EventRequest, role: string, userId: string) {
   return request.status !== "draft";
 }
 
+// GET /event-requests/{id}'s own rule (request_service._can_read): its creator; past the request stage
+// (COORDINATOR_EVENT_STATUSES) only its assigned coordinator, so a Lead gets 404 on a Planning or Confirmed event;
+// at the request stage a Lead or its assigned coordinator.
+const COORDINATOR_EVENT_STATUSES = new Set(["planning", "confirmed", "preparation", "cancelled"]);
+const SUBMITTED_REQUEST_STATUSES = new Set(["submitted", "under_review", "awaiting_clarification", "approved", "rejected"]);
+
+function readableBy(request: EventRequest, role: string, userId: string) {
+  if (request.created_by_user_id === userId) return true;
+  if (request.status === "draft") return false;
+  const assigned = request.coordinator?.id === userId;
+  if (COORDINATOR_EVENT_STATUSES.has(request.status)) return assigned;
+  if (!SUBMITTED_REQUEST_STATUSES.has(request.status)) return false;
+  return role === "coordinator_lead" || (role === "coordinator" && assigned);
+}
+
 // Who may open a request and its thread at all (SCRUM-120, D54): other roles get 403.
 const REQUEST_READERS = new Set(["organiser", "coordinator", "coordinator_lead"]);
 
@@ -956,15 +971,31 @@ function changeView(request: FakeChangeRequest): ChangeRequestReview {
   };
 }
 
-/** The change request this coordinator decides (D102: their event, not their own request), or the refusal. */
+/** D102: the event's coordinator decides what they didn't make; a Lead (SCRUM-144) decides the coordinator's own edit. */
+function decides(role: string, userId: string | null, request: FakeChangeRequest, event: EventRequest): boolean {
+  const requester = requesterOf(request, event);
+  if (role === "coordinator") return event.coordinator?.id === userId && requester !== userId;
+  return requester !== event.created_by_user_id && requester === event.coordinator?.id && requester !== userId;
+}
+
+/** The change request this user decides (D102), or the refusal. */
 function decidableBy(request: Request, id: string): FakeChangeRequest | Response {
-  if (userRole(request) !== "coordinator") return error(403, "FORBIDDEN");
+  const role = userRole(request);
+  if (role !== "coordinator" && role !== "coordinator_lead") return error(403, "FORBIDDEN");
   const userId = request.headers.get("X-User-Id");
   const found = db.changeRequests.find((r) => r.id === id);
   const event = found && db.requests.find((r) => r.id === found.event_id);
-  if (!found || !event || event.coordinator?.id !== userId) return error(404, "NOT_FOUND");
-  if (requesterOf(found, event) === userId) return error(403, "SELF_DECISION_NOT_ALLOWED");
+  if (!found || !event) return error(404, "NOT_FOUND");
+  const own = requesterOf(found, event) === userId && (event.coordinator?.id === userId || role === "coordinator_lead");
+  if (own) return error(403, "SELF_DECISION_NOT_ALLOWED");
+  if (!decides(role, userId, found, event)) return error(404, "NOT_FOUND");
   return found;
+}
+
+/** Who a decision names: the Lead when a Lead decided (SCRUM-144), otherwise the coordinator. */
+function deciderOf(request: Request) {
+  const person = userRole(request) === "coordinator_lead" ? LEAD_PERSON : COORDINATOR_PERSON;
+  return { id: person.id, name: person.name };
 }
 
 function historyEntry(request: FakeChangeRequest, action: string, field: string, previous: unknown, next: unknown): AuditEntry {
@@ -2041,10 +2072,8 @@ const handlers = [
       .filter((r) => {
         const event = db.requests.find((e) => e.id === r.event_id);
         if (event === undefined) return false;
-        const requester = requesterOf(r, event);
-        const asCoordinator = roles.has("coordinator") && event.coordinator?.id === userId && requester !== userId;
-        const asLead =
-          roles.has("coordinator_lead") && requester !== event.created_by_user_id && requester === event.coordinator?.id && requester !== userId;
+        const asCoordinator = roles.has("coordinator") && decides("coordinator", userId, r, event);
+        const asLead = roles.has("coordinator_lead") && decides("coordinator_lead", userId, r, event);
         return (actingAs !== "coordinator_lead" && asCoordinator) || (actingAs !== "coordinator" && asLead);
       })
       .filter((r) => !eventId || r.event_id === eventId)
@@ -2074,7 +2103,7 @@ const handlers = [
     }
     found.status = "approved";
     found.decided_at = DECIDED_AT;
-    found.decided_by = { id: COORDINATOR_PERSON.id, name: COORDINATOR_PERSON.name };
+    found.decided_by = deciderOf(request);
     const entries = found.changes.map((c) => historyEntry(found, "applied", c.field, current[c.field] ?? null, c.new_value));
     for (const c of found.changes) current[c.field] = c.new_value;
     entries.push(historyEntry(found, "decided", "change_request", "pending_approval", { decision: "approved" }));
@@ -2116,7 +2145,7 @@ const handlers = [
     if (text.length > 1000) return error(422, "INVALID_CHANGE_DECISION", { fields: ["reason"], errors: { reason: "Too long." } });
     const event = db.requests.find((r) => r.id === found.event_id)!;
     Object.assign(found, { status: "rejected", decided_at: DECIDED_AT, rejection_reason: text });
-    found.decided_by = { id: COORDINATOR_PERSON.id, name: COORDINATOR_PERSON.name };
+    found.decided_by = deciderOf(request);
     db.history[event.id] = [
       historyEntry(found, "decided", "change_request", "pending_approval", { decision: "rejected", reason: text }),
       ...(db.history[event.id] ?? []),
@@ -2346,7 +2375,7 @@ const handlers = [
     if (!role) return error(401, "UNAUTHENTICATED");
     if (!REQUEST_READERS.has(role)) return error(403, "FORBIDDEN");
     const found = db.requests.find((r) => r.id === params.id);
-    if (!found || !visibleTo(found, role, request.headers.get("X-User-Id")!)) return error(404, "NOT_FOUND");
+    if (!found || !readableBy(found, role, request.headers.get("X-User-Id")!)) return error(404, "NOT_FOUND");
     return HttpResponse.json(found);
   }),
 

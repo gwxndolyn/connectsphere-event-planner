@@ -13,10 +13,13 @@ import type {
   UnassignedRequestsResponse,
 } from "./types";
 import { LeadRequestDetail } from "./LeadRequestDetail";
+import { LeadChangeReview } from "../changeRequest/LeadChangeReview";
+import { CoordinatorChangeRequests } from "../changeRequest/CoordinatorChangeRequests";
 import "./eventRequests.css";
 import "./assignments.css";
 
-type Screen = "queue" | "assign" | "done" | "history" | "detail";
+// SCRUM-144: "change" is a coordinator's own edit opened for the Lead to decide (D102).
+type Screen = "queue" | "assign" | "done" | "history" | "detail" | "change";
 type Tab = "unassigned" | "assigned";
 
 // SCRUM-86 AC 3: the statuses an assigned, still-active event can be in.
@@ -92,6 +95,8 @@ export function AssignmentQueuePage() {
   const [filterOptions, setFilterOptions] = useState<{ id: string; name: string }[]>([]);
   // SCRUM-69: the history of the request being viewed.
   const [history, setHistory] = useState<AssignmentRecord[]>([]);
+  // SCRUM-144: the coordinator edit being decided. The list unmounts on Review and reloads when Back remounts it.
+  const [changeId, setChangeId] = useState<string | null>(null);
 
   useEffect(() => {
     let current = true;
@@ -143,6 +148,14 @@ export function AssignmentQueuePage() {
     setError(null);
     setActive(request as UnassignedRequest);
     setScreen("detail");
+  }
+
+  // Not the event: past the request stage only its assigned coordinator may read it, so the Lead's screen is built
+  // from the change request alone (LeadChangeReview).
+  function openChange(requestId: string) {
+    setError(null);
+    setChangeId(requestId);
+    setScreen("change");
   }
 
   async function openHistory(request: EventRequest) {
@@ -218,6 +231,7 @@ export function AssignmentQueuePage() {
     setActive(null);
     setAssignedTo(null);
     setReassigning(false);
+    setChangeId(null);
     setError(null);
   }
 
@@ -237,12 +251,14 @@ export function AssignmentQueuePage() {
                   ? "Assignment history"
                   : screen === "detail"
                     ? "Request details"
+                    : screen === "change"
+                      ? "Coordinator edit"
                     : reassigning
                       ? "Reassignment complete"
                       : "Assignment complete"}
           </h1>
         </div>
-        {(screen === "assign" || screen === "history" || screen === "detail") && (
+        {(screen === "assign" || screen === "history" || screen === "detail" || screen === "change") && (
           <button className="request-button request-button--quiet" type="button" onClick={backToQueue}>
             Back to queue
           </button>
@@ -250,6 +266,14 @@ export function AssignmentQueuePage() {
       </div>
 
       {error && <div className="request-alert" role="alert">{error}</div>}
+
+      {screen === "queue" && (
+        <CoordinatorChangeRequests
+          actingAs="coordinator_lead"
+          heading="Coordinator edits to approve"
+          onReview={(_eventId, requestId) => openChange(requestId)}
+        />
+      )}
 
       {screen === "queue" && (
         <div className="assign-tabs" role="tablist" aria-label="Lead views">
@@ -379,6 +403,14 @@ export function AssignmentQueuePage() {
           onAssign={() => void startAssigning(active)}
           onReassign={() => void startAssigning(active, true)}
           onHistory={() => void openHistory(active)}
+        />
+      )}
+
+      {screen === "change" && changeId && (
+        <LeadChangeReview
+          key={changeId}
+          requestId={changeId}
+          onDecided={() => setAssignedVersion((count) => count + 1)}
         />
       )}
 

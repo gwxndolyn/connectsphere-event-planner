@@ -9,6 +9,9 @@ interface CoordinatorChangeRequestsProps {
   actingAs: DecidingRole;
   // Opens the event's review screen at its change requests.
   onReview: (eventId: string, requestId: string) => void;
+  // SCRUM-144: the Lead's list, "Coordinator edits to approve"; acting_as=coordinator_lead lists only coordinators'
+  // own US12 edits (D102).
+  heading?: string;
 }
 
 /**
@@ -16,7 +19,11 @@ interface CoordinatorChangeRequestsProps {
  * to them, oldest first. Nothing shows while none waits. Deviation 71: placed here, the coordinator's Event requests
  * screen, because every status a request can be decided in opens from it.
  */
-export function CoordinatorChangeRequests({ actingAs, onReview }: CoordinatorChangeRequestsProps) {
+export function CoordinatorChangeRequests({
+  actingAs,
+  onReview,
+  heading = "Change requests to review",
+}: CoordinatorChangeRequestsProps) {
   const [requests, setRequests] = useState<ChangeRequestReview[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -25,6 +32,7 @@ export function CoordinatorChangeRequests({ actingAs, onReview }: CoordinatorCha
     changeReviewApi
       .pending(null, actingAs)
       .then((found) => {
+        // The API lists only what this user decides in the acting role.
         if (current) setRequests(found);
       })
       .catch((reason: unknown) => {
@@ -39,7 +47,7 @@ export function CoordinatorChangeRequests({ actingAs, onReview }: CoordinatorCha
   if (!requests || requests.length === 0) return null;
   return (
     <section className="change-queue" aria-labelledby="change-queue-title">
-      <h2 id="change-queue-title">Change requests to review ({requests.length})</h2>
+      <h2 id="change-queue-title">{heading} ({requests.length})</h2>
       <ul className="change-queue__list">
         {requests.map((request) => (
           <li className="change-queue__row" key={request.id} aria-label={`${request.event_name ?? "Untitled event"} change request`}>
