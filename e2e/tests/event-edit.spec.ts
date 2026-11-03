@@ -74,6 +74,6 @@ test("TC-US12-23: an end before the start is refused on the end time, and Histor
   await expect(rows.nth(2)).toContainText("Equipment needs");
   await expect(rows.nth(2)).toContainText(`Sticky notes ${stamp}`);
   await expect(rows.nth(1)).toContainText("Casey Tan");
-  await expect(page.getByRole("table")).not.toContainText("09:00");
-  await expect(page.getByRole("table")).not.toContainText("10:00");
+  // No row names the refused save's fields. Not the times: the When column holds the save's own time.
+  await expect(rows.filter({ hasText: /Start time|End time/ })).toHaveCount(0);
 });
