@@ -58,6 +58,9 @@ AGREED_COLUMNS = {
     "replaced_at",
     "restore_requested_at",
     "restore_requested_by_user_id",
+    "restore_declined_at",
+    "restore_declined_by_user_id",
+    "restore_decline_reason",
 }
 # Every refused overlap names this constraint (AC 3 and 7).
 NO_OVERLAP = "venue_bookings_no_overlap"
@@ -187,6 +190,7 @@ def test_tc_us22_01_booking_schema_is_installed(db: Session, engine) -> None:
         "venue_bookings_replaced_consistent",  # US23b D116
         "venue_bookings_replaces_another",  # US23b D116
         "venue_bookings_restore_consistent",  # US23b D117
+        "venue_bookings_restore_decline_consistent",  # US23b D117
     }
     exclusions = db.scalars(
         text("select conname from pg_constraint where conrelid = 'venue_bookings'::regclass and contype = 'x'")

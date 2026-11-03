@@ -42,13 +42,15 @@ def upgrade() -> None:
     op.create_check_constraint(
         "venue_bookings_replaces_another", "venue_bookings", "replaces_booking_id IS NULL OR replaces_booking_id <> id"
     )
-    # D116: at most one live replacement per booking. One that is rejected or withdrawn makes way for another.
+    # D116: at most one live replacement per booking. One that is rejected or withdrawn makes way for another. Over
+    # every status that holds a window (BLOCKING_STATUSES), so a held one would count too (Matt's #134 review), though
+    # a replacement is always a request.
     op.create_index(
         "venue_bookings_one_live_replacement",
         "venue_bookings",
         ["replaces_booking_id"],
         unique=True,
-        postgresql_where=sa.text("replaces_booking_id IS NOT NULL AND status IN ('requested', 'approved')"),
+        postgresql_where=sa.text("replaces_booking_id IS NOT NULL AND status IN ('requested', 'approved', 'held')"),
     )
 
     # AC 5 (D117): the coordinator asks to restore a booking that needs rearrangement; Venue staff confirm or decline,
@@ -67,6 +69,24 @@ def upgrade() -> None:
         "venue_bookings",
         "(restore_requested_at IS NULL) = (restore_requested_by_user_id IS NULL) "
         "AND (restore_requested_at IS NULL OR rearrangement_block_id IS NOT NULL)",
+    )
+    # AC 5 (D117, Matt's #134 review): Venue staff's last decline, when, who and why, so the coordinator sees it on the
+    # event. Kept until the coordinator asks again; a reason only with a decline.
+    op.add_column("venue_bookings", sa.Column("restore_declined_at", sa.DateTime(timezone=True), nullable=True))
+    op.add_column("venue_bookings", sa.Column("restore_declined_by_user_id", sa.Uuid(), nullable=True))
+    op.add_column("venue_bookings", sa.Column("restore_decline_reason", sa.Text(), nullable=True))
+    op.create_foreign_key(
+        "fk_venue_bookings_restore_declined_by_user_id_users",
+        "venue_bookings",
+        "users",
+        ["restore_declined_by_user_id"],
+        ["id"],
+    )
+    op.create_check_constraint(
+        "venue_bookings_restore_decline_consistent",
+        "venue_bookings",
+        "(restore_declined_at IS NULL) = (restore_declined_by_user_id IS NULL) "
+        "AND (restore_decline_reason IS NULL OR restore_declined_at IS NOT NULL)",
     )
 
     # AC 5 (D117): Venue staff end a block early, so its venue can be free again. ends_at moves to when it was ended
@@ -98,13 +118,13 @@ def downgrade() -> None:
     lossy = bind.scalar(
         sa.text(
             "SELECT EXISTS (SELECT 1 FROM venue_bookings WHERE status::text = 'replaced' "
-            "OR replaces_booking_id IS NOT NULL OR restore_requested_at IS NOT NULL) "
+            "OR replaces_booking_id IS NOT NULL OR restore_requested_at IS NOT NULL OR restore_declined_at IS NOT NULL) "
             "OR EXISTS (SELECT 1 FROM venue_blocks WHERE ended_early_at IS NOT NULL)"
         )
     )
     if lossy:
         raise RuntimeError(
-            "Refusing lossy downgrade: replaced bookings, replacement or restore requests, "
+            "Refusing lossy downgrade: replaced bookings, replacement or restore requests, declined restores, "
             "or venue blocks ended early would be discarded."
         )
     op.drop_constraint("venue_blocks_ended_early_consistent", "venue_blocks", type_="check")
@@ -114,6 +134,11 @@ def downgrade() -> None:
     op.drop_column("venue_blocks", "scheduled_ends_at")
     op.drop_column("venue_blocks", "ended_early_by_user_id")
     op.drop_column("venue_blocks", "ended_early_at")
+    op.drop_constraint("venue_bookings_restore_decline_consistent", "venue_bookings", type_="check")
+    op.drop_constraint("fk_venue_bookings_restore_declined_by_user_id_users", "venue_bookings", type_="foreignkey")
+    op.drop_column("venue_bookings", "restore_decline_reason")
+    op.drop_column("venue_bookings", "restore_declined_by_user_id")
+    op.drop_column("venue_bookings", "restore_declined_at")
     op.drop_constraint("venue_bookings_restore_consistent", "venue_bookings", type_="check")
     op.drop_constraint("fk_venue_bookings_restore_requested_by_user_id_users", "venue_bookings", type_="foreignkey")
     op.drop_column("venue_bookings", "restore_requested_by_user_id")

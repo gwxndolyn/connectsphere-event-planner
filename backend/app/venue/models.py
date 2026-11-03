@@ -221,13 +221,19 @@ class VenueBooking(Base):
             "venue_bookings_one_live_replacement",
             "replaces_booking_id",
             unique=True,
-            postgresql_where=text("replaces_booking_id IS NOT NULL AND status IN ('requested', 'approved')"),
+            postgresql_where=text("replaces_booking_id IS NOT NULL AND status IN ('requested', 'approved', 'held')"),
         ),
         # DECISION-PENDING: D117 — US23b AC 5: the coordinator asks to restore a marked booking; Venue staff decide.
         CheckConstraint(
             "(restore_requested_at IS NULL) = (restore_requested_by_user_id IS NULL) "
             "AND (restore_requested_at IS NULL OR rearrangement_block_id IS NOT NULL)",
             name="venue_bookings_restore_consistent",
+        ),
+        # Matt's #134 review: Venue staff's last decline of a restore, with any reason, until the coordinator asks again.
+        CheckConstraint(
+            "(restore_declined_at IS NULL) = (restore_declined_by_user_id IS NULL) "
+            "AND (restore_decline_reason IS NULL OR restore_declined_at IS NOT NULL)",
+            name="venue_bookings_restore_decline_consistent",
         ),
     )
 
@@ -284,6 +290,10 @@ class VenueBooking(Base):
     # AC 5: the coordinator asked to restore this marked booking, waiting for Venue staff.
     restore_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     restore_requested_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    # AC 5 (Matt's #134 review): Venue staff's last decline of a restore, who and why, shown to the coordinator.
+    restore_declined_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    restore_declined_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    restore_decline_reason: Mapped[str | None] = mapped_column(Text)
     rejection_reason: Mapped[str | None] = mapped_column(Text)
     alternative_suggestion: Mapped[str | None] = mapped_column(Text)
     # US24 (SCRUM-92) AC 1: what this venue is for, e.g. "Main hall" or "Breakout A". Required since PR 2

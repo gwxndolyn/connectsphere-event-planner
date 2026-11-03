@@ -130,6 +130,20 @@ def test_tc_us23b_02_one_live_replacement_at_a_time(
     db.rollback()
 
 
+def test_tc_us23b_02_a_held_replacement_counts_as_live(
+    db: Session, original: VenueBooking, coordinator: User, staff: User
+) -> None:
+    """Matt's #134 review: a hold holds a window too, so one couldn't sit beside a live replacement."""
+    _replacement(
+        db, original, staff, status=VenueBookingStatus.HELD, hold_expires_at=NOW + timedelta(days=2),
+        held_by_user_id=staff.id,
+    )
+
+    with pytest.raises(IntegrityError, match="venue_bookings_one_live_replacement"):
+        _replacement(db, original, coordinator)
+    db.rollback()
+
+
 @pytest.mark.parametrize(
     "first", [VenueBookingStatus.REJECTED, VenueBookingStatus.WITHDRAWN], ids=["rejected", "withdrawn"]
 )
@@ -171,6 +185,36 @@ def test_tc_us23b_03_a_restore_request_is_whole_and_only_on_a_marked_booking(
     for key, value in fields.items():
         setattr(original, key, coordinator.id if value == "coordinator" else value)
     with pytest.raises(IntegrityError, match="venue_bookings_restore_consistent"):
+        db.flush()
+    db.rollback()
+
+
+def test_tc_us23b_03_a_declined_restore_keeps_who_when_and_why(db: Session, original: VenueBooking, staff: User) -> None:
+    """Matt's #134 review: the coordinator sees Venue staff's last decline until they ask again."""
+    original.restore_declined_at = NOW
+    original.restore_declined_by_user_id = staff.id
+    original.restore_decline_reason = "Still testing the aircon"
+    db.flush()
+    db.refresh(original)
+
+    assert (original.restore_declined_by_user_id, original.restore_decline_reason) == (staff.id, "Still testing the aircon")
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"restore_declined_at": NOW},
+        {"restore_declined_by_user_id": "staff"},
+        {"restore_decline_reason": "No"},
+    ],
+    ids=["time without who", "who without a time", "reason without a decline"],
+)
+def test_tc_us23b_03_a_decline_is_whole(
+    db: Session, original: VenueBooking, staff: User, fields: dict[str, object]
+) -> None:
+    for key, value in fields.items():
+        setattr(original, key, staff.id if value == "staff" else value)
+    with pytest.raises(IntegrityError, match="venue_bookings_restore_decline_consistent"):
         db.flush()
     db.rollback()
 
