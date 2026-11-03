@@ -53,6 +53,11 @@ AGREED_COLUMNS = {
     # US23a (SCRUM-90): the venue block that leaves it needing rearrangement, and when (D113).
     "rearrangement_block_id",
     "rearrangement_flagged_at",
+    # US23b (SCRUM-91): the booking a replacement replaces, when it was replaced (D116), and a restore request (D117).
+    "replaces_booking_id",
+    "replaced_at",
+    "restore_requested_at",
+    "restore_requested_by_user_id",
 }
 # Every refused overlap names this constraint (AC 3 and 7).
 NO_OVERLAP = "venue_bookings_no_overlap"
@@ -179,6 +184,9 @@ def test_tc_us22_01_booking_schema_is_installed(db: Session, engine) -> None:
         "venue_bookings_expired_consistent",  # US25
         "venue_bookings_hold_not_primary",  # US25
         "venue_bookings_rearrangement_consistent",  # US23a D113
+        "venue_bookings_replaced_consistent",  # US23b D116
+        "venue_bookings_replaces_another",  # US23b D116
+        "venue_bookings_restore_consistent",  # US23b D117
     }
     exclusions = db.scalars(
         text("select conname from pg_constraint where conrelid = 'venue_bookings'::regclass and contype = 'x'")
