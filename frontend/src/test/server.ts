@@ -1066,13 +1066,17 @@ function readinessOf(event: EventRequest) {
   const live = db.bookings.filter((b) => b.event.id === event.id && (b.status === "requested" || b.status === "approved"));
   for (const booking of live) {
     const approved = booking.status === "approved";
+    // US23a (SCRUM-90, D113): a booking needing rearrangement is outstanding, approved or not.
+    const flagged = rearrangementOf(booking) !== undefined;
     items.push({
       kind: "venue",
       name: `${booking.venue.name}, ${booking.purpose ?? "Main venue"}`,
-      complete: approved,
-      detail: approved
-        ? `Booking ${booking.reference} is approved.`
-        : `Booking ${booking.reference} is waiting for Venue staff to approve it.`,
+      complete: approved && !flagged,
+      detail: flagged
+        ? `Booking ${booking.reference} needs rearrangement: the venue has become unavailable.`
+        : approved
+          ? `Booking ${booking.reference} is approved.`
+          : `Booking ${booking.reference} is waiting for Venue staff to approve it.`,
     });
   }
   if (live.length === 0) items.push({ kind: "venue", name: "Venue", complete: false, detail: "No venue has been requested yet." });

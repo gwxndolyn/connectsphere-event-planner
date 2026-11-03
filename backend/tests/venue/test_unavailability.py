@@ -310,6 +310,71 @@ async def test_tc_us23a_08_the_organiser_reads_it_too(
     assert response.json()["bookings"][0]["unavailability"]["kind"] == "venue_unavailable"
 
 
+@pytest.mark.parametrize(
+    ("status", "fields", "kind", "next_action"),
+    [
+        (VenueBookingStatus.WITHDRAWN, {}, None, "none"),
+        (VenueBookingStatus.REJECTED, {"rejection_reason": "Double-booked"}, "rejected", "coordinator_to_rebook"),
+        (VenueBookingStatus.EXPIRED, {"is_primary": False, "expired_at": NOW}, None, "none"),
+    ],
+    ids=["withdrawn", "rejected", "expired"],
+)
+async def test_tc_us23a_08_a_marker_on_a_closed_booking_isnt_needs_rearrangement(
+    client: AsyncClient, db: Session, staff: User, coordinator: User, event: Event, venue: Venue,
+    status: VenueBookingStatus, fields: dict[str, object], kind: str | None, next_action: str,
+) -> None:
+    """Matt's #131 review: a booking that left the live set keeps its marker as history (a cancelled event withdraws
+    its bookings, #117), but nothing reads it as needing rearrangement."""
+    block = make_venue_block(db, venue, START - timedelta(hours=1), END, created_by_user_id=staff.id)
+    extra: dict[str, object] = {"decided_at": NOW, "decided_by_user_id": staff.id} if status == VenueBookingStatus.REJECTED else {}
+    if status == VenueBookingStatus.EXPIRED:
+        extra = {"hold_expires_at": NOW - timedelta(hours=1), "held_by_user_id": staff.id}
+    booking(
+        db, event, venue, staff if status == VenueBookingStatus.EXPIRED else coordinator, status=status,
+        rearrangement_block_id=block.id, rearrangement_flagged_at=NOW, **extra, **fields,
+    )
+
+    response = await client.get(f"/api/v1/events/{event.id}/venue-bookings", headers=auth(coordinator))
+
+    [read] = response.json()["bookings"]
+    assert (read["unavailability"] or {}).get("kind") == kind
+    assert read["next_action"] == next_action
+
+
+async def test_tc_us23a_08_a_marked_venue_is_outstanding_on_the_readiness_list(
+    client: AsyncClient, db: Session, staff: User, coordinator: User, event: Event, venue: Venue
+) -> None:
+    """Matt's #131 review: an approved booking that needs rearrangement isn't arranged for US18, so the readiness list
+    names it and the event can't be confirmed."""
+    approved = booking(
+        db, event, venue, coordinator, status=VenueBookingStatus.APPROVED, decided_by_user_id=staff.id, is_primary=True
+    )
+    officer = make_user(db, UserRole.SAFETY_OFFICER)
+    event.safety_approved_at = NOW
+    event.safety_approved_by_user_id = officer.id
+    db.flush()
+    ready = await client.get(f"/api/v1/event-requests/{event.id}/readiness", headers=auth(coordinator))
+    assert ready.status_code == 200, ready.text
+    assert ready.json()["ready"] is True
+
+    await mark(client, staff, venue)
+
+    readiness = (await client.get(f"/api/v1/event-requests/{event.id}/readiness", headers=auth(coordinator))).json()
+    [venue_item] = [item for item in readiness["items"] if item["kind"] == "venue"]
+    assert readiness["ready"] is False
+    assert venue_item == {
+        "kind": "venue",
+        "name": "Hall A, Main venue",
+        "complete": False,
+        "detail": f"Booking {approved.reference} needs rearrangement: the venue has become unavailable.",
+    }
+    refused = await client.post(f"/api/v1/event-requests/{event.id}/confirmation", headers=auth(coordinator))
+    assert refused.status_code == 409
+    assert refused.json()["code"] == "EVENT_NOT_READY"
+    db.refresh(event)
+    assert event.status == EventStatus.PLANNING and event.confirmed_at is None
+
+
 async def test_tc_us23a_09_a_booking_keeps_the_first_period_that_marked_it(
     client: AsyncClient, db: Session, staff: User, coordinator: User, event: Event, venue: Venue, notifier: FakeNotifier
 ) -> None:
