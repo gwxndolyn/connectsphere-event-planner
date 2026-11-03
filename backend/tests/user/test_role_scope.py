@@ -297,7 +297,7 @@ ROUTES = [
     ("POST", "/api/v1/venue-holds", {VENUE_STAFF}),
     ("GET", "/api/v1/venue-holds/events", {VENUE_STAFF}),
     ("POST", "/api/v1/venue-bookings/{booking_id}/confirm", {COORDINATOR}),
-    # US23b (SCRUM-91): the event's coordinator asks to restore a booking; Venue staff list, confirm or decline (D117).
+    # US23b (SCRUM-91): the event's coordinator asks to restore a booking; Venue staff list, confirm or decline (D118).
     ("POST", "/api/v1/venue-bookings/{booking_id}/restore", {COORDINATOR}),
     ("GET", "/api/v1/venue-bookings/restore-requests", {VENUE_STAFF}),
     ("POST", "/api/v1/venue-bookings/{booking_id}/restore/confirm", {VENUE_STAFF}),
@@ -639,7 +639,7 @@ async def change_by_its_coordinator(client: AsyncClient, db: Session) -> tuple[U
 
 
 async def restore_by_its_decider(client: AsyncClient, db: Session) -> tuple[User, uuid.UUID, dict]:
-    """US23b (SCRUM-91, D117): a restore request made by someone who is also Venue staff, on their own event."""
+    """US23b (SCRUM-91, D118): a restore request made by someone who is also Venue staff, on their own event."""
     both = make_user(db, UserRole.COORDINATOR, UserRole.VENUE_STAFF)
     event = make_event(db, status=EventStatus.PLANNING, coordinator_id=both.id)
     venue = make_venue(db)

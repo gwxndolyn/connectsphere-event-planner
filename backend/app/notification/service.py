@@ -290,6 +290,17 @@ class Notifier(Protocol):
         ends_at: datetime,
     ) -> None: ...
 
+    def venue_period_ended(
+        self,
+        *,
+        email: str,
+        booking_id: uuid.UUID,
+        booking_reference: str,
+        event_name: str,
+        venue_name: str,
+        ended_at: datetime,
+    ) -> None: ...
+
     def cancellation_rejected(
         self, *, email: str, event_id: uuid.UUID, event_name: str, reason: str, rejection_reason: str
     ) -> None: ...
@@ -832,6 +843,28 @@ class LoggingNotifier:
             venue_name,
             starts_at.isoformat(),
             ends_at.isoformat(),
+        )
+
+    def venue_period_ended(
+        self,
+        *,
+        email: str,
+        booking_id: uuid.UUID,
+        booking_reference: str,
+        event_name: str,
+        venue_name: str,
+        ended_at: datetime,
+    ) -> None:
+        # US23b AC 5 (Matt's #134 review): the coordinator hears a period that marked their booking ended early, so
+        # they know they can ask to restore it.
+        logger.info(
+            "venue period ended early: %s, %s at %s for %r (%s) ended %s",
+            email,
+            booking_reference,
+            venue_name,
+            event_name,
+            booking_id,
+            ended_at.isoformat(),
         )
 
 

@@ -403,6 +403,31 @@ async def test_tc_us23b_09_venue_staff_end_a_period_early(
     assert stored.ended_early_by_user_id == staff.id
 
 
+async def test_tc_us23b_09_the_coordinator_hears_the_venue_is_free_again(
+    client: AsyncClient, db: Session, staff: User, coordinator: User, venue: Venue, original: VenueBooking,
+    notifier: FakeNotifier,
+) -> None:
+    """Matt's #134 review: the coordinator can only ask to restore once they know the period ended."""
+    block = await mark(client, staff, venue)
+
+    await end_early(client, staff, venue, block["id"])
+
+    assert [(call["email"], call["booking_reference"], call["venue_name"]) for call in notifier.periods_ended] == [
+        (coordinator.email, original.reference, "Hall A")
+    ]
+
+
+async def test_tc_us23b_09_nobody_is_told_when_another_period_still_holds_the_booking(
+    client: AsyncClient, db: Session, staff: User, venue: Venue, original: VenueBooking, notifier: FakeNotifier,
+) -> None:
+    first = await mark(client, staff, venue)
+    await mark(client, staff, venue, starts_at=START + timedelta(hours=1), ends_at=END + timedelta(hours=2))
+
+    await end_early(client, staff, venue, first["id"])
+
+    assert notifier.periods_ended == []
+
+
 async def test_tc_us23b_09_a_period_ended_before_it_began_is_empty(
     client: AsyncClient, db: Session, staff: User, coordinator: User, venue: Venue, original: VenueBooking,
 ) -> None:
@@ -579,6 +604,13 @@ async def test_tc_us23b_11_venue_staff_decline_with_a_reason(
     assert (body["next_action"], body["restore_requested_at"]) == ("coordinator_to_rebook", None)
     assert body["unavailability"]["kind"] == "venue_unavailable"
     assert [(call["decision"], call["reason"]) for call in notifier.restore_decisions] == [("declined", "Still testing")]
+    # Matt's #134 review: the decline stays on the booking, with who and why, until the coordinator asks again.
+    assert (body["restore_decline_reason"], datetime.fromisoformat(body["restore_declined_at"])) == ("Still testing", NOW)
+    db.refresh(original)
+    assert original.restore_declined_by_user_id == staff.id
+    again = await client.post(f"/api/v1/venue-bookings/{original.id}/restore", headers=auth(coordinator))
+    assert again.status_code == 200, again.text
+    assert (again.json()["restore_declined_at"], again.json()["restore_decline_reason"]) == (None, None)
 
 
 async def test_tc_us23b_11_nothing_to_decide_without_a_request(
@@ -644,3 +676,72 @@ def test_tc_us23b_20_the_seed_clears_the_replacement_demo(db: Session, staff: Us
     db.expire_all()
     assert db.scalars(select(VenueBooking).where(VenueBooking.event_id == event_id)).all() == []
     assert db.get(VenueBlock, block_id) is None
+
+
+# --- Chloe's #134 review: closing a booking clears its restore request ---
+
+
+def _asked(db: Session, booking: VenueBooking, venue: Venue, coordinator: User) -> None:
+    """A restore request waiting on `booking`, whose period ended early."""
+    block = make_venue_block(db, venue, START - timedelta(hours=1), START - timedelta(hours=1), ended_early_at=NOW,
+                             ended_early_by_user_id=make_user(db, UserRole.VENUE_STAFF).id,
+                             scheduled_ends_at=END + timedelta(hours=1))
+    booking.rearrangement_block_id = block.id
+    booking.rearrangement_flagged_at = NOW
+    booking.restore_requested_at = NOW
+    booking.restore_requested_by_user_id = coordinator.id
+    db.flush()
+
+
+async def test_tc_us23b_11_withdrawing_clears_the_restore_request(
+    client: AsyncClient, db: Session, coordinator: User, venue: Venue, original: VenueBooking,
+) -> None:
+    _asked(db, original, venue, coordinator)
+
+    response = await client.post(f"/api/v1/venue-bookings/{original.id}/withdraw", headers=auth(coordinator))
+
+    assert response.status_code == 200, response.text
+    db.refresh(original)
+    assert (original.status, original.restore_requested_at) == (VenueBookingStatus.WITHDRAWN, None)
+
+
+async def test_tc_us23b_11_rejecting_clears_the_restore_request(
+    client: AsyncClient, db: Session, staff: User, coordinator: User, event: Event, venue: Venue,
+) -> None:
+    pending = make_venue_booking(db, event=event, venue=venue, user=coordinator, starts_at=START, ends_at=END)
+    _asked(db, pending, venue, coordinator)
+
+    response = await client.post(f"/api/v1/venue-bookings/{pending.id}/reject", headers=auth(staff), json={})
+
+    assert response.status_code == 200, response.text
+    db.refresh(pending)
+    assert (pending.status, pending.restore_requested_at) == (VenueBookingStatus.REJECTED, None)
+
+
+async def test_tc_us23b_11_cancelling_the_event_clears_the_restore_request(
+    client: AsyncClient, db: Session, coordinator: User, event: Event, venue: Venue, original: VenueBooking,
+) -> None:
+    _asked(db, original, venue, coordinator)
+
+    response = await client.post(
+        f"/api/v1/event-requests/{event.id}/cancel", headers=auth(coordinator), json={"reason": "No venue."}
+    )
+
+    assert response.status_code in (200, 201), response.text
+    db.refresh(original)
+    assert (original.status, original.restore_requested_at) == (VenueBookingStatus.WITHDRAWN, None)
+
+
+async def test_tc_us23b_11_a_lapsed_hold_clears_its_restore_request(
+    client: AsyncClient, db: Session, staff: User, coordinator: User, event: Event, venue: Venue,
+) -> None:
+    hold = make_venue_booking(
+        db, event=event, venue=venue, user=staff, starts_at=START, ends_at=END, status=VenueBookingStatus.HELD,
+        is_primary=False, hold_expires_at=NOW - timedelta(minutes=1), held_by_user_id=staff.id,
+    )
+    _asked(db, hold, venue, coordinator)
+
+    await client.get(f"/api/v1/events/{event.id}/venue-bookings", headers=auth(coordinator))
+
+    db.refresh(hold)
+    assert (hold.status, hold.restore_requested_at) == (VenueBookingStatus.EXPIRED, None)

@@ -23,7 +23,7 @@ from app.event.self_decision import refuse_self_decision
 from app.notification.service import CancellationRecipient, Notifier
 from app.registration.models import ACTIVE_STATUSES, Registration, RegistrationStatus
 from app.user.models import User, UserRole
-from app.venue.models import BLOCKING_STATUSES, VenueBooking, VenueBookingStatus
+from app.venue.models import BLOCKING_STATUSES, VenueBooking, VenueBookingStatus, clear_restore_request
 
 logger = logging.getLogger(__name__)
 
@@ -294,6 +294,7 @@ class CancellationService:
         released_approved = any(booking.status == VenueBookingStatus.APPROVED for booking in bookings)
         # D60, D69: every live booking, of every venue, is withdrawn; an approved one keeps its decision (D77).
         for booking in bookings:
+            clear_restore_request(booking)  # US23b (SCRUM-91)
             booking.status = VenueBookingStatus.WITHDRAWN
             booking.withdrawn_at = now
             booking.updated_at = now

@@ -133,9 +133,11 @@ def end_venue_block_early(
     staff: VenueStaff,
     db: Session = Depends(get_db),
     now: datetime = Depends(get_now),
+    notifier: Notifier = Depends(get_notifier),
 ) -> VenueBlockOut:
-    """US23b (SCRUM-91) AC 5: Venue staff end a period early, so the venue may be free again (D117)."""
-    return block_service.end_early(db, staff, venue_id, block_id, now)
+    """US23b (SCRUM-91) AC 5: Venue staff end a period early, so the venue may be free again (D118); the coordinators of
+    the bookings it marked are told."""
+    return block_service.end_early(db, staff, venue_id, block_id, now, notifier)
 
 
 @router.post("", status_code=201, response_model=VenueOut)

@@ -43,7 +43,7 @@ class Conflict:
     booking_id: uuid.UUID | None = None
     reason: str | None = None  # a block's reason (US23a, SCRUM-90)
     block_id: uuid.UUID | None = None  # US23b (SCRUM-91): the block, for Venue staff to end it early
-    ended_early_at: datetime | None = None  # US23b: when Venue staff ended the block early (D117)
+    ended_early_at: datetime | None = None  # US23b: when Venue staff ended the block early (D118)
 
 
 @dataclass(frozen=True)

@@ -20,6 +20,7 @@ from app.notification.service import (
     Notifier,
     ReassignmentRecipient,
     RequestDecision,
+    RestoreDecision,
     SafetyOutcome,
     UnavailabilityRecipient,
 )
@@ -734,6 +735,124 @@ class RecordingNotifier:
         )
 
 
+    # --- US23b (SCRUM-91): replacements and restores ---
+
+    def venue_restore_requested(
+        self,
+        *,
+        email: str,
+        booking_id: uuid.UUID,
+        booking_reference: str,
+        event_name: str,
+        venue_name: str,
+        starts_at: datetime,
+        ends_at: datetime,
+    ) -> None:
+        self._delegate.venue_restore_requested(
+            email=email,
+            booking_id=booking_id,
+            booking_reference=booking_reference,
+            event_name=event_name,
+            venue_name=venue_name,
+            starts_at=starts_at,
+            ends_at=ends_at,
+        )
+        self._record(
+            "venue_restore_requested",
+            email=email,
+            event_name=event_name,
+            message=(
+                f"The coordinator asked to restore {booking_reference} at {venue_name}, "
+                f"{_when(starts_at)} to {_when(ends_at)}, now that the venue is free again. Confirm or decline it."
+            ),
+            booking_id=booking_id,
+        )
+
+    def venue_restore_decided(
+        self,
+        *,
+        email: str,
+        booking_id: uuid.UUID,
+        booking_reference: str,
+        event_name: str,
+        venue_name: str,
+        decision: RestoreDecision,
+        reason: str | None,
+    ) -> None:
+        self._delegate.venue_restore_decided(
+            email=email,
+            booking_id=booking_id,
+            booking_reference=booking_reference,
+            event_name=event_name,
+            venue_name=venue_name,
+            decision=decision,
+            reason=reason,
+        )
+        message = (
+            f"Venue staff restored {booking_reference}: {venue_name} is back with the event."
+            if decision == "confirmed"
+            else _sentence(
+                f"Venue staff declined to restore {booking_reference} at {venue_name}; it still needs rearrangement.",
+                f"Reason: {reason}" if reason else None,
+            )
+        )
+        self._record("venue_restore_decided", email=email, event_name=event_name, message=message, booking_id=booking_id)
+
+    def venue_changed(
+        self,
+        *,
+        email: str,
+        event_id: uuid.UUID,
+        event_name: str,
+        venue_name: str,
+        starts_at: datetime,
+        ends_at: datetime,
+    ) -> None:
+        self._delegate.venue_changed(
+            email=email,
+            event_id=event_id,
+            event_name=event_name,
+            venue_name=venue_name,
+            starts_at=starts_at,
+            ends_at=ends_at,
+        )
+        self._record(
+            "venue_changed",
+            email=email,
+            event_name=event_name,
+            message=f"The event's venue has changed: it is now at {venue_name}, {_when(starts_at)} to {_when(ends_at)}.",
+            event_id=event_id,
+        )
+
+    def venue_period_ended(
+        self,
+        *,
+        email: str,
+        booking_id: uuid.UUID,
+        booking_reference: str,
+        event_name: str,
+        venue_name: str,
+        ended_at: datetime,
+    ) -> None:
+        self._delegate.venue_period_ended(
+            email=email,
+            booking_id=booking_id,
+            booking_reference=booking_reference,
+            event_name=event_name,
+            venue_name=venue_name,
+            ended_at=ended_at,
+        )
+        self._record(
+            "venue_period_ended",
+            email=email,
+            event_name=event_name,
+            message=(
+                f"{venue_name} is available again: the period that affected {booking_reference} ended early, "
+                f"{_when(ended_at)}. You can ask to restore the booking, or find a replacement."
+            ),
+            booking_id=booking_id,
+        )
+
+
 # The notifier the app uses: the logging stand-in, plus a row for each recipient (US31).
 recording_notifier = RecordingNotifier(LoggingNotifier())
-

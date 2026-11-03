@@ -255,9 +255,9 @@ class VenueBlockService:
         return {event.id: event for event in locked}
 
     def end_early(
-        self, db: Session, staff: User, venue_id: uuid.UUID, block_id: uuid.UUID, now: datetime
+        self, db: Session, staff: User, venue_id: uuid.UUID, block_id: uuid.UUID, now: datetime, notifier: Notifier
     ) -> VenueBlockOut:
-        """US23b (SCRUM-91) AC 5 (D117): Venue staff end a period early, so the venue can be free again. Its end moves
+        """US23b (SCRUM-91) AC 5 (D118): Venue staff end a period early, so the venue can be free again. Its end moves
         to now, or to its start if it hadn't begun (an empty period, overlapping nothing), keeping the end it had.
         A booking it marked still needs rearrangement until Venue staff confirm the coordinator's restore request.
         One that another period still overlaps now names that period instead (Matt's #131 review)."""
@@ -302,10 +302,37 @@ class VenueBlockService:
                 booking.updated_at = now
             else:
                 still_marked.append(booking)
+        notices = [
+            (coordinator.email, booking, db.get(Event, booking.event_id))
+            for booking in sorted(still_marked, key=lambda booking: (booking.starts_at, booking.reference))
+            for coordinator in [self._coordinator(db, booking)]
+            if coordinator is not None
+        ]
         db.commit()
         db.refresh(block)
-        # The bookings this period alone kept from their venue: their coordinators may now ask to restore them.
+        # The bookings this period alone kept from their venue: their coordinators may now ask to restore them, so
+        # each is told (Matt's #134 review). After the commit and best effort.
+        for email, booking, event in notices:
+            try:
+                notifier.venue_period_ended(
+                    email=email,
+                    booking_id=booking.id,
+                    booking_reference=booking.reference,
+                    event_name=event.name or event.request_reference or str(event.id),
+                    venue_name=venue.name,
+                    ended_at=now,
+                )
+            except Exception:
+                logger.exception("could not tell the coordinator of booking %s its venue is free again", booking.id)
         return _block_out(db, block, venue, still_marked)
+
+    def _coordinator(self, db: Session, booking: VenueBooking) -> User | None:
+        event = db.get(Event, booking.event_id)
+        user = db.get(User, event.coordinator_id) if event.coordinator_id is not None else None
+        if user is None or not user.is_active:
+            logger.warning("no active coordinator to tell that booking %s's venue is free again", booking.id)
+            return None
+        return user
 
 
 block_service = VenueBlockService()

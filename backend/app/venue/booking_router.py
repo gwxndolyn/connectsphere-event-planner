@@ -62,7 +62,7 @@ def pending_bookings(
     return VenueBookingsOut(bookings=booking_service.pending(db, now, notifier))
 
 
-# US23b (SCRUM-91) AC 5: Venue staff's restore requests (D117). Before /{booking_id} routes.
+# US23b (SCRUM-91) AC 5: Venue staff's restore requests (D118). Before /{booking_id} routes.
 @router.get("/restore-requests", response_model=VenueBookingsOut)
 def restore_requests(
     _: VenueStaff,
@@ -181,7 +181,7 @@ def hold_events(_: VenueStaff, db: Session = Depends(get_db)) -> HoldEventsOut:
     return HoldEventsOut(events=booking_service.hold_events(db))
 
 
-# US23b (SCRUM-91) AC 5 (D117): the event's coordinator asks to restore a booking that needs rearrangement once its
+# US23b (SCRUM-91) AC 5 (D118): the event's coordinator asks to restore a booking that needs rearrangement once its
 # venue is free again; Venue staff confirm or decline.
 @router.post("/{booking_id}/restore", response_model=VenueBookingOut)
 def request_restore(

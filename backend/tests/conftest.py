@@ -118,6 +118,7 @@ class FakeNotifier:
         self.restore_requests: list[dict[str, object]] = []
         self.restore_decisions: list[dict[str, object]] = []
         self.venue_changes: list[dict[str, object]] = []
+        self.periods_ended: list[dict[str, object]] = []
         self.confirmations: list[dict[str, object]] = []
         self.safety_reviews: list[dict[str, object]] = []
         self.safety_changes: list[dict[str, object]] = []
@@ -377,6 +378,11 @@ class FakeNotifier:
         if self.fail:
             raise RuntimeError("mail server unavailable")
         self.venue_changes.append(call)
+
+    def venue_period_ended(self, **call: object) -> None:
+        if self.fail:
+            raise RuntimeError("mail server unavailable")
+        self.periods_ended.append(call)
 
 
 @pytest.fixture
