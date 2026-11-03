@@ -59,7 +59,15 @@ from app.safety.models import CHECKLIST_KEYS, SafetyReview
 from app.registration.models import ACTIVE_STATUSES, Registration, RegistrationStatus
 from app.user.models import Attendee, User, UserRole
 from app.user.supabase_admin import SupabaseAdmin, SupabaseAdminError
-from app.venue.models import PreparationStatus, Venue, VenueBlock, VenueBooking, VenueBookingStatus, occupied_window
+from app.venue.models import (
+    PreparationStatus,
+    Venue,
+    VenueBlock,
+    VenueBlockReason,
+    VenueBooking,
+    VenueBookingStatus,
+    occupied_window,
+)
 
 # Fixed namespace so slugs map to the same UUIDs on every machine and every run.
 SEED_NAMESPACE = uuid.UUID("3f2b0c54-9b1a-4f3e-9a7e-2c0d1b8e5a41")
@@ -386,13 +394,14 @@ class VenueBookingSpec:
 
 @dataclass
 class VenueBlockSpec:
-    """A seeded venue closure (US2 AC 5)."""
+    """A seeded venue closure (US2 AC 5), with US23a's reason (SCRUM-90)."""
 
     slug: str
     venue_slug: str
     starts: time
     ends: time
     note: str
+    reason: VenueBlockReason
 
 
 # US2 AC 5: five days ahead, 10:00–12:00 Singapore time, one venue has a requested booking, one an
@@ -595,6 +604,7 @@ VENUE_BLOCKS = [
         starts=time(8, 0),
         ends=time(18, 0),
         note="Closed for AV maintenance",
+        reason=VenueBlockReason.MAINTENANCE,
     ),
 ]
 
@@ -1253,6 +1263,7 @@ def upsert_venue_block(db: Session, spec: VenueBlockSpec, now: datetime) -> Venu
         "starts_at": datetime.combine(day, spec.starts, SEED_TIMEZONE),
         "ends_at": datetime.combine(day, spec.ends, SEED_TIMEZONE),
         "note": spec.note,
+        "reason": spec.reason,
     }
     block = db.get(VenueBlock, block_id)
     if block is None:

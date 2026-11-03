@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.event.models import DeliveryMode, Event, EventRegistrationField, EventStatus
 from app.registration.models import Registration, RegistrationStatus
 from app.user.models import Attendee, User, UserRole
-from app.venue.models import Venue, VenueBlock, VenueBooking, VenueBookingStatus, occupied_window
+from app.venue.models import Venue, VenueBlock, VenueBlockReason, VenueBooking, VenueBookingStatus, occupied_window
 
 SGT = timezone(timedelta(hours=8))
 # Frozen "now" for every API test (spec §8: freeze time).
@@ -195,9 +195,17 @@ def make_venue_booking(
     db.flush()
     return booking
 
-def make_venue_block(db: Session, venue: Venue, starts_at: datetime, ends_at: datetime, note: str | None = None) -> VenueBlock:
-    """A time the venue is out of use with no event behind it (US2's venue_blocks)."""
-    block = VenueBlock(venue_id=venue.id, starts_at=starts_at, ends_at=ends_at, note=note)
+def make_venue_block(
+    db: Session,
+    venue: Venue,
+    starts_at: datetime,
+    ends_at: datetime,
+    note: str | None = None,
+    reason: VenueBlockReason = VenueBlockReason.MAINTENANCE,
+    **overrides: object,
+) -> VenueBlock:
+    """A time the venue is out of use with no event behind it (US2's venue_blocks; US23a's reason)."""
+    block = VenueBlock(venue_id=venue.id, starts_at=starts_at, ends_at=ends_at, note=note, reason=reason, **overrides)
     db.add(block)
     db.flush()
     return block

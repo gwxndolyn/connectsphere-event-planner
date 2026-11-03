@@ -234,7 +234,7 @@ async def test_tc_us24_07_the_purpose_is_trimmed(
 async def test_tc_us24_08_one_venue_refused_for_a_clash_another_accepted(
     client: AsyncClient, db: Session, coordinator: User, event: Event, hall: Venue, room: Venue
 ) -> None:
-    db.add(VenueBlock(venue_id=room.id, starts_at=at(13), ends_at=at(15), note="Repainting"))
+    db.add(VenueBlock(venue_id=room.id, starts_at=at(13), ends_at=at(15), note="Repainting", reason="renovation"))
     db.flush()
 
     refused = await request_venue(client, coordinator, event, room, at(13), at(15), purpose="Breakout A")

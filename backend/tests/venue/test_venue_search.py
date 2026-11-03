@@ -87,7 +87,7 @@ def book(
 
 
 def block(db: Session, venue: Venue, starts_at: datetime, ends_at: datetime, note: str | None = None) -> VenueBlock:
-    venue_block = VenueBlock(venue_id=venue.id, starts_at=starts_at, ends_at=ends_at, note=note)
+    venue_block = VenueBlock(venue_id=venue.id, starts_at=starts_at, ends_at=ends_at, note=note, reason="maintenance")
     db.add(venue_block)
     db.flush()
     return venue_block
@@ -429,6 +429,7 @@ def _fill_calendar(db: Session, venue_count: int, days: int) -> list[Venue]:
             venue_id=venue.id,
             starts_at=at(DAY + timedelta(days=d), time(14, 0)),
             ends_at=at(DAY + timedelta(days=d), time(16, 0)),
+            reason="maintenance",
         )
         for venue in venues[::5]
         for d in range(days)
@@ -594,10 +595,15 @@ def test_tc_us2_11_blocks_schema_is_installed(db: Session, engine) -> None:
         "ends_at",
         "note",
         "created_at",
+        "reason",  # US23a (SCRUM-90)
+        "created_by_user_id",  # US23a
     }
-    assert {c["name"] for c in inspector.get_check_constraints("venue_blocks")} == {"venue_blocks_window_valid"}
+    assert {c["name"] for c in inspector.get_check_constraints("venue_blocks")} == {
+        "venue_blocks_window_valid",
+        "venue_blocks_reason_known",  # US23a
+    }
     assert "venue_blocks_venue_window" in {index["name"] for index in inspector.get_indexes("venue_blocks")}
-    assert {fk["referred_table"] for fk in inspector.get_foreign_keys("venue_blocks")} == {"venues"}
+    assert {fk["referred_table"] for fk in inspector.get_foreign_keys("venue_blocks")} == {"venues", "users"}
     assert (
         db.execute(text("select relrowsecurity from pg_class where oid = 'venue_blocks'::regclass")).scalar_one()
         is True
