@@ -63,6 +63,28 @@ describe("venue unavailability (US23a)", () => {
     });
   });
 
+  it("TC-US23A-13: a booking an earlier period already marked is listed apart, as nobody is told again (D115)", async () => {
+    const event = seedRequest({ status: "planning", name: "Alumni Night", ...MINE });
+    const venue = seedVenue({ name: "Hall A" });
+    // 20 Nov, 10:00–12:00 Singapore.
+    const marked = seedBooking(event, venue, { status: "approved" });
+    seedBlock(venue, { affects: [marked.id] });
+    const user = await signIn("venue_staff", "Venues");
+
+    await user.click(await panel().findByRole("button", { name: "Mark unavailable" }));
+    await user.selectOptions(await panel().findByLabelText("Venue"), await panel().findByRole("option", { name: "Hall A" }));
+    await user.type(panel().getByLabelText("Start date"), "2026-11-20");
+    await user.selectOptions(panel().getByLabelText("Reason"), "renovation");
+    await user.click(panel().getByRole("button", { name: "Mark unavailable" }));
+
+    const status = await panel().findByRole("status");
+    expect(status).toHaveTextContent("No other bookings or holds were affected.");
+    expect(within(status).getByRole("list", { name: "Bookings already needing rearrangement" })).toHaveTextContent(
+      `${marked.reference}: Alumni Night`,
+    );
+    expect(callsTo("POST", `/api/v1/venues/${venue.id}/blocks`)).toHaveLength(1);
+  });
+
   it("TC-US23A-14: an end before the start is refused on the end date, and nothing is sent (AC 2)", async () => {
     const venue = seedVenue({ name: "Hall A" });
     const user = await signIn("venue_staff", "Venues");

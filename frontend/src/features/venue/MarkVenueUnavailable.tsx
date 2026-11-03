@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { venueApi, venueErrorMessage } from "./api";
 import {
   BLOCK_REASONS,
@@ -31,13 +31,14 @@ const EMPTY: BlockFormValues = {
 /** What the recorded period did (AC 3, 4): which bookings now need rearranging, and who was told. */
 function Recorded({ block }: { block: VenueBlock }) {
   const affected = block.affected_bookings;
+  const already = block.already_affected_bookings ?? [];
   return (
     <div className="request-notice venue-block-result" role="status">
       <p>
         {block.venue.name} is unavailable from {formatBlockPeriod(block)}.
       </p>
       {affected.length === 0 ? (
-        <p>No bookings or holds were affected.</p>
+        <p>{already.length === 0 ? "No bookings or holds were affected." : "No other bookings or holds were affected."}</p>
       ) : (
         <>
           <p>
@@ -49,6 +50,19 @@ function Recorded({ block }: { block: VenueBlock }) {
               <li key={booking.id}>
                 {booking.reference}: {eventName(booking.event)}, {formatBookingWindow(booking)}
                 {booking.status === "held" ? " (hold)" : ""}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {/* D115: an earlier period already marked these; their people were told then, so not again. */}
+      {already.length > 0 && (
+        <>
+          <p>Already needing rearrangement for an earlier period, so nobody was told again:</p>
+          <ul aria-label="Bookings already needing rearrangement">
+            {already.map((booking) => (
+              <li key={booking.id}>
+                {booking.reference}: {eventName(booking.event)}, {formatBookingWindow(booking)}
               </li>
             ))}
           </ul>
@@ -71,6 +85,8 @@ export function MarkVenueUnavailable() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [sending, setSending] = useState(false);
   const [recorded, setRecorded] = useState<VenueBlock | null>(null);
+  // A second click before the first answer arrives would record the period twice (Matt's #133 review).
+  const inFlight = useRef(false);
 
   useEffect(() => {
     if (!open || venues !== null) return;
@@ -103,6 +119,7 @@ export function MarkVenueUnavailable() {
 
   async function handleSubmit(submitted: FormEvent<HTMLFormElement>) {
     submitted.preventDefault();
+    if (inFlight.current) return;
     setError(null);
     if (!form.venueId) {
       setFieldErrors({ venue_id: "Required." });
@@ -116,6 +133,7 @@ export function MarkVenueUnavailable() {
     }
     setFieldErrors({});
     setSending(true);
+    inFlight.current = true;
     try {
       setRecorded(await blockApi.markUnavailable(form.venueId, toBlockBody(form)));
       setOpen(false);
@@ -124,6 +142,7 @@ export function MarkVenueUnavailable() {
       setError(blockErrorMessage(reason));
       setFieldErrors(blockFieldErrors(reason));
     } finally {
+      inFlight.current = false;
       setSending(false);
     }
   }

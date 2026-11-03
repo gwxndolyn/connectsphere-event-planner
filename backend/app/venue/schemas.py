@@ -388,3 +388,6 @@ class VenueBlockOut(BaseModel):
     created_by_user_id: uuid.UUID | None
     created_at: datetime
     affected_bookings: list[AffectedBookingOut]
+    # D115: bookings the period also overlaps that an earlier period already marked; they keep that one and nobody
+    # is told again, but Venue staff see the period reached them (Matt's #133 review).
+    already_affected_bookings: list[AffectedBookingOut] = []

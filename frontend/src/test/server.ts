@@ -1934,16 +1934,26 @@ const handlers = [
     if (Date.parse(endsAt) <= Date.parse(startsAt)) {
       return error(422, "INVALID_BLOCK", { fields: ["ends_at"], errors: { ends_at: "The end must be after the start." } });
     }
-    const affected = db.bookings
+    const overlapping = db.bookings
       .filter(
         (b) =>
           b.venue.id === venue.id &&
           (isLive(b) || b.status === "held") &&
-          !rearrangementOf(b) &&
           Date.parse(b.occupied_starts_at) < Date.parse(endsAt) &&
           Date.parse(startsAt) < Date.parse(b.occupied_ends_at),
       )
       .sort((a, b) => a.starts_at.localeCompare(b.starts_at));
+    // D115: one an earlier period marked keeps it; the response still lists it (Matt's #133 review).
+    const affected = overlapping.filter((b) => !rearrangementOf(b));
+    const already = overlapping.filter((b) => rearrangementOf(b));
+    const summary = (b: VenueBooking) => ({
+      id: b.id,
+      reference: b.reference,
+      status: b.status,
+      event: b.event,
+      starts_at: b.starts_at,
+      ends_at: b.ends_at,
+    });
     const block = seedBlock(venue, {
       starts_at: startsAt,
       ends_at: endsAt,
@@ -1962,14 +1972,8 @@ const handlers = [
         note: block.note,
         created_by_user_id: request.headers.get("X-User-Id"),
         created_at: "2026-11-02T01:00:00Z",
-        affected_bookings: affected.map((b) => ({
-          id: b.id,
-          reference: b.reference,
-          status: b.status,
-          event: b.event,
-          starts_at: b.starts_at,
-          ends_at: b.ends_at,
-        })),
+        affected_bookings: affected.map(summary),
+        already_affected_bookings: already.map(summary),
       },
       { status: 201 },
     );

@@ -386,7 +386,47 @@ async def test_tc_us23a_09_a_booking_keeps_the_first_period_that_marked_it(
     db.refresh(row)
     assert str(row.rearrangement_block_id) == first["id"]
     assert second["affected_bookings"] == []
+    # Matt's #133 review: the second period did reach it, so Venue staff see that, though nobody is told again.
+    assert [b["reference"] for b in second["already_affected_bookings"]] == [row.reference]
+    assert first["already_affected_bookings"] == []
     assert len(notifier.unavailable) == 2  # the first period's coordinator and organiser notices only
+
+
+async def test_tc_us23a_07_a_booking_already_over_isnt_marked(
+    client: AsyncClient, db: Session, staff: User, coordinator: User, organiser: User, venue: Venue,
+    notifier: FakeNotifier,
+) -> None:
+    """Matt's #133 review: a period that began in the past doesn't reach back to an event that already took place.
+    One still under way is marked."""
+    past = make_event(
+        db, name="Yesterday's Talk", status=EventStatus.APPROVED, coordinator_id=coordinator.id,
+        start_at=NOW - timedelta(days=1), end_at=NOW - timedelta(days=1) + timedelta(hours=2),
+    )
+    over = booking(
+        db, past, venue, coordinator, status=VenueBookingStatus.APPROVED, decided_by_user_id=staff.id,
+        starts_at=NOW - timedelta(days=1), ends_at=NOW - timedelta(days=1) + timedelta(hours=2),
+    )
+    current = make_event(
+        db, name="Under Way", status=EventStatus.APPROVED, coordinator_id=coordinator.id,
+        start_at=NOW - timedelta(hours=1), end_at=NOW + timedelta(hours=1),
+    )
+    # Its turnaround runs past now, so it isn't over yet.
+    under_way = booking(
+        db, current, venue, coordinator, status=VenueBookingStatus.APPROVED, decided_by_user_id=staff.id,
+        starts_at=NOW - timedelta(hours=1), ends_at=NOW + timedelta(hours=1),
+    )
+
+    response = await mark(
+        client, staff, venue, starts_at=(NOW - timedelta(days=2)).isoformat(), ends_at=(NOW + timedelta(days=1)).isoformat()
+    )
+
+    assert response.status_code == 201, response.text
+    db.refresh(over)
+    db.refresh(under_way)
+    assert over.rearrangement_block_id is None
+    assert str(under_way.rearrangement_block_id) == response.json()["id"]
+    assert [b["reference"] for b in response.json()["affected_bookings"]] == [under_way.reference]
+    assert {call["event_name"] for call in notifier.unavailable} == {"Under Way"}
 
 
 async def test_tc_us23a_09_a_lapsed_hold_expires_instead_of_being_marked(
@@ -427,6 +467,24 @@ async def test_tc_us23a_10_the_coordinator_and_organiser_are_told_once_per_event
     # AC 4: nobody else hears of it at this stage.
     others = {name: calls for name, calls in vars(notifier).items() if isinstance(calls, list) and name != "unavailable"}
     assert all(calls == [] for calls in others.values()), others
+
+
+async def test_tc_us23a_10_an_organiser_without_a_coordinator_isnt_promised_one(
+    client: AsyncClient, db: Session, staff: User, coordinator: User, organiser: User, event: Event, venue: Venue,
+    notifier: FakeNotifier,
+) -> None:
+    """Matt's #133 review: with the coordinator inactive, the organiser hears a Lead assigns one first."""
+    booking(db, event, venue, coordinator)
+    coordinator.is_active = False
+    db.flush()
+
+    await mark(client, staff, venue)
+
+    [call] = notifier.unavailable
+    assert (call["recipient"], call["email"]) == ("organiser", organiser.email)
+    assert call["next_action"] == (
+        "Your event has no active coordinator yet. A Coordinator Lead assigns one, who then arranges a replacement venue."
+    )
 
 
 async def test_tc_us23a_10_each_affected_event_is_told_and_unaffected_ones_arent(

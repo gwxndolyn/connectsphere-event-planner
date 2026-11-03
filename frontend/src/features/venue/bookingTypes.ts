@@ -233,4 +233,6 @@ export interface VenueBlock {
   created_by_user_id: string | null;
   created_at: string;
   affected_bookings: AffectedBooking[];
+  // D115: bookings the period also overlaps that an earlier period already marked; nobody is told again.
+  already_affected_bookings?: AffectedBooking[];
 }
