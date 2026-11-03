@@ -63,7 +63,7 @@ class SafetyService:
             ready, approved = self._arrangements(db, event, lock=False)
             if not ready:
                 continue
-            # US29b (SCRUM-142) DECISION-PENDING: D106 — back in the queue once a significant change's flags are reviewed.
+            # US29b (SCRUM-142) D106: back in the queue once a significant change's flags are reviewed.
             if open_flags(db, event.id):
                 continue
             rows.append(

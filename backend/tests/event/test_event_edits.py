@@ -1,7 +1,7 @@
 """US12 (SCRUM-15): the assigned coordinator edits an event in planning. See docs/testing/US12-edit-event.md."""
 
 import uuid
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 
 import pytest
 from httpx import AsyncClient
@@ -16,7 +16,7 @@ from app.event.models import (
     EventChangeRequest,
     EventStatus,
 )
-from app.seed import PLANNING_EVENT, seed, seed_id
+from app.seed import PLANNING_EVENT, SEED_TIMEZONE, seed, seed_id
 from app.user.models import User, UserRole
 from tests.event.test_event_request_clarification_api import auth
 from tests.factories import NOW, make_event, make_user
@@ -454,6 +454,18 @@ def test_tc_us12_20_reseeding_resets_the_planning_event(db: Session) -> None:
     db.refresh(event)
     assert event.purpose == "Seeded for editing an event in planning (US12)"
     assert (audit_count(db, event), change_request_count(db, event)) == (0, 0)
+
+
+@pytest.mark.parametrize("seeded_at", ["00:21", "07:00", "15:30"])
+def test_tc_us12_26_seed_puts_the_planning_event_at_10_to_12_sgt(db: Session, seeded_at: str) -> None:
+    # Whatever the clock time of the seed, so TC-US12-23's 10:00 to 09:00 always sends only the end time.
+    now = datetime.combine(NOW.astimezone(SEED_TIMEZONE).date(), time.fromisoformat(seeded_at), SEED_TIMEZONE)
+    seed(db, now=now)
+
+    event = db.get(Event, seed_id("event", PLANNING_EVENT.slug))
+    day = now.date() + timedelta(days=21)
+    assert event.start_at == datetime.combine(day, time(10, 0), SEED_TIMEZONE)
+    assert event.end_at == datetime.combine(day, time(12, 0), SEED_TIMEZONE)
 
 
 def test_tc_us12_19_schema_has_rls_on_both_tables(db: Session) -> None:

@@ -25,7 +25,7 @@ NOTE_MAX_LENGTH = 1000  # as a rejection reason
 
 
 def resolved(db: Session, flag: EventReviewFlag) -> bool:
-    """DECISION-PENDING: D104 — a flag whose booking was withdrawn or rejected, or whose reservation was released,
+    """D104: a flag whose booking was withdrawn or rejected, or whose reservation was released,
     reads as resolved. Derived on every read and never written: the clearance needs a person (the CHECK), and a
     withdrawal or release names none."""
     if flag.kind == ReviewFlagKind.VENUE_BOOKING:
@@ -88,7 +88,7 @@ def flag_out(db: Session, flag: EventReviewFlag) -> ReviewFlagOut:
 
 class ReviewFlagService:
     """US29b AC 3 (SCRUM-142): the event's coordinator reviews what a significant change flagged, and clears each.
-    DECISION-PENDING: D104 — the assigned coordinator, even when a Lead approved the change."""
+    D104: the assigned coordinator, even when a Lead approved the change."""
 
     def list_for_event(self, db: Session, coordinator: User, event_id: uuid.UUID) -> list[ReviewFlagOut]:
         event = db.get(Event, event_id)
