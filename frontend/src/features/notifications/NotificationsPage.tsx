@@ -58,11 +58,11 @@ export function NotificationsPage({ onUnreadChange, onOpen }: NotificationsPageP
     try {
       await apiClient.post<AppNotification>(`/api/v1/me/notifications/${notification.id}/read`, {});
       setItems((current) => current.map((item) => (item.id === notification.id ? { ...item, read: true } : item)));
-      setUnread((current) => {
-        const next = Math.max(0, current - 1);
-        onUnreadChange(next);
-        return next;
-      });
+      // Not inside a state updater: telling the header is a state update of its own, which React refuses to
+      // take while this component renders.
+      const next = Math.max(0, unread - 1);
+      setUnread(next);
+      onUnreadChange(next);
     } catch (reason) {
       setError(errorMessage(reason));
     }

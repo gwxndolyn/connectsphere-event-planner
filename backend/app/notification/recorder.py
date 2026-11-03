@@ -1,7 +1,8 @@
 import logging
 import uuid
 from collections.abc import Callable
-from datetime import date, datetime, timezone
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
@@ -29,8 +30,13 @@ from app.venue.models import VenueBooking
 logger = logging.getLogger(__name__)
 
 
+# TC-X-01: timestamps are stored UTC, and the team and every event are in Singapore, so a sentence that is
+# kept as text names the time as the people reading it say it (US31 review).
+EVENT_TIMEZONE = ZoneInfo("Asia/Singapore")
+
+
 def _when(value: datetime) -> str:
-    return value.astimezone(timezone.utc).strftime("%a %d %b %Y, %H:%M UTC")
+    return value.astimezone(EVENT_TIMEZONE).strftime("%a %d %b %Y, %H:%M SGT")
 
 
 def _dates(values: list[date]) -> str:
@@ -44,8 +50,10 @@ def _sentence(text: str, extra: str | None) -> str:
 class RecordingNotifier:
     """US31 (SCRUM-107): the Notifier every story already calls, now also keeping each notice as a row for the
     person it was sent to (AC 2, 6). The calls are unchanged: it logs through the notifier it wraps, then
-    records. Like the logging, recording is best effort and happens after the caller's commit, so a failure
-    here is logged and never undoes the change that raised the notice.
+    records. Like the logging, recording is best effort, so a failure here is logged and never undoes the
+    change that raised the notice. Most notices are raised after the caller's commit. A waitlist offer is
+    not: it goes out inside the withdrawal's transaction, so it is recorded before that commits, and if the
+    transaction then rolls back the notification for an offer that never happened stays (D116).
 
     Recipients are named by email, so the user is found by email; an address no user holds (an attendee who
     never logged in) is logged and skipped. The event is found from whatever the notice carries: its id, its

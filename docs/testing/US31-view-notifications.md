@@ -8,7 +8,7 @@
 
 **Tests:**
 
-- Backend: `backend/tests/notification/test_recorder.py` (TC-US31-01 to 10) and `test_inbox_api.py` (TC-US31-20 to 33)
+- Backend: `backend/tests/notification/test_recorder.py` (TC-US31-01 to 11) and `test_inbox_api.py` (TC-US31-20 to 33)
 - Frontend: `frontend/src/features/notifications/notifications.integration.test.tsx` (TC-US31-40 to 56) and `frontend/src/auth/screens.test.ts` (TC-US31-57)
 - E2E: `e2e/tests/notifications.spec.ts` (TC-US31-60). It submits and assigns a request with a unique name, so it can run on a reused database
 
@@ -23,8 +23,8 @@
 
 ## Decisions
 
-- **D116: where notifications are written and what they hold.** By the notifier, when a story calls it, so every existing notice is kept without changing the stories. The table has no foreign keys, because a notice is written from its own session while the caller can still hold a lock on the event (a waitlist offer is sent inside the withdrawal's transaction), and the first version of this change made that request wait on itself. See `claude_instructions.md`
-- **Deviation 74:** recipients are found by email; the event is found from what the notice carries; "Open" is the request, for who may read it, so attendees, Venue staff, Tech support and Safety officers get the notice with no link; wording is fixed when the notice is raised; no history before this change; the count polls every 30 seconds. See `claude_instructions.md`
+- **D116: where notifications are written and what they hold.** Decided by the acting PO on 3 Nov 2026 in the PR review, apart from how long to keep them. By the notifier, when a story calls it, so every existing notice is kept without changing the stories. The table has no foreign keys, because a notice is written from its own session while the caller can still hold a lock on the event (a waitlist offer is sent inside the withdrawal's transaction), and the first version of this change made that request wait on itself. See `claude_instructions.md`
+- **Deviation 74:** recipients are found by email; the event is found from what the notice carries; "Open" is the request, for who may read it, so attendees, Venue staff, Tech support and Safety officers get the notice with no link; wording is fixed when the notice is raised, with times in Singapore time (SGT); no history before this change; the count polls every 30 seconds. See `claude_instructions.md`
 
 ## Test cases
 
@@ -39,6 +39,7 @@
 | TC-US31-08 | The app's `get_notifier` | Read it | The recording notifier over the logging one |
 | TC-US31-09 | A Lead assigns a request | The coordinator and organiser list their notifications | Each has one, naming the event and what happened, unread; the Lead has none (AC 6) |
 | TC-US31-10 | A transaction holding the event's row lock | A notice for that event | Recorded at once, without waiting for the lock |
+| TC-US31-11 | An event at 20:00 UTC | A notice naming its time | Written as the next day, 04:00 SGT (Singapore time, TC-X-01) |
 | TC-US31-20 | Two of mine, one of someone else's | List | Mine only, newest first, with id, kind, event, event name, sentence, time, read and `can_open` (AC 2) |
 | TC-US31-21 | Nothing | List | `200`, empty, `unread_count` 0 |
 | TC-US31-22 | Every role, and a two-role user | List | Each their own; no identity `401`; inactive `403` (AC 1, 2) |
@@ -70,7 +71,7 @@
 
 ## Evidence
 
-Taken from the running app against a fresh local database (migrated and seeded), at the commit that adds these files, through the real flow: the organiser submits a request, the Coordinator Lead is told and assigns it, and the coordinator and the organiser are told. Times are the machine's local time.
+Taken from the running app against a fresh local database (migrated and seeded), at the commit that adds these files, through the real flow: the organiser submits a request, the Coordinator Lead is told and assigns it, and the coordinator and the organiser are told. Notification times in the screenshots are the browser's local time; the sentences name times in Singapore time (SGT).
 
 ### AC 1, 3: the link, with the unread count, on any screen
 
@@ -114,6 +115,6 @@ TC-US31-01 fails until each of the 23 `Notifier` methods is in the recorder's te
 
 | Date | Where | Result |
 |---|---|---|
-| 1 Nov 2026 | Backend, `pytest`, rebased onto `main` at SCRUM-90 (US23a) and SCRUM-93 (US25) | 1788 passed |
+| 1 Nov 2026 | Backend, `pytest`, rebased onto `main` at SCRUM-90 (US23a) and SCRUM-93 (US25) | 1789 passed |
 | 1 Nov 2026 | Frontend, Vitest, lint, build | 535 passed; lint and build clean |
 | 1 Nov 2026 | E2E, the full suite against a fresh local database | 56 passed, 10 skipped (the Supabase login and sign-up cases, which need credentials), 0 failed |

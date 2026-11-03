@@ -75,7 +75,7 @@ CALLS = [
     ("equipment_line_reviewed", lambda c: dict(line_id=c.line.id, event_name="Alumni night", equipment_type="Projector", quantity=2, decision="approved", note="Bring a cable"), "2 × Projector was approved. Note: Bring a cable", "line"),
     ("request_decided", lambda c: dict(request_reference=REFERENCE, event_name="Alumni night", decision="rejected", reason="Too late"), "ER-2026-000101 was rejected. Reason: Too late", "reference"),
     ("tech_staff_assigned", lambda c: dict(event_id=c.event.id, event_name="Alumni night", starts_at=STARTS, ends_at=ENDS, venue_name="SCIS Room", location="Level 2", equipment=["Projector"], equipment_needs=None), "You were assigned to support the event", "id"),
-    ("event_confirmed", lambda c: dict(request_reference=REFERENCE, event_name="Alumni night", starts_at=STARTS, ends_at=ENDS, venues=["SCIS Room"]), "The event is confirmed for Fri 13 Nov 2026, 06:00 UTC", "reference"),
+    ("event_confirmed", lambda c: dict(request_reference=REFERENCE, event_name="Alumni night", starts_at=STARTS, ends_at=ENDS, venues=["SCIS Room"]), "The event is confirmed for Fri 13 Nov 2026, 14:00 SGT to Fri 13 Nov 2026, 16:00 SGT", "reference"),
     ("safety_review_decided", lambda c: dict(request_reference=REFERENCE, event_name="Alumni night", outcome="rejected", comments="Add an exit", issues=["Emergency access"]), "rejected the safety arrangement. Flagged: Emergency access. Comments: Add an exit", "reference"),
     ("safety_changes_requested", lambda c: dict(request_reference=REFERENCE, event_name="Alumni night", comments="Widen the aisles", areas=["Venue", "Layout"], issues=[]), "asked for changes to Venue, Layout. Comments: Widen the aisles", "reference"),
     ("cancellation_requested", lambda c: dict(event_id=c.event.id, event_name="Alumni night", organiser_name="Olivia", reason="Speaker unwell"), "Olivia asked to cancel the event. Reason: Speaker unwell", "id"),
@@ -84,7 +84,7 @@ CALLS = [
     ("change_request_decided", lambda c: dict(event_id=c.event.id, event_name="Alumni night", decision="approved", fields=["capacity"], rejection_reason=None, status_change="planning", safety_review_required=True, to_requester=True), "Your request to change capacity was approved. The event goes back to planning. A new safety review is needed.", "id"),
     ("arrangement_flagged", lambda c: dict(event_id=c.event.id, event_name="Alumni night", kind="venue booking", label="VB-2026-000009", fields=["start_at"]), "may affect the venue booking VB-2026-000009 arranged for this event", "id"),
     ("venue_held", lambda c: dict(booking_id=c.booking.id, event_name="Alumni night", venue_name="SCIS Room", starts_at=STARTS, ends_at=ENDS, expires_at=STARTS, stage="expiring"), "expires within 24 hours", "booking"),
-    ("venue_unavailable", lambda c: dict(recipient="coordinator", event_id=c.event.id, event_name="Alumni night", venue_name="SCIS Room", starts_at=STARTS, ends_at=ENDS, reason="Maintenance", booking_references=["VB-2026-000009"], next_action="Choose another venue"), "is unavailable Fri 13 Nov 2026, 06:00 UTC to Fri 13 Nov 2026, 08:00 UTC (Maintenance). Affected: VB-2026-000009. Next: Choose another venue", "id"),
+    ("venue_unavailable", lambda c: dict(recipient="coordinator", event_id=c.event.id, event_name="Alumni night", venue_name="SCIS Room", starts_at=STARTS, ends_at=ENDS, reason="Maintenance", booking_references=["VB-2026-000009"], next_action="Choose another venue"), "is unavailable Fri 13 Nov 2026, 14:00 SGT to Fri 13 Nov 2026, 16:00 SGT (Maintenance). Affected: VB-2026-000009. Next: Choose another venue", "id"),
     ("change_requested", lambda c: dict(event_id=c.event.id, event_name="Alumni night", organiser_name="Olivia", fields=["capacity"], reason="Bigger room", to_lead=False), "Olivia asked to change capacity. Reason: Bigger room", "id"),
 ]
 
@@ -122,6 +122,19 @@ def test_tc_us31_02_each_notice_is_kept_for_its_recipient_with_the_event_it_is_a
     assert fragment in row.message
     # Still logged through the wrapped notifier, with the same call.
     assert sum(len(calls) for calls in vars(inner).values() if isinstance(calls, list)) == 1
+
+
+def test_tc_us31_11_times_are_written_in_singapore_time_across_midnight(db: Session, person: User, event: Event) -> None:
+    notifier, _ = recorder(db)
+    evening = datetime(2026, 11, 13, 20, 0, tzinfo=timezone.utc)  # 04:00 the next day in Singapore
+
+    notifier.event_confirmed(
+        email=person.email, request_reference=REFERENCE, event_name="Alumni night",
+        starts_at=evening, ends_at=evening + timedelta(hours=2), venues=[],
+    )
+
+    [row] = kept(db, person)
+    assert row.message == "The event is confirmed for Sat 14 Nov 2026, 04:00 SGT to Sat 14 Nov 2026, 06:00 SGT."
 
 
 def test_tc_us31_03_the_same_address_in_another_case_is_the_same_person(db: Session, person: User, event: Event) -> None:
