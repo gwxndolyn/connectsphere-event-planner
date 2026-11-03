@@ -268,7 +268,7 @@ class EventChangeRequest(Base):
             "rejection_reason IS NULL OR btrim(rejection_reason) <> ''",
             name="event_change_requests_rejection_reason_not_blank",
         ),
-        # DECISION-PENDING: D102 — no one approves a request they made (D51), so a coordinator's own US12 edit
+        # D102: no one approves a request they made (D51), so a coordinator's own US12 edit
         # goes to a Coordinator Lead. Rejecting is allowed: cancelling an event rejects all its pending requests,
         # the canceller's own too (US9).
         CheckConstraint(
@@ -405,7 +405,7 @@ class ReviewFlagKind(enum.StrEnum):
 class EventReviewFlag(Base):
     """An arrangement an approved significant change may have overtaken (US29b AC 3, SCRUM-98), for the
     event's coordinator to review. Nothing on the booking, reservation or registrations changes.
-    DECISION-PENDING: D104 — one row per affected item, one open flag per item (a later change adds its
+    D104: one row per affected item, one open flag per item (a later change adds its
     fields to it), cleared by the coordinator with an optional note. An equipment flag points at the line,
     not its reservation, because releasing a reservation deletes it (D74)."""
 
