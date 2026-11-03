@@ -24,6 +24,8 @@ cancellation too; other events' cancellations are untouched.
 It deletes every booking and hold on Venue Hold Demo (SCRUM-93), so TC-US25-24 reruns start clean.
 It deletes every booking on Venue Unavailability Demo (SCRUM-90) and the unavailability periods that marked only
 them, so TC-US23A-20 reruns start clean.
+It does the same for Replacement Venue Demo (SCRUM-91), its replacements and replaced bookings included, so TC-US23B-20
+reruns start clean.
 """
 
 import sys
@@ -455,6 +457,11 @@ HOLD_EVENT = BookableEventSpec(slug="venue-hold-demo", name="Venue Hold Demo", e
 UNAVAILABILITY_EVENT = BookableEventSpec(
     slug="venue-unavailability-demo", name="Venue Unavailability Demo", expected_attendees=30
 )
+# US23b (SCRUM-91): an Approved event only TC-US23B-20 uses: its coordinator requests a venue, Venue staff approve it and
+# mark it unavailable, and the coordinator replaces it. Cleared like the one above.
+REPLACEMENT_EVENT = BookableEventSpec(
+    slug="replacement-venue-demo", name="Replacement Venue Demo", expected_attendees=30
+)
 
 # US24 (SCRUM-92): every seeded booking says what it's for; a single-venue event's is its main venue.
 MAIN_VENUE_PURPOSE = "Main venue"
@@ -824,8 +831,9 @@ def upsert_bookable_event(db: Session, spec: BookableEventSpec, organiser: User,
 
 
 def clear_unavailability_event(db: Session, event_id: uuid.UUID) -> None:
-    """TC-US23A-20 reruns start clean: the event's bookings go, then the periods that marked them, unless another
-    event's booking was marked by the same period."""
+    """TC-US23A-20 and TC-US23B-20 reruns start clean: the event's bookings go, then the periods that marked them,
+    unless another event's booking was marked by the same period. A replacement is always the same event's, so one
+    delete takes it with the booking it replaced."""
     marked_by = set(
         db.scalars(
             select(VenueBooking.rearrangement_block_id).where(
@@ -1404,6 +1412,8 @@ def seed(db: Session, now: datetime | None = None) -> None:
     db.execute(delete(VenueBooking).where(VenueBooking.event_id == seed_id("event", HOLD_EVENT.slug)))
     upsert_bookable_event(db, UNAVAILABILITY_EVENT, organiser, coordinator)
     clear_unavailability_event(db, seed_id("event", UNAVAILABILITY_EVENT.slug))
+    upsert_bookable_event(db, REPLACEMENT_EVENT, organiser, coordinator)
+    clear_unavailability_event(db, seed_id("event", REPLACEMENT_EVENT.slug))
     upsert_confirmation_event(db, CONFIRMATION_EVENT, organiser, coordinator, now)
     upsert_safety_review_event(db, SAFETY_REVIEW_EVENT, organiser, coordinator, now)
     equipment_event = upsert_equipment_event(db, EQUIPMENT_EVENT, organiser, coordinator, now)
@@ -1497,7 +1507,8 @@ REMOTE_RESEED_WARNING = (
     "and every change request, decision, history entry and review flag on Change Request Demo, "
     "whose seeded request is pending again. "
     "It deletes every booking and hold on Venue Hold Demo, "
-    "and every booking on Venue Unavailability Demo with the unavailability periods that marked only them. "
+    "and every booking on Venue Unavailability Demo and Replacement Venue Demo with the unavailability periods "
+    "that marked only them. "
     "It puts Cancellation Demo back in Planning with no cancellation record, and drops the approved cancellation "
     "of any other seeded event that was cancelled in the app, which the reseed puts back in its own status. "
     "Other events' lines, bookings, sessions, change requests and cancellations are untouched."

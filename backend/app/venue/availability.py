@@ -42,6 +42,8 @@ class Conflict:
     note: str | None = None  # a block's note
     booking_id: uuid.UUID | None = None
     reason: str | None = None  # a block's reason (US23a, SCRUM-90)
+    block_id: uuid.UUID | None = None  # US23b (SCRUM-91): the block, for Venue staff to end it early
+    ended_early_at: datetime | None = None  # US23b: when Venue staff ended the block early (D117)
 
 
 @dataclass(frozen=True)
@@ -137,6 +139,8 @@ def block_conflicts(db: Session, venue_id: uuid.UUID, occupied: Window) -> list[
                 overlap=_overlap(occupied, theirs),
                 note=block.note,
                 reason=block.reason,
+                block_id=block.id,
+                ended_early_at=block.ended_early_at,
             )
         )
     return conflicts

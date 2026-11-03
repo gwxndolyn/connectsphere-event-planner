@@ -126,6 +126,18 @@ def mark_venue_unavailable(
     return block_service.create(db, staff, venue_id, body, now, notifier)
 
 
+@router.post("/{venue_id}/blocks/{block_id}/end", response_model=VenueBlockOut)
+def end_venue_block_early(
+    venue_id: uuid.UUID,
+    block_id: uuid.UUID,
+    staff: VenueStaff,
+    db: Session = Depends(get_db),
+    now: datetime = Depends(get_now),
+) -> VenueBlockOut:
+    """US23b (SCRUM-91) AC 5: Venue staff end a period early, so the venue may be free again (D117)."""
+    return block_service.end_early(db, staff, venue_id, block_id, now)
+
+
 @router.post("", status_code=201, response_model=VenueOut)
 def create_venue(body: VenueWrite, _: VenueStaff, db: Session = Depends(get_db)) -> VenueOut:
     return venue_service.create(db, body)

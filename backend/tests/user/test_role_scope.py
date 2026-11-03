@@ -26,7 +26,16 @@ from app.venue.models import VenueBookingStatus
 from tests.conftest import BACKEND_DIR, FakeNotifier
 from tests.equipment.test_equipment_api import make_line, make_type
 from tests.event.test_event_requests import complete_request
-from tests.factories import NOW, make_attendee, make_event, make_registration, make_user, make_venue, make_venue_booking
+from tests.factories import (
+    NOW,
+    make_attendee,
+    make_event,
+    make_registration,
+    make_user,
+    make_venue,
+    make_venue_block,
+    make_venue_booking,
+)
 
 pytestmark = pytest.mark.anyio
 
@@ -270,6 +279,7 @@ ROUTES = [
     ("PATCH", "/api/v1/venues/{venue_id}", {VENUE_STAFF}),
     ("POST", "/api/v1/venues/{venue_id}/deactivate", {VENUE_STAFF}),
     ("POST", "/api/v1/venues/{venue_id}/blocks", {VENUE_STAFF}),  # US23a (SCRUM-90)
+    ("POST", "/api/v1/venues/{venue_id}/blocks/{block_id}/end", {VENUE_STAFF}),  # US23b (SCRUM-91)
     ("POST", "/api/v1/venues/{venue_id}/reactivate", {VENUE_STAFF}),
     # US21 (SCRUM-122): the venue calendar, D56.
     ("GET", "/api/v1/venues/{venue_id}/calendar", {COORDINATOR, LEAD, VENUE_STAFF}),
@@ -287,6 +297,11 @@ ROUTES = [
     ("POST", "/api/v1/venue-holds", {VENUE_STAFF}),
     ("GET", "/api/v1/venue-holds/events", {VENUE_STAFF}),
     ("POST", "/api/v1/venue-bookings/{booking_id}/confirm", {COORDINATOR}),
+    # US23b (SCRUM-91): the event's coordinator asks to restore a booking; Venue staff list, confirm or decline (D117).
+    ("POST", "/api/v1/venue-bookings/{booking_id}/restore", {COORDINATOR}),
+    ("GET", "/api/v1/venue-bookings/restore-requests", {VENUE_STAFF}),
+    ("POST", "/api/v1/venue-bookings/{booking_id}/restore/confirm", {VENUE_STAFF}),
+    ("POST", "/api/v1/venue-bookings/{booking_id}/restore/decline", {VENUE_STAFF}),
     ("GET", "/api/v1/events/{event_id}/venue-bookings", {ORGANISER, COORDINATOR, VENUE_STAFF}),
     ("GET", "/api/v1/me/equipment-events", {COORDINATOR}),
     ("GET", "/api/v1/events/{event_id}/equipment-lines", {COORDINATOR}),
@@ -623,6 +638,19 @@ async def change_by_its_coordinator(client: AsyncClient, db: Session) -> tuple[U
     return coordinator, request.id, {"reason": "Not for us."}
 
 
+async def restore_by_its_decider(client: AsyncClient, db: Session) -> tuple[User, uuid.UUID, dict]:
+    """US23b (SCRUM-91, D117): a restore request made by someone who is also Venue staff, on their own event."""
+    both = make_user(db, UserRole.COORDINATOR, UserRole.VENUE_STAFF)
+    event = make_event(db, status=EventStatus.PLANNING, coordinator_id=both.id)
+    venue = make_venue(db)
+    block = make_venue_block(db, venue, NOW + timedelta(days=1), NOW + timedelta(days=1, hours=1))
+    booking = make_venue_booking(
+        db, event=event, venue=venue, user=both, rearrangement_block_id=block.id, rearrangement_flagged_at=NOW,
+        restore_requested_at=NOW, restore_requested_by_user_id=both.id,
+    )
+    return both, booking.id, {}
+
+
 DECISIONS = {
     ("POST", "/api/v1/venue-bookings/{booking_id}/approve"): booking_by_its_decider,
     ("POST", "/api/v1/venue-bookings/{booking_id}/reject"): booking_by_its_decider,
@@ -635,6 +663,9 @@ DECISIONS = {
     ("POST", "/api/v1/event-cancellations/{cancellation_id}/reject"): cancellation_by_its_coordinator,
     ("POST", "/api/v1/change-requests/{request_id}/approve"): change_by_its_coordinator,
     ("POST", "/api/v1/change-requests/{request_id}/reject"): change_by_its_coordinator,
+    # US23b (SCRUM-91): not named by DECISION_VERBS (a hold's confirm isn't a decision), but tried all the same.
+    ("POST", "/api/v1/venue-bookings/{booking_id}/restore/confirm"): restore_by_its_decider,
+    ("POST", "/api/v1/venue-bookings/{booking_id}/restore/decline"): restore_by_its_decider,
 }
 
 
@@ -647,7 +678,7 @@ def test_tc_us16b_25_28_every_decision_route_is_tried() -> None:
         (method, path) for method, path in app_routes() if path.rsplit("/", 1)[-1] in DECISION_VERBS
     }
 
-    assert decision_routes == set(DECISIONS)
+    assert decision_routes == {route for route in DECISIONS if "/restore/" not in route[1]}
 
 
 
