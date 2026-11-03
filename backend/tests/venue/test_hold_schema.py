@@ -64,7 +64,8 @@ def test_tc_us25_01_statuses_and_columns_are_installed(db: Session) -> None:
             "where pg_type.typname = 'venue_booking_status' order by enumsortorder"
         )
     ).all()
-    assert statuses == ["requested", "approved", "rejected", "withdrawn", "held", "expired"]
+    # US23b (SCRUM-91) adds replaced after them (D117).
+    assert statuses == ["requested", "approved", "rejected", "withdrawn", "held", "expired", "replaced"]
     # A hold blocks the window (AC 2) but is no booking anywhere else (AC 6).
     assert set(BLOCKING_STATUSES) - set(LIVE_BOOKING_STATUSES) == {VenueBookingStatus.HELD}
 

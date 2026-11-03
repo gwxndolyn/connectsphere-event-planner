@@ -597,10 +597,14 @@ def test_tc_us2_11_blocks_schema_is_installed(db: Session, engine) -> None:
         "created_at",
         "reason",  # US23a (SCRUM-90)
         "created_by_user_id",  # US23a
+        "ended_early_at",  # US23b (SCRUM-91)
+        "ended_early_by_user_id",  # US23b
+        "scheduled_ends_at",  # US23b
     }
     assert {c["name"] for c in inspector.get_check_constraints("venue_blocks")} == {
         "venue_blocks_window_valid",
         "venue_blocks_reason_known",  # US23a
+        "venue_blocks_ended_early_consistent",  # US23b
     }
     assert "venue_blocks_venue_window" in {index["name"] for index in inspector.get_indexes("venue_blocks")}
     assert {fk["referred_table"] for fk in inspector.get_foreign_keys("venue_blocks")} == {"venues", "users"}

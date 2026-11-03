@@ -189,6 +189,8 @@ def make_venue_booking(
         "withdrawn_at": NOW if status == VenueBookingStatus.WITHDRAWN else None,
         # venue_bookings_decided_consistent: an approved or rejected booking carries its decision time.
         "decided_at": NOW if status in (VenueBookingStatus.APPROVED, VenueBookingStatus.REJECTED) else None,
+        # venue_bookings_replaced_consistent (US23b): a replaced booking carries when it was replaced.
+        "replaced_at": NOW if status == VenueBookingStatus.REPLACED else None,
     }
     booking = VenueBooking(**(fields | overrides))
     db.add(booking)
