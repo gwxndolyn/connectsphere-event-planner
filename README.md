@@ -29,6 +29,8 @@ cd backend
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 cp .env.example .env
+alembic upgrade head
+python -m app.seed
 uvicorn app.main:app --reload
 ```
 
@@ -38,6 +40,7 @@ Runs on `http://localhost:8000`. Health check: `GET /api/events/health`.
 
 ```bash
 cd frontend
+cp .env.example .env
 npm install
 npm run dev
 ```
