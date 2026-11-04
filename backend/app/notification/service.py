@@ -23,6 +23,8 @@ CancellationRecipient = Literal["organiser", "venue_staff", "tech_support", "att
 UnavailabilityRecipient = Literal["coordinator", "organiser"]
 # What Venue staff decided on a coordinator's request to restore a booking (US23b, SCRUM-91, AC 5).
 RestoreDecision = Literal["confirmed", "declined"]
+# What an attendee did with their registration (core feature "Notification System": registration updates).
+RegistrationChange = Literal["registered", "withdrawn"]
 
 
 class Notifier(Protocol):
@@ -326,6 +328,10 @@ class Notifier(Protocol):
         event_name: str,
         reason: str,
         recipient: CancellationRecipient,
+    ) -> None: ...
+
+    def registration_changed(
+        self, *, email: str, event_id: uuid.UUID, event_name: str, change: RegistrationChange
     ) -> None: ...
 
 class LoggingNotifier:
@@ -733,6 +739,12 @@ class LoggingNotifier:
     ) -> None:
         # US9 AC 2, 6: everyone involved hears the event is cancelled, with its name and the reason.
         logger.info("event cancelled: %s (%s), %r (%s); reason: %s", email, recipient, event_name, event_id, reason)
+
+    def registration_changed(
+        self, *, email: str, event_id: uuid.UUID, event_name: str, change: RegistrationChange
+    ) -> None:
+        # Registration updates: the attendee hears they are registered, or that their withdrawal went through.
+        logger.info("registration %s: %s for %r (%s)", change, email, event_name, event_id)
 
 
     def venue_held(

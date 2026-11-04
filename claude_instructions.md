@@ -1488,6 +1488,7 @@ Role `coordinator`, the event's assigned coordinator only (D48); logic `app/even
 | `GET /api/v1/event-requests/{id}/readiness` | `{"ready": bool, "items": [{kind, name, complete, detail}]}`: one item per live venue booking (`kind: "venue"`, named for the venue), then `equipment`, then `safety` (AC 2). For `approved`, `planning`, `confirmed` and `preparation` events |
 | `POST /api/v1/event-requests/{id}/confirmation` | No body (nothing overrides an incomplete arrangement, AC 5). `200` the request with `status: "confirmed"` and `confirmed_at` |
 | `POST /api/v1/event-requests/{id}/preparation` | No body. A `confirmed` event becomes `preparation` (AC 6). `200` the request |
+| `POST /api/v1/event-requests/{id}/completion` | No body. A `preparation` event whose `end_at` has passed becomes `completed` (D120). `409 COMPLETION_NOT_ALLOWED` from any other status, `409 EVENT_NOT_ENDED` before `end_at`. `200` the request |
 
 | Outcome | Status | Body |
 |---|---|---|

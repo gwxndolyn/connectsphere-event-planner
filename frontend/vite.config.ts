@@ -28,6 +28,14 @@ export default defineConfig({
     },
     // Integration flows type through whole forms; CI runners are slower than a laptop.
     testTimeout: 15000,
+    // `npm run test:coverage` (CI): DoD criterion 7, coverage reported on every run.
+    coverage: {
+      provider: 'v8',
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: ['src/**/*.test.{ts,tsx}', 'src/test/**', 'src/main.tsx', 'src/vite-env.d.ts'],
+      reporter: ['text-summary', 'text', 'html', 'json-summary'],
+      reportsDirectory: './coverage',
+    },
     restoreMocks: true,
     unstubGlobals: true,
   },

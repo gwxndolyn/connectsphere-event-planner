@@ -15,6 +15,10 @@ function confirmationError(error: unknown): string {
       return "This event can't be confirmed in its current status.";
     case "PREPARATION_NOT_ALLOWED":
       return "Only a confirmed event can move to Preparation.";
+    case "COMPLETION_NOT_ALLOWED":
+      return "Only an event in Preparation can be marked as completed.";
+    case "EVENT_NOT_ENDED":
+      return "This event hasn't ended yet, so it can't be marked as completed.";
     case "NOT_FOUND":
       return "This event isn't assigned to you, so you can't confirm it.";
     default:
@@ -65,7 +69,7 @@ export function EventConfirmation({ request, onChanged }: EventConfirmationProps
     setChecks((count) => count + 1);
   }
 
-  async function act(action: "confirmation" | "preparation") {
+  async function act(action: "confirmation" | "preparation" | "completion") {
     setBusy(true);
     setError(null);
     try {
@@ -83,7 +87,22 @@ export function EventConfirmation({ request, onChanged }: EventConfirmationProps
     return (
       <section className="request-confirm" aria-labelledby="request-confirm-title">
         <h2 id="request-confirm-title">Preparation</h2>
+        {error && <div className="request-alert" role="alert">{error}</div>}
         <p role="status">This event is in Preparation.</p>
+        <div className="request-form__actions">
+          <button className="request-button request-button--primary" type="button" disabled={busy} onClick={() => void act("completion")}>
+            {busy ? "Saving…" : "Mark as completed"}
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  if (request.status === "completed") {
+    return (
+      <section className="request-confirm" aria-labelledby="request-confirm-title">
+        <h2 id="request-confirm-title">Completed</h2>
+        <p role="status">This event is completed.</p>
       </section>
     );
   }

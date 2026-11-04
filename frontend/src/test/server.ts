@@ -2769,6 +2769,18 @@ const handlers = [
     return HttpResponse.json(found);
   }),
 
+  // Event Status Management: an ended event in Preparation is marked Completed (confirmation_service.complete).
+  route("post", "/api/v1/event-requests/:id/completion", ({ request, params }) => {
+    const found = confirmableBy(request, params.id as string);
+    if (found instanceof Response) return found;
+    if (found.status !== "preparation") return error(409, "COMPLETION_NOT_ALLOWED", { status: found.status });
+    if (!found.end_at || new Date(found.end_at).getTime() > Date.now()) {
+      return error(409, "EVENT_NOT_ENDED", { ends_at: found.end_at ?? null });
+    }
+    found.status = "completed";
+    return HttpResponse.json(found);
+  }),
+
   // US30a (SCRUM-99): the Safety Officer's queue and review, and the outcome the Organiser and
   // Coordinator read, as app/safety/service.py has them. Which events are ready is readinessOf's.
   route("get", "/api/v1/safety-reviews", ({ request }) => {

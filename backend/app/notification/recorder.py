@@ -19,6 +19,7 @@ from app.notification.service import (
     LoggingNotifier,
     Notifier,
     ReassignmentRecipient,
+    RegistrationChange,
     RequestDecision,
     RestoreDecision,
     SafetyOutcome,
@@ -612,6 +613,18 @@ class RecordingNotifier:
             email=email,
             event_name=event_name,
             message=f"The event was cancelled. Reason: {reason}",
+            event_id=event_id,
+        )
+
+    def registration_changed(
+        self, *, email: str, event_id: uuid.UUID, event_name: str, change: RegistrationChange
+    ) -> None:
+        self._delegate.registration_changed(email=email, event_id=event_id, event_name=event_name, change=change)
+        self._record(
+            "registration_changed",
+            email=email,
+            event_name=event_name,
+            message="You are registered for this event." if change == "registered" else "Your registration was withdrawn.",
             event_id=event_id,
         )
 

@@ -217,6 +217,17 @@ def start_preparation(
     return confirmation_service.start_preparation(db, request_id, coordinator)
 
 
+# Event Status Management: the assigned coordinator marks an ended event in Preparation as Completed.
+@router.post("/{request_id}/completion", response_model=EventRequestOut)
+def complete_event(
+    request_id: uuid.UUID,
+    coordinator: Coordinator,
+    db: Session = Depends(get_db),
+    now: datetime = Depends(get_now),
+) -> EventRequestOut:
+    return confirmation_service.complete(db, request_id, coordinator, now)
+
+
 @router.post("/{request_id}/reassignment", response_model=EventRequestOut)
 def reassign_coordinator(
     request_id: uuid.UUID,

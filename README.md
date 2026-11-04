@@ -3,12 +3,14 @@
 A university scrum project for planning campus events: event requests, venue booking,
 equipment reservation, attendee registration, and notifications.
 
+**Git repository:** <https://github.com/gwxndolyn/connectsphere-event-planner> (IS212 G8T4)
+
 Monorepo layout:
 
 - [`backend/`](backend/) — FastAPI (Python 3.12+) REST API
 - [`frontend/`](frontend/) — React 19 (Vite, TypeScript) SPA
 - [`e2e/`](e2e/) — Playwright end-to-end tests
-- [`docs/`](docs/) — C4 architecture diagrams and ER diagrams
+- [`docs/`](docs/) — [C4 model as built](docs/c4/README.md), [requirements → tests traceability](docs/testing/TRACEABILITY.md), per-story test evidence in [`docs/testing/`](docs/testing/)
 
 ## Prerequisites
 
@@ -56,21 +58,52 @@ cd backend && pytest
 # frontend unit + integration (Vitest): Node 22+, no backend needed
 cd frontend && npm test
 
+# with coverage (what CI runs)
+cd backend && pytest --cov=app --cov-report=term-missing
+cd frontend && npm run test:coverage
+
 # end-to-end (Playwright): backend running on :8000 against a seeded database
 cd e2e && npm ci && npx playwright install chromium && npm test
 ```
 
 ## CI
 
-GitHub Actions runs on every pull request: `backend-ci.yml` (pytest), `frontend-ci.yml`
-(oxlint, Vitest, typecheck and build), `e2e.yml` (Playwright against a migrated, seeded
+GitHub Actions runs on every pull request: `backend-ci.yml` (pytest with coverage), `frontend-ci.yml`
+(oxlint, Vitest with coverage, typecheck and build), `e2e.yml` (Playwright against a migrated, seeded
 backend), `lint-markdown.yml` and `pr-title-check.yml`. What each suite covers, how to add a
 test and what to do when one fails: [`docs/testing/README.md`](docs/testing/README.md).
 
+## Demo walkthrough (end-to-end workflow)
+
+After `python -m app.seed`, run the frontend in dev mode (`VITE_DEV_AUTH=true`) and use the **Acting as**
+switch in the header to change role:
+
+1. **Organiser**: Event requests → new request → *Save draft* → complete it (tick "attendee registration
+   required") → *Submit*.
+2. **Coordinator Lead**: assign a coordinator from the Unassigned queue (workload shown).
+3. **Coordinator**: open the request → ask for clarification or *Approve*; then *Request venue* (search
+   filters by date, time, attendance, location, accessibility, facilities) and add equipment lines.
+4. **Venue Staff**: approve or reject pending bookings with a reason (conflicts and setup/turnaround
+   buffers are checked); mark a venue unavailable to see affected bookings flagged.
+5. **Tech Support**: check equipment availability → approve → reserve; assign support staff.
+6. **Safety Officer**: approve the safety review (or request changes).
+7. **Coordinator**: readiness list all ✓ → *Confirm event* → *Start preparation* → after it ends,
+   *Mark as completed*. Confirming opens registration if the organiser asked for it.
+8. **Attendee**: Events board → register → My Events → withdraw.
+
+Every step lands in the relevant people's **Notifications**.
+
 ## Team Members
 
-- _TODO: add team member names and roles_
+| Member | Sprint roles (PO / SM rotate each sprint) |
+| --- | --- |
+| Calvin Ng | SM Sprint 2, PO Sprint 4 |
+| Chloe Goh | PO Sprint 1, SM Sprint 4 |
+| Gwendolyn Leong | SM Sprint 1; repository owner |
+| Matthew Leong | PO Sprint 2, SM Sprint 3 |
+| Nicholas Lo | PO Sprint 3 |
 
 ## Product Backlog / Board Link
 
-- _TODO: link to Scrum board (e.g. Jira/Trello/GitHub Projects)_
+- Jira project `SCRUM`: <https://smu-team-kk38iw8n.atlassian.net> (exported in the submission's folder 1)
+- Development spec (data model, API contracts, test cases, decisions): [`claude_instructions.md`](claude_instructions.md)
