@@ -2,14 +2,19 @@
 no longer fit read "Needs review" (`unavailability.kind: "venue_changed"`, D119), and Venue staff and each affected
 event's coordinator are told once. Nothing about the booking changes. See docs/testing/US20-venue-catalogue.md."""
 
-from datetime import time, timedelta
+from datetime import datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.event.models import Event, EventStatus
+from app.seed import seed
 from app.user.models import User, UserRole
+from app.venue.availability import venue_change
+from app.venue.models import BLOCKING_STATUSES
 from app.venue.models import Venue, VenueBooking, VenueBookingStatus
 from tests.conftest import FakeNotifier
 from tests.factories import NOW, make_event, make_user, make_venue, make_venue_booking
@@ -233,3 +238,67 @@ async def test_tc_us20_26_a_failing_notifier_doesnt_fail_the_edit(
     assert db.get(Venue, venue.id).capacity == 20
     notifier.fail = False
     assert (await bookings(client, coordinator, event))[affected.reference]["unavailability"]["detail"] == "capacity"
+
+
+# --- Calvin's #138 review ---
+
+
+async def test_tc_us20_31_a_hold_the_venue_change_no_longer_fits_cant_be_confirmed(
+    client: AsyncClient, db: Session, staff: User, coordinator: User, event: Event, venue: Venue
+) -> None:
+    # venue_bookings_hold_consistent: a hold is requested by whoever held it.
+    held = booking(
+        db, event, venue, staff, status=VenueBookingStatus.HELD, expected_attendees=30,
+        hold_expires_at=NOW + timedelta(days=3), held_by_user_id=staff.id,
+    )
+    await edit(client, staff, venue, capacity=20)
+
+    response = await client.post(f"/api/v1/venue-bookings/{held.id}/confirm", headers=auth(coordinator))
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "code": "VENUE_UNAVAILABLE",
+        "message": "This venue's capacity is now 20, below this hold's 30, so it can't be confirmed.",
+    }
+    db.expire_all()
+    assert db.get(VenueBooking, held.id).status == VenueBookingStatus.HELD
+
+
+async def test_tc_us20_32_a_second_edit_that_adds_a_reason_tells_again_and_one_that_adds_none_doesnt(
+    client: AsyncClient, db: Session, notifier: FakeNotifier, staff: User, coordinator: User, event: Event, venue: Venue
+) -> None:
+    affected = booking(db, event, venue, coordinator, status=VenueBookingStatus.APPROVED, expected_attendees=30)
+    await edit(client, staff, venue, capacity=20)
+    assert {call["email"] for call in notifier.booking_reviews} == {staff.email, coordinator.email}
+
+    # Still short on capacity, and now its 08:30 setup starts before opening: a new reason.
+    notifier.booking_reviews.clear()
+    await edit(client, staff, venue, opens_at="09:00:00")
+    assert sorted(call["email"] for call in notifier.booking_reviews) == sorted([staff.email, coordinator.email])
+    assert {call["reference"] for call in notifier.booking_reviews} == {affected.reference}
+    assert {call["reason"] for call in notifier.booking_reviews} == {
+        "capacity is now 20, below the 30 expected and the venue now opens at 09:00"
+    }
+
+    # A later closing time it still fits changes nothing about why it needs review.
+    notifier.booking_reviews.clear()
+    await edit(client, staff, venue, closes_at="21:00:00")
+    assert notifier.booking_reviews == []
+
+
+# --- PR 138: the seed ---
+
+
+@pytest.mark.parametrize("clock", [time(6, 0), time(23, 30)], ids=["06:00", "23:30"])
+def test_tc_us20_35_no_seeded_booking_needs_review_whatever_time_the_seed_runs(db: Session, clock: time) -> None:
+    """Seeded bookings use fixed Singapore times, so none falls outside its venue's hours, or over its capacity,
+    because of when the seed ran. The test database starts empty, so every booking here is one the seed made."""
+    now = datetime.combine(NOW.date(), clock, ZoneInfo("Asia/Singapore"))
+    seed(db, now=now)
+
+    flagged = [
+        booking.reference
+        for booking in db.scalars(select(VenueBooking).where(VenueBooking.status.in_(BLOCKING_STATUSES)))
+        if venue_change(db.get(Venue, booking.venue_id), booking, now) is not None
+    ]
+    assert flagged == []

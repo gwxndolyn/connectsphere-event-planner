@@ -454,4 +454,22 @@ describe("EventVenueBookings after a venue edit (US20 AC 2, SCRUM-147)", () => {
       "Needs review: the venue's hours changed to 09:00–18:00, so this booking's setup or turnaround falls outside them.",
     );
   });
+
+  it("TC-US20-34: offers no Confirm hold on a hold the venue's change no longer fits (Calvin's #138 review)", async () => {
+    const list = venues([booking({ status: "held", is_primary: false, hold_expires_at: "2026-11-18T02:00:00Z", held_by_user_id: "venue-staff-id" })]);
+    list.bookings[0] = {
+      ...list.bookings[0],
+      unavailability: {
+        kind: "venue_changed", reason: null, alternative_suggestion: null, detail: "capacity", capacity: 20, opens_at: null, closes_at: null,
+      },
+      next_action: "coordinator_to_confirm",
+    };
+    forEvent.mockResolvedValue(list);
+    render(<EventVenueBookings event={EVENT} />);
+
+    const held = await screen.findByRole("listitem", { name: /^Hall A/ });
+    expect(held).toHaveTextContent("Needs review: the venue's capacity is now 20, below this booking's 30.");
+    expect(within(held).queryByRole("button", { name: "Confirm hold" })).not.toBeInTheDocument();
+    expect(within(held).getByRole("button", { name: "Decline hold" })).toBeInTheDocument();
+  });
 });

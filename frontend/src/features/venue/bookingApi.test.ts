@@ -340,6 +340,47 @@ describe("several venues for one event (US24, SCRUM-129)", () => {
     expect(venuesMissing(venues({ venues_arranged: true, allocated_attendees: 120 }), "coordinator")).toEqual([]);
   });
 
+  it("TC-US20-33: counts a booking that needs review after its venue changed (US20 AC 2, Calvin's #138 review)", () => {
+    const changed: EventVenues["bookings"][number] = {
+      id: "booking-1",
+      reference: "VB-2026-000001",
+      event: { id: "event-1", name: "Venue Booking Demo", request_reference: null, status: "approved" },
+      venue: { id: "venue-1", name: "Hall A", location: "Building 1", capacity: 40 },
+      requested_by_user_id: "coordinator-id",
+      starts_at: "2026-11-20T02:00:00Z",
+      ends_at: "2026-11-20T04:00:00Z",
+      occupied_starts_at: "2026-11-20T01:30:00Z",
+      occupied_ends_at: "2026-11-20T04:15:00Z",
+      expected_attendees: 30,
+      room_layout: "theatre",
+      required_facilities: [],
+      required_accessibility_features: [],
+      special_requirements: null,
+      created_at: "2026-10-01T02:00:00Z",
+      updated_at: "2026-10-01T02:00:00Z",
+      withdrawn_at: null,
+      decided_at: "2026-10-02T02:00:00Z",
+      decided_by_user_id: "venue-staff-id",
+      alternative_suggestion: null,
+      purpose: "Main venue",
+      preparation_status: "not_started",
+      hold_expires_at: null,
+      held_by_user_id: null,
+      expired_at: null,
+      status: "approved",
+      is_primary: true,
+      rejection_reason: null,
+      unavailability: {
+        kind: "venue_changed", reason: null, alternative_suggestion: null, detail: "capacity", capacity: 20, opens_at: null, closes_at: null,
+      },
+      next_action: "coordinator_to_rebook",
+    };
+
+    const list = venues({ bookings: [changed], primary_booking_id: "booking-1", allocated_attendees: 100 });
+    expect(venuesMissing(list, "coordinator")).toEqual(["1 needing review: the venue changed"]);
+    expect(venuesMissing(list, "organiser")).toEqual(["1 needing review: the venue changed"]);
+  });
+
   it("says no venue is booked, not that none was requested, when the only one was rejected (PR #103 review)", () => {
     const rejected: EventVenues["bookings"][number] = {
       id: "booking-1",
