@@ -269,6 +269,9 @@ export function venuesMissing(venues: EventVenues, audience: "coordinator" | "or
   // US23a (SCRUM-90): a venue that became unavailable for part of its booking.
   const affected = live.filter((b) => b.unavailability?.kind === "venue_unavailable").length;
   if (affected > 0) missing.push(`${affected} needing rearrangement: the venue became unavailable`);
+  // US20 AC 2 (SCRUM-147, D119): a venue whose capacity or hours no longer fit the booking.
+  const changed = live.filter((b) => b.unavailability?.kind === "venue_changed").length;
+  if (changed > 0) missing.push(`${changed} needing review: the venue changed`);
   if (venues.next_action === "choose_primary") {
     missing.push(
       audience === "coordinator"

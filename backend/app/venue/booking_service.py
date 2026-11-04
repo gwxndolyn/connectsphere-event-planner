@@ -22,6 +22,7 @@ from app.venue.availability import (
     block_conflicts,
     evaluate_booking,
     evaluate_window,
+    VenueChange,
     venue_change,
 )
 from app.venue.hold_service import HOLD_MAX_LENGTH, HOLD_WARNING, expire_lapsed_holds, notice_for, send
@@ -336,6 +337,17 @@ def _unavailability(booking: VenueBooking, venue: Venue, now: datetime) -> Booki
             closes_at=change.hours.closes_at if change.hours else None,
         )
     return None
+
+
+def _hold_change_message(booking: VenueBooking, change: VenueChange) -> str:
+    """US20 AC 2 (Calvin's #138 review): why a hold its venue's change no longer fits can't be confirmed."""
+    reasons = []
+    if change.capacity is not None:
+        reasons.append(f"capacity is now {change.capacity}, below this hold's {booking.expected_attendees}")
+    if change.hours is not None:
+        opens, closes = change.hours.opens_at.strftime("%H:%M"), change.hours.closes_at.strftime("%H:%M")
+        reasons.append(f"hours are now {opens}–{closes}, and this hold's setup or turnaround falls outside them")
+    return f"This venue's {' and its '.join(reasons)}, so it can't be confirmed."
 
 
 def _next_action(
@@ -716,6 +728,11 @@ class VenueBookingService:
                 "VENUE_UNAVAILABLE",
                 message="This venue has become unavailable for part of the held time, so the hold can't be confirmed.",
             )
+        # US20 AC 2 (SCRUM-147, D119; Calvin's #138 review): nor if the venue's capacity or hours no longer fit it,
+        # which Venue staff couldn't approve either (US4).
+        change = venue_change(db.get(Venue, booking.venue_id), booking, now)
+        if change is not None:
+            raise DomainError(409, "VENUE_UNAVAILABLE", message=_hold_change_message(booking, change))
         if event.status not in BOOKABLE_STATUSES:
             raise DomainError(409, "EVENT_NOT_BOOKABLE", status=event.status.value)
         has_primary = db.scalar(

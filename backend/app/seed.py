@@ -103,6 +103,10 @@ class EventSpec:
     # DECISION-PENDING: D70 — from PR 2 attendees see that booking's venue, not venue_name/room_number,
     # which stay as the fallback. None for an online event, or a place with no seeded venue.
     venue_slug: str | None = None
+    # PR 138 (SCRUM-147, D119): the Singapore time an event with a seeded venue starts, on its starts_in day, so its
+    # primary booking fits the venue's hours whenever the seed runs and never reads as Needs review. None keeps
+    # the seed's clock time (online events and ones without a seeded venue).
+    starts_at_time: time | None = None
     join_link: str | None = None
     # US6a: off by default, as in the database.
     waitlist_enabled: bool = False
@@ -194,6 +198,8 @@ EQUIPMENT_TYPES = list(EQUIPMENT_STOCK)
 EVENTS = [
     EventSpec(
         slug="tech-talk-agile",
+        # 14:00 to 16:00; SCIS Seminar Room 2-1 is open 08:00 to 22:00, with 15 minutes either side.
+        starts_at_time=time(14, 0),
         name="Tech Talk: Agile at Scale",
         note="confirmed, registration open, seats available",
         capacity=40,
@@ -202,6 +208,8 @@ EVENTS = [
     ),
     EventSpec(
         slug="design-sprint-bootcamp",
+        # 14:00 to 16:00; Connexion Studio 3-2 is open 09:00 to 21:00, with no buffers.
+        starts_at_time=time(14, 0),
         name="Design Sprint Bootcamp",
         note="at full capacity, with a waitlist behind it",
         capacity=2,
@@ -229,6 +237,8 @@ EVENTS = [
     ),
     EventSpec(
         slug="startup-pitch-night",
+        # 19:00 to 21:00; the Auditorium is open 08:00 to 23:00, with 60 minutes before and 45 after.
+        starts_at_time=time(19, 0),
         name="Startup Pitch Night",
         note="registration not open yet (before registration_opens_at)",
         opens_in=timedelta(days=3),
@@ -241,6 +251,8 @@ EVENTS = [
     ),
     EventSpec(
         slug="career-fair-prep",
+        # 14:00 to 16:00; Library Seminar Room 3-4 is open 09:00 to 18:00, with 20 minutes either side.
+        starts_at_time=time(14, 0),
         name="Career Fair Prep Workshop",
         note="registration window has closed",
         opens_in=timedelta(days=-21),
@@ -253,6 +265,8 @@ EVENTS = [
     ),
     EventSpec(
         slug="wellness-week-yoga",
+        # 08:30 to 10:30; Lawn C is open 07:00 to 19:00, with 90 minutes before and 60 after.
+        starts_at_time=time(8, 30),
         name="Wellness Week: Sunrise Yoga",
         note="confirmed but registration_enabled = false",
         registration_enabled=False,
@@ -584,6 +598,8 @@ EQUIPMENT_EVENT = EventSpec(
     note="confirmed, assigned to the seeded coordinator, registration off (US26)",
     registration_enabled=False,
     starts_in=timedelta(days=14),
+    # 10:00 to 12:00, inside SCIS Seminar Room 2-1's 08:00 to 22:00 with its buffers (PR 138).
+    starts_at_time=time(10, 0),
     venue_slug="scis-seminar-2-1",
 )
 
@@ -735,6 +751,8 @@ def upsert_equipment_type(db: Session, name: str, stock: EquipmentStock) -> Equi
 def upsert_event(db: Session, spec: EventSpec, now: datetime, organiser: User) -> Event:
     event_id = seed_id("event", spec.slug)
     start_at = now + spec.starts_in
+    if spec.starts_at_time is not None:
+        start_at = datetime.combine(start_at.astimezone(SEED_TIMEZONE).date(), spec.starts_at_time, SEED_TIMEZONE)
     values = {
         "name": spec.name,
         "status": spec.status,

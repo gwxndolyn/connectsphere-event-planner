@@ -48,6 +48,11 @@ function needsRearrangement(booking: EventVenueBooking): boolean {
   return booking.unavailability?.kind === "venue_unavailable";
 }
 
+/** US20 AC 2 (SCRUM-147, D119): the venue's capacity or hours no longer fit it, so a hold can't be confirmed. */
+function venueChanged(booking: EventVenueBooking): boolean {
+  return booking.unavailability?.kind === "venue_changed";
+}
+
 /**
  * US22 (SCRUM-113): an event's venue bookings with their status, Withdraw (AC 5) and Request venue
  * (AC 2). Only the event's assigned coordinator may book it (US10a, D20): the API answers anyone else
@@ -389,7 +394,7 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
                   {booking.status === "held" && declining !== booking.id && (
                     <>
                       {/* US23a: a hold the venue's unavailability overlaps can't be confirmed, only declined. */}
-                      {!needsRearrangement(booking) && (
+                      {!needsRearrangement(booking) && !venueChanged(booking) && (
                         <button
                           type="button"
                           className="request-button request-button--primary"

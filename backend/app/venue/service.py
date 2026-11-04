@@ -73,6 +73,13 @@ NO_OVERLAP = "venue_bookings_no_overlap"
 REVIEW_FIELDS = ("capacity", "opens_at", "closes_at")
 
 
+def _reasons(change: VenueChange | None) -> set[str]:
+    """US20 AC 2: which of capacity and hours no longer fit, for telling whether an edit added a reason."""
+    if change is None:
+        return set()
+    return {reason for reason, present in (("capacity", change.capacity), ("hours", change.hours)) if present is not None}
+
+
 def has_approved_future_bookings(db: Session, venue_id: uuid.UUID, now: datetime) -> bool:
     """Whether the venue has approved bookings that haven't finished, which lock its buffers
     (US20 AC 2). A booking under way counts. Requested ones don't: US4 hasn't approved them."""
@@ -418,12 +425,17 @@ class VenueService:
         now: datetime,
     ) -> None:
         """US20 AC 2: every active Venue staff member and the event's assigned coordinator hear of each booking the
-        edit newly left needing review, once each. After the commit and best effort: a failure is logged and the
-        edit stands. Bookings already needing review before the edit aren't told again."""
+        edit newly left needing review, or gave a reason it didn't have (capacity or hours; Calvin's #138 review),
+        once each. After the commit and best effort: a failure is logged and the edit stands. A booking whose reasons
+        are the same as before the edit isn't told again, even if the numbers in them moved."""
         try:
             flagged = self._needing_review(db, venue.id, venue, now)
             fresh = sorted(
-                (pair for booking_id, pair in flagged.items() if booking_id not in needed_review),
+                (
+                    pair
+                    for booking_id, pair in flagged.items()
+                    if _reasons(pair[1]) - _reasons(needed_review[booking_id][1] if booking_id in needed_review else None)
+                ),
                 key=lambda pair: (pair[0].starts_at, pair[0].reference),
             )
             if not fresh:
