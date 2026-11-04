@@ -9,7 +9,7 @@ test("home page loads and reaches the backend", async ({ page }) => {
 });
 
 // SCRUM-145: dev mode's header (every role's links plus Acting as) once made the page ~1767px wide.
-for (const width of [1280, 1440]) {
+for (const width of [800, 1280, 1440]) {
   test(`the page doesn't scroll sideways at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 800 });
     await page.goto("/");

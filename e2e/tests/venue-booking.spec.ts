@@ -1,4 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
+import { reviewQueueHeading } from "./helpers";
 
 // US22 request a venue booking (SCRUM-89, PR 3 SCRUM-113). Books the seeded Approved event "Venue
 // Booking Demo" (app.seed BOOKABLE_EVENT), which no other spec touches, so this spec creates its own
@@ -34,7 +35,7 @@ async function openEvent(page: Page) {
   await page.goto("/");
   await page.getByLabel("Acting as").selectOption("coordinator");
   await page.getByRole("banner").getByRole("button", { name: "Event requests" }).click();
-  await expect(page.getByRole("heading", { name: "Requests to review", exact: true })).toBeVisible();
+  await expect(reviewQueueHeading(page)).toBeVisible();
   await page.getByRole("button", { name: new RegExp(EVENT) }).click();
   await expect(page.getByRole("heading", { name: "Review request" })).toBeVisible();
   return page.getByRole("region", { name: "Venue bookings" });
