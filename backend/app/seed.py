@@ -567,6 +567,13 @@ CHANGE_REQUEST_EQUIPMENT = "Projector"
 CHANGE_REQUEST_REASON = "Our keynote speaker's flight now lands later, so we'd like to start an hour later."
 ARRANGED_VENUE_SLUG = "lks-library-seminar-3-4"
 CONFIRMATION_IN_DAYS = 10  # not the US2 search slot (VENUE_SLOT_IN_DAYS), which expects its venues free
+# US20 AC 2 (SCRUM-147): an Approved event only TC-US20-29 uses, with an approved booking for 400 at the Auditorium
+# (capacity 450). The E2E lowers the venue's capacity below 400, sees the booking need review, then puts it back; a
+# reseed puts both back too. 400 is above every other booking at the Auditorium (300), so only this one is flagged,
+# and the US2 search's 20 attendees still fit. Its own day, clear of every other seeded booking there.
+VENUE_CHANGE_EVENT = BookableEventSpec(slug="venue-change-demo", name="Venue Change Demo", expected_attendees=400)
+VENUE_CHANGE_IN_DAYS = 30
+VENUE_CHANGE_VENUE_SLUG = "mochtar-riady-auditorium"
 
 # US26 (SCRUM-109): the dev coordinator adds equipment lines to it (SCRUM-110, TC-US26-16). Only a
 # planning or confirmed event takes them, from its assigned coordinator (D20), and no other seeded
@@ -859,16 +866,19 @@ def upsert_arranged_event(
     *,
     in_days: int,
     safety_approved: bool,
+    venue_slug: str = ARRANGED_VENUE_SLUG,
+    room_layout: str = "classroom",
+    purpose: str = "Seeded for confirming an event (US18) and reviewing its safety (US30a)",
 ) -> Event:
     """An approved event with its one venue booking approved, assigned to `coordinator`, for the screens
     that act on a finished arrangement: US18 confirms it (safety already approved), US30a's Safety Officer
-    reviews it. Reset on every reseed, so what a demo changes can be done again."""
+    reviews it, US20 AC 2's venue edit flags it. Reset on every reseed, so what a demo changes can be done again."""
     event_id = seed_id("event", spec.slug)
     values = {
         "name": spec.name,
         "status": EventStatus.APPROVED,
         "event_category": "Workshop",
-        "purpose": "Seeded for confirming an event (US18) and reviewing its safety (US30a)",
+        "purpose": purpose,
         "expected_attendees": spec.expected_attendees,
         "created_by_user_id": organiser.id,
         "coordinator_id": coordinator.id,
@@ -892,7 +902,7 @@ def upsert_arranged_event(
             setattr(event, key, value)
     db.flush()
 
-    venue = db.get(Venue, seed_id("venue", ARRANGED_VENUE_SLUG))
+    venue = db.get(Venue, seed_id("venue", venue_slug))
     day = now.astimezone(SEED_TIMEZONE).date() + timedelta(days=in_days)
     starts_at = datetime.combine(day, time(14, 0), SEED_TIMEZONE)
     ends_at = datetime.combine(day, time(16, 0), SEED_TIMEZONE)
@@ -906,7 +916,7 @@ def upsert_arranged_event(
         "occupied_starts_at": occupied_starts_at,
         "occupied_ends_at": occupied_ends_at,
         "expected_attendees": spec.expected_attendees,
-        "room_layout": "classroom",
+        "room_layout": room_layout,
         "purpose": MAIN_VENUE_PURPOSE,
         "is_primary": True,
         "status": VenueBookingStatus.APPROVED,
@@ -938,6 +948,23 @@ def upsert_safety_review_event(
     db: Session, spec: BookableEventSpec, organiser: User, coordinator: User, now: datetime
 ) -> Event:
     return upsert_arranged_event(db, spec, organiser, coordinator, now, in_days=SAFETY_REVIEW_IN_DAYS, safety_approved=False)
+
+
+def upsert_venue_change_event(
+    db: Session, spec: BookableEventSpec, organiser: User, coordinator: User, now: datetime
+) -> Event:
+    return upsert_arranged_event(
+        db,
+        spec,
+        organiser,
+        coordinator,
+        now,
+        in_days=VENUE_CHANGE_IN_DAYS,
+        safety_approved=False,
+        venue_slug=VENUE_CHANGE_VENUE_SLUG,
+        room_layout="theatre",
+        purpose="Seeded for a venue edit that leaves its booking needing review (US20 AC 2)",
+    )
 
 
 def upsert_equipment_event(
@@ -1290,10 +1317,10 @@ def upsert_multi_venue_event(
 
 def seeded_booking_count() -> int:
     """Every booking the seed owns: US2's slot, each in-person event's primary and the multi-venue
-    demo event's venues (US24), US18's Confirmation Demo's booking, US30a's Safety Review Demo's and US29b's
-    Change Request Demo's. Bookings made in the app aren't counted."""
+    demo event's venues (US24), US18's Confirmation Demo's booking, US30a's Safety Review Demo's, US29b's
+    Change Request Demo's and US20 AC 2's Venue Change Demo's. Bookings made in the app aren't counted."""
     primaries = sum(1 for spec in [*EVENTS, EQUIPMENT_EVENT] if spec.venue_slug)
-    return len(VENUE_BOOKINGS) + primaries + len(MULTI_VENUE_EVENT.bookings) + 3
+    return len(VENUE_BOOKINGS) + primaries + len(MULTI_VENUE_EVENT.bookings) + 4
 
 
 def upsert_venue_block(db: Session, spec: VenueBlockSpec, now: datetime) -> VenueBlock:
@@ -1416,6 +1443,7 @@ def seed(db: Session, now: datetime | None = None) -> None:
     clear_unavailability_event(db, seed_id("event", REPLACEMENT_EVENT.slug))
     upsert_confirmation_event(db, CONFIRMATION_EVENT, organiser, coordinator, now)
     upsert_safety_review_event(db, SAFETY_REVIEW_EVENT, organiser, coordinator, now)
+    upsert_venue_change_event(db, VENUE_CHANGE_EVENT, organiser, coordinator, now)
     equipment_event = upsert_equipment_event(db, EQUIPMENT_EVENT, organiser, coordinator, now)
     db.flush()
     upsert_primary_booking(db, EQUIPMENT_EVENT, equipment_event, coordinator, now)

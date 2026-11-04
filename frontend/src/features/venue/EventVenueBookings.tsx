@@ -11,6 +11,7 @@ import {
   holdCountdown,
   preparationLabel,
   primaryErrorMessage,
+  venueChangedText,
 } from "./bookingApi";
 import type { EventVenueBooking, EventVenues, VenueBookingCreated } from "./bookingTypes";
 import { tagLabel } from "./tags";
@@ -326,6 +327,10 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
                     )}
                     {booking.unavailability?.kind === "venue_inactive" && (
                       <span className="venue-booking-row__decision">This venue is no longer available.</span>
+                    )}
+                    {/* US20 AC 2 (SCRUM-147, D119): Venue staff changed the capacity or hours; nothing changed here. */}
+                    {booking.unavailability?.kind === "venue_changed" && (
+                      <span className="venue-booking-row__decision">{venueChangedText(booking.unavailability, booking)}</span>
                     )}
                     {/* US23a (SCRUM-90) AC 3, 4: the venue became unavailable; the coordinator rearranges it. */}
                     {block && !block.ended_early_at && (

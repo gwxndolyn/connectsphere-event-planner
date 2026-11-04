@@ -3,6 +3,7 @@ import { formatEventDate, formatEventTimeRange, formatInstantTime } from "../reg
 import type {
   BookingEvaluation,
   BookingFormValues,
+  BookingUnavailability,
   EventVenues,
   NextAction,
   PreparationStatus,
@@ -225,6 +226,24 @@ const NEXT_ACTION_LABELS: Record<NextAction, string> = {
   venue_staff_to_restore: "Waiting for Venue staff to restore it",
   none: "Nothing to do",
 };
+
+/**
+ * US20 AC 2 (SCRUM-147, D119): why a booking needs review after Venue staff changed its venue, for the coordinator's
+ * and the Organiser's views. One sentence for the capacity and one for the hours; both when both no longer fit.
+ */
+export function venueChangedText(unavailability: BookingUnavailability, booking: { expected_attendees: number }): string {
+  const parts: string[] = [];
+  if (unavailability.capacity != null) {
+    parts.push(`Needs review: the venue's capacity is now ${unavailability.capacity}, below this booking's ${booking.expected_attendees}.`);
+  }
+  if (unavailability.opens_at && unavailability.closes_at) {
+    const hours = `${unavailability.opens_at.slice(0, 5)}–${unavailability.closes_at.slice(0, 5)}`;
+    parts.push(
+      `Needs review: the venue's hours changed to ${hours}, so this booking's setup or turnaround falls outside them.`,
+    );
+  }
+  return parts.join(" ");
+}
 
 /** US24 AC 4 (D71): who acts next on a booking, in words. */
 export function nextActionLabel(action: NextAction): string {

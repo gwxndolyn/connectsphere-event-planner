@@ -152,8 +152,9 @@ def update_venue(
     _: VenueStaff,
     db: Session = Depends(get_db),
     now: datetime = Depends(get_now),
+    notifier: Notifier = Depends(get_notifier),
 ) -> VenueOut:
-    return venue_service.update(db, venue_id, body, now)
+    return venue_service.update(db, venue_id, body, now, notifier)
 
 
 @router.post("/{venue_id}/deactivate", response_model=VenueOut)

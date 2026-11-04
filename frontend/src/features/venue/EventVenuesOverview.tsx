@@ -1,15 +1,24 @@
 import { useEffect, useId, useState } from "react";
 import type { EventRequest } from "../eventRequest/types";
 import { formatBlockPeriod } from "./blockApi";
-import { bookingApi, bookingStatusLabel, formatBookingWindow, nextActionLabel, preparationLabel } from "./bookingApi";
-import type { BookingUnavailability, EventVenues } from "./bookingTypes";
+import {
+  bookingApi,
+  bookingStatusLabel,
+  formatBookingWindow,
+  nextActionLabel,
+  preparationLabel,
+  venueChangedText,
+} from "./bookingApi";
+import type { BookingUnavailability, EventVenueBooking, EventVenues } from "./bookingTypes";
 import { VenueArrangements } from "./VenueArrangements";
 import "../eventRequest/eventRequests.css";
 import "./venues.css";
 
 /** Why a venue needs replacing, as the Organiser reads it (D71). */
-function unavailabilityText(unavailability: BookingUnavailability): string {
+function unavailabilityText(unavailability: BookingUnavailability, booking: EventVenueBooking): string {
   if (unavailability.kind === "venue_inactive") return "This venue is no longer available.";
+  // US20 AC 2 (SCRUM-147, D119): Venue staff changed the venue's capacity or hours.
+  if (unavailability.kind === "venue_changed") return `${venueChangedText(unavailability, booking)} The coordinator will review it.`;
   // US23a (SCRUM-90) AC 4: the Organiser reads why and that the coordinator is rearranging it.
   if (unavailability.kind === "venue_unavailable") {
     const period = unavailability.block ? ` from ${formatBlockPeriod(unavailability.block)}` : "";
@@ -82,7 +91,7 @@ export function EventVenuesOverview({ event }: EventVenuesOverviewProps) {
                     <span>{window}</span>
                     {booking.status === "approved" && <span>Preparation: {preparationLabel(booking.preparation_status)}</span>}
                     {booking.unavailability && (
-                      <span className="venue-booking-row__decision">{unavailabilityText(booking.unavailability)}</span>
+                      <span className="venue-booking-row__decision">{unavailabilityText(booking.unavailability, booking)}</span>
                     )}
                     <span>Next: {nextActionLabel(booking.next_action)}</span>
                   </div>

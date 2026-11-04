@@ -22,6 +22,7 @@ from app.venue.availability import (
     block_conflicts,
     evaluate_booking,
     evaluate_window,
+    venue_change,
 )
 from app.venue.hold_service import HOLD_MAX_LENGTH, HOLD_WARNING, expire_lapsed_holds, notice_for, send
 from app.venue.models import (
@@ -310,7 +311,7 @@ def _needs_rearrangement(booking: VenueBooking) -> bool:
     return booking.rearrangement_block_id is not None and booking.status in BLOCKING_STATUSES
 
 
-def _unavailability(booking: VenueBooking, venue: Venue) -> BookingUnavailabilityOut | None:
+def _unavailability(booking: VenueBooking, venue: Venue, now: datetime) -> BookingUnavailabilityOut | None:
     """US24 AC 4 (D71): why this venue needs replacing, if it does."""
     if booking.status == VenueBookingStatus.REJECTED:
         return BookingUnavailabilityOut(
@@ -324,11 +325,21 @@ def _unavailability(booking: VenueBooking, venue: Venue) -> BookingUnavailabilit
         )
     if booking.status in LIVE_BOOKING_STATUSES and not venue.is_active:
         return BookingUnavailabilityOut(kind="venue_inactive")
+    # US20 AC 2 (SCRUM-147, D119): Venue staff changed the capacity or hours and it no longer fits ("Needs review").
+    change = venue_change(venue, booking, now)
+    if change is not None:
+        return BookingUnavailabilityOut(
+            kind="venue_changed",
+            detail="capacity" if change.capacity is not None else "hours",
+            capacity=change.capacity,
+            opens_at=change.hours.opens_at if change.hours else None,
+            closes_at=change.hours.closes_at if change.hours else None,
+        )
     return None
 
 
 def _next_action(
-    booking: VenueBooking, venue: Venue
+    booking: VenueBooking, venue: Venue, now: datetime
 ) -> Literal["venue_staff_to_decide", "coordinator_to_rebook", "coordinator_to_confirm", "venue_staff_to_restore", "none"]:
     """US24 AC 4 (D71): who acts next on this booking. US25: a hold waits for the coordinator (AC 5). US23a: one the
     venue's unavailability overlaps, hold or not, is the coordinator's to rearrange (AC 4)."""
@@ -339,36 +350,44 @@ def _next_action(
         return "coordinator_to_rebook"
     if booking.status == VenueBookingStatus.HELD:
         return "coordinator_to_confirm"
-    # DECISION-PENDING: D71 — an inactive venue can't be approved (D39) or used, so it's rebooked.
-    if _unavailability(booking, venue) is not None:
+    # DECISION-PENDING: D71 — an inactive venue can't be approved (D39) or used, so it's rebooked. US20 AC 2 (D119): so
+    # is one whose capacity or hours no longer fit.
+    if _unavailability(booking, venue, now) is not None:
         return "coordinator_to_rebook"
     if booking.status == VenueBookingStatus.REQUESTED:
         return "venue_staff_to_decide"
     return "none"
 
 
-def _arranged(event: Event, live: list[VenueBooking]) -> bool:
-    """US24 AC 7: every required venue approved."""
+def _arranged(event: Event, live: list[tuple[VenueBooking, Venue]], now: datetime) -> bool:
+    """US24 AC 7: every required venue approved. `live` pairs each live booking with its venue."""
     # DECISION-PENDING: D72 — an online event needs none; otherwise every live booking is Approved,
     # exactly one is primary, and (D67, CS3-24) together they hold the expected attendance.
     if event.delivery_mode == DeliveryMode.ONLINE:
         return True
-    if not live or any(booking.status != VenueBookingStatus.APPROVED for booking in live):
+    if not live or any(booking.status != VenueBookingStatus.APPROVED for booking, _ in live):
         return False
     # US23a (SCRUM-90): an approved venue that has since become unavailable is not arranged (D113).
-    if any(_needs_rearrangement(booking) for booking in live):
+    if any(_needs_rearrangement(booking) for booking, _ in live):
         return False
-    if sum(booking.is_primary for booking in live) != 1:
+    # US20 AC 2 (SCRUM-147, D119): nor one whose venue's capacity or hours no longer fit it, by the rule the booking's
+    # `venue_changed` reads.
+    if any(venue_change(venue, booking, now) is not None for booking, venue in live):
         return False
-    return event.expected_attendees is None or sum(b.expected_attendees for b in live) >= event.expected_attendees
+    if sum(booking.is_primary for booking, _ in live) != 1:
+        return False
+    return event.expected_attendees is None or sum(b.expected_attendees for b, _ in live) >= event.expected_attendees
 
 
-def venues_arranged(db: Session, event: Event) -> bool:
-    """US24 AC 7, for US18 (SCRUM-85) to confirm an event by: whether its venues are arranged (D72)."""
-    live = db.scalars(
-        select(VenueBooking).where(VenueBooking.event_id == event.id, VenueBooking.status.in_(LIVE_BOOKING_STATUSES))
+def venues_arranged(db: Session, event: Event, now: datetime) -> bool:
+    """US24 AC 7, for US18 (SCRUM-85) to confirm an event by: whether its venues are arranged (D72). Each live booking
+    with its venue, in one query."""
+    live = db.execute(
+        select(VenueBooking, Venue)
+        .join(Venue, Venue.id == VenueBooking.venue_id)
+        .where(VenueBooking.event_id == event.id, VenueBooking.status.in_(LIVE_BOOKING_STATUSES))
     ).all()
-    return _arranged(event, list(live))
+    return _arranged(event, [(booking, venue) for booking, venue in live], now)
 
 
 def _warnings(booking: VenueBooking, venue: Venue) -> list[BookingWarning]:
@@ -394,7 +413,7 @@ def _warnings(booking: VenueBooking, venue: Venue) -> list[BookingWarning]:
 
 
 def _out(
-    booking: VenueBooking, event: Event, venue: Venue, replacement_id: uuid.UUID | None = None
+    booking: VenueBooking, event: Event, venue: Venue, now: datetime, replacement_id: uuid.UUID | None = None
 ) -> VenueBookingOut:
     return VenueBookingOut(
         id=booking.id,
@@ -422,8 +441,8 @@ def _out(
         purpose=booking.purpose,
         is_primary=booking.is_primary,
         preparation_status=booking.preparation_status,
-        unavailability=_unavailability(booking, venue),
-        next_action=_next_action(booking, venue),
+        unavailability=_unavailability(booking, venue, now),
+        next_action=_next_action(booking, venue, now),
         hold_expires_at=booking.hold_expires_at,
         held_by_user_id=booking.held_by_user_id,
         expired_at=booking.expired_at,
@@ -500,7 +519,7 @@ class VenueBookingService:
         expire_lapsed_holds(db, now, notifier)
         booking, event, venue = self._insert_with_retry(db, coordinator, body, now)
         result = VenueBookingCreatedOut(
-            **_out(booking, event, venue).model_dump(), warnings=_warnings(booking, venue)
+            **_out(booking, event, venue, now).model_dump(), warnings=_warnings(booking, venue)
         )
         self._notify_staff(db, notifier, booking, event, venue)
         return result
@@ -522,7 +541,7 @@ class VenueBookingService:
         booking_body = VenueBookingWrite(**body.model_dump(exclude={"hold_expires_at"}))
         booking, event, venue = self._insert_with_retry(db, staff, booking_body, now, hold_expires_at=expiry)
         result = VenueBookingCreatedOut(
-            **_out(booking, event, venue).model_dump(), warnings=_warnings(booking, venue)
+            **_out(booking, event, venue, now).model_dump(), warnings=_warnings(booking, venue)
         )
         send(notifier, notice_for(db, booking, "placed"))
         # DECISION-PENDING: D109 — a hold placed with less than 24 hours left warns at once (AC 4). _insert marked
@@ -664,7 +683,7 @@ class VenueBookingService:
         db.commit()
         db.refresh(booking)
         venue = db.get(Venue, booking.venue_id)
-        result = _out(booking, event, venue)
+        result = _out(booking, event, venue, now)
         if was_approved:
             self._notify_staff_withdrawn(db, notifier, booking, event, venue)
         return result
@@ -717,7 +736,7 @@ class VenueBookingService:
         db.commit()
         db.refresh(booking)
         venue = db.get(Venue, booking.venue_id)
-        result = _out(booking, event, venue)
+        result = _out(booking, event, venue, now)
         self._notify_staff(db, notifier, booking, event, venue)
         return result
 
@@ -768,7 +787,7 @@ class VenueBookingService:
             booking.updated_at = now
             db.commit()
             db.refresh(booking)
-        return _out(booking, event, db.get(Venue, booking.venue_id))
+        return _out(booking, event, db.get(Venue, booking.venue_id), now)
 
     def set_preparation(
         self, db: Session, staff: User, booking_id: uuid.UUID, body: BookingPreparationWrite, now: datetime
@@ -793,7 +812,7 @@ class VenueBookingService:
         booking.updated_at = now
         db.commit()
         db.refresh(booking)
-        return _out(booking, db.get(Event, booking.event_id), db.get(Venue, booking.venue_id))
+        return _out(booking, db.get(Event, booking.event_id), db.get(Venue, booking.venue_id), now)
 
     def approve(
         self, db: Session, staff: User, booking_id: uuid.UUID, now: datetime, notifier: Notifier
@@ -972,7 +991,7 @@ class VenueBookingService:
         booking.updated_at = now
         db.commit()
         db.refresh(booking)
-        result = _out(booking, event, venue)
+        result = _out(booking, event, venue, now)
         self._notify_coordinators(db, notifier, booking, event, venue, status.value)
         return result
 
@@ -1017,7 +1036,7 @@ class VenueBookingService:
             .where(VenueBooking.status == VenueBookingStatus.REQUESTED)
             .order_by(VenueBooking.created_at, VenueBooking.id)
         )
-        return [_out(booking, event, venue) for booking, event, venue in rows]
+        return [_out(booking, event, venue, now) for booking, event, venue in rows]
 
     def evaluation(self, db: Session, booking_id: uuid.UUID) -> BookingEvaluationOut:
         """US13 AC 4 for Venue Staff (D36): what stands in the way of this booking now, each conflict
@@ -1052,12 +1071,13 @@ class VenueBookingService:
             .where(VenueBooking.event_id == event_id)
             .order_by(VenueBooking.starts_at, VenueBooking.created_at, VenueBooking.id)
         ).all()
-        live = [booking for booking, _ in rows if booking.status in LIVE_BOOKING_STATUSES]
+        live_pairs = [(booking, venue) for booking, venue in rows if booking.status in LIVE_BOOKING_STATUSES]
+        live = [booking for booking, _ in live_pairs]
         primary = next((booking for booking in live if booking.is_primary), None)
         replacements = _replacements(db, [booking.id for booking, _ in rows if _needs_rearrangement(booking)])
         return EventVenueBookingsOut(
-            bookings=[_out(booking, event, venue, replacements.get(booking.id)) for booking, venue in rows],
-            venues_arranged=_arranged(event, live),
+            bookings=[_out(booking, event, venue, now, replacements.get(booking.id)) for booking, venue in rows],
+            venues_arranged=_arranged(event, live_pairs, now),
             primary_booking_id=primary.id if primary else None,
             allocated_attendees=sum(booking.expected_attendees for booking in live),
             expected_attendees=event.expected_attendees,
@@ -1089,7 +1109,7 @@ class VenueBookingService:
         db.commit()
         db.refresh(booking)
         venue = db.get(Venue, booking.venue_id)
-        result = _out(booking, event, venue)
+        result = _out(booking, event, venue, now)
         try:
             staff = db.scalars(
                 select(User)
@@ -1120,7 +1140,7 @@ class VenueBookingService:
             .where(VenueBooking.restore_requested_at.is_not(None), VenueBooking.status.in_(BLOCKING_STATUSES))
             .order_by(VenueBooking.restore_requested_at, VenueBooking.id)
         )
-        return [_out(booking, event, venue) for booking, event, venue in rows]
+        return [_out(booking, event, venue, now) for booking, event, venue in rows]
 
     def confirm_restore(
         self, db: Session, staff: User, booking_id: uuid.UUID, now: datetime, notifier: Notifier
@@ -1198,7 +1218,7 @@ class VenueBookingService:
         booking.updated_at = now
         db.commit()
         db.refresh(booking)
-        result = _out(booking, event, venue)
+        result = _out(booking, event, venue, now)
         # The coordinator who asked, and the event's coordinator if that's someone else now, once each.
         try:
             recipients = db.scalars(
