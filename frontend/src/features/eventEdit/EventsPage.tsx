@@ -10,6 +10,7 @@ import {
   statusLabel,
   toEditBody,
 } from "./eventEditApi";
+import { TransferRequest } from "../eventRequest/TransferRequest";
 import type { AuditEntry, CoordinatedEvent, EventDetails, EventFormValues } from "./types";
 import "../eventRequest/eventRequests.css";
 import "../venue/venues.css";
@@ -183,6 +184,8 @@ function EventPanel({ eventId, onBack }: { eventId: string; onBack: () => void }
           ) : (
             <EventSummary event={event} />
           )}
+          {/* US10e AC 6 (SCRUM-146): only the event's assigned coordinator reads it here (D48), so no further check. */}
+          {tab === "details" && !editing && <TransferRequest key={`transfer-${event.id}`} eventId={event.id} status={event.status} />}
         </>
       )}
     </main>

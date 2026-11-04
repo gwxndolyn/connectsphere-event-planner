@@ -2556,6 +2556,24 @@ const handlers = [
     return HttpResponse.json(found);
   }),
 
+  // SCRUM-83 AC 6 (screen: SCRUM-146): the event's coordinator asks the Leads to move it. Nothing moves here
+  // either; the Events screen's events (US12) count as the caller's, as GET /events/{id} does.
+  route("post", "/api/v1/event-requests/:id/transfer-request", ({ request, params, body }) => {
+    const role = userRole(request);
+    if (!role) return error(401, "UNAUTHENTICATED");
+    if (role !== "coordinator") return error(403, "FORBIDDEN");
+    const userId = request.headers.get("X-User-Id")!;
+    const found =
+      db.requests.find((r) => r.id === params.id && r.status !== "draft" && assignedTo(r, userId)) ??
+      db.coordinatedEvents.find((e) => e.id === params.id);
+    if (!found) return error(404, "NOT_FOUND");
+    const active = ["under_review", "awaiting_clarification", "approved", "planning", "confirmed", "preparation"];
+    if (!active.includes(found.status)) return error(409, "REASSIGNMENT_NOT_ALLOWED", { status: found.status });
+    const reason = (body as { reason?: string } | null)?.reason;
+    if (!reason?.trim()) return error(422, "MISSING_REQUIRED_FIELD", { fields: ["reason"] });
+    return HttpResponse.json({ status: "requested" }, { status: 202 });
+  }),
+
   route("post", "/api/v1/event-requests/:id/assignment", ({ request, params, body }) => {
     const role = userRole(request);
     if (!role) return error(401, "UNAUTHENTICATED");
