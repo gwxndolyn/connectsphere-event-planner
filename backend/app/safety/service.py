@@ -47,7 +47,7 @@ class SafetyService:
 
     # --- the Safety Officer ---
 
-    def queue(self, db: Session) -> SafetyQueueOut:
+    def queue(self, db: Session, now: datetime) -> SafetyQueueOut:
         """AC 1: events whose venue bookings are approved and equipment lines reserved, with no safety
         decision yet (or one sent back after a rejection). Oldest submission first."""
         events = db.scalars(
@@ -60,7 +60,7 @@ class SafetyService:
             latest = latest_review(db, event.id)
             if safety_state(event, latest) != "pending":
                 continue
-            ready, approved = self._arrangements(db, event, lock=False)
+            ready, approved = self._arrangements(db, event, now, lock=False)
             if not ready:
                 continue
             # US29b (SCRUM-142) D106: back in the queue once a significant change's flags are reviewed.
@@ -80,13 +80,13 @@ class SafetyService:
             )
         return SafetyQueueOut(events=rows)
 
-    def detail(self, db: Session, event_id: uuid.UUID) -> SafetyReviewDetailOut:
+    def detail(self, db: Session, event_id: uuid.UUID, now: datetime) -> SafetyReviewDetailOut:
         event = db.get(Event, event_id)
         if event is None or event.status not in READABLE_STATUSES:
             raise DomainError(404, "NOT_FOUND")
         latest = latest_review(db, event.id)
         state = safety_state(event, latest)
-        ready, approved = self._arrangements(db, event, lock=False)
+        ready, approved = self._arrangements(db, event, now, lock=False)
         # AC 9: an event is only opened because it is in the queue or has been reviewed already.
         if latest is None and not (state == "pending" and ready and event.status in REVIEWABLE_STATUSES):
             raise DomainError(404, "NOT_FOUND")
@@ -149,7 +149,7 @@ class SafetyService:
             raise DomainError(404, "NOT_FOUND")
         # D51: no one reviews an event they created or coordinate, whatever roles they hold.
         refuse_self_decision(officer, created_by_user_id=event.created_by_user_id, event=event)
-        self._check_reviewable(db, event)
+        self._check_reviewable(db, event, now)
         outcome, checklist, comments, notes, issues, areas = self._validated(body)
 
         review = SafetyReview(
@@ -217,15 +217,15 @@ class SafetyService:
     # --- rules ---
 
     def _arrangements(
-        self, db: Session, event: Event, *, lock: bool
+        self, db: Session, event: Event, now: datetime, *, lock: bool
     ) -> tuple[bool, list[tuple[VenueBooking, Venue]]]:
         """AC 1: the venues arranged (US24's rule, D72) and the requested equipment approved and reserved.
         Technical support is the coordinator's to arrange for confirming, and the safety item is the thing
         being decided, so neither is part of this."""
-        readiness, approved = confirmation_service._readiness(db, event, lock=lock)
+        readiness, approved = confirmation_service._readiness(db, event, now, lock=lock)
         return all(item.complete for item in readiness.items if item.kind in ("venue", "equipment")), approved
 
-    def _check_reviewable(self, db: Session, event: Event) -> None:
+    def _check_reviewable(self, db: Session, event: Event, now: datetime) -> None:
         if event.status not in REVIEWABLE_STATUSES:
             raise DomainError(409, "SAFETY_REVIEW_NOT_ALLOWED", reason="status", status=event.status.value)
         latest = latest_review(db, event.id)
@@ -235,7 +235,7 @@ class SafetyService:
         if state in AWAITING_REVISION:
             # Waiting for the coordinator to revise it and send it back (US30a AC 4, US30b AC 4).
             raise DomainError(409, "SAFETY_REVIEW_NOT_ALLOWED", reason="awaiting_revision", status=event.status.value)
-        ready, _ = self._arrangements(db, event, lock=True)
+        ready, _ = self._arrangements(db, event, now, lock=True)
         if not ready:
             raise DomainError(
                 409, "SAFETY_REVIEW_NOT_ALLOWED", reason="arrangements_incomplete", status=event.status.value

@@ -611,7 +611,7 @@ async def test_tc_us18_42_an_unassigned_staff_member_no_longer_counts(
     assert (await confirm(client, casey, ready)).status_code == 409
 
 
-@pytest.mark.parametrize("scenario", ["approved", "requested", "none", "no_primary", "short", "online"])
+@pytest.mark.parametrize("scenario", ["approved", "requested", "none", "no_primary", "short", "online", "venue_changed"])
 async def test_tc_us18_43_the_venue_items_agree_with_venues_arranged(
     client: AsyncClient, db: Session, event: Event, casey: User, venue_staff: User, scenario: str
 ) -> None:
@@ -625,8 +625,47 @@ async def test_tc_us18_43_the_venue_items_agree_with_venues_arranged(
             booking.is_primary = False
         if scenario == "short":
             event.expected_attendees = 99
+        if scenario == "venue_changed":
+            # US20 AC 2 (SCRUM-147, D119): the venue's capacity dropped below the booking's attendance.
+            db.get(Venue, booking.venue_id).capacity = booking.expected_attendees - 1
     db.flush()
 
     items = (await readiness(client, casey, event)).json()["items"]
 
-    assert all(i["complete"] for i in items if i["kind"] == "venue") == venues_arranged(db, event)
+    assert all(i["complete"] for i in items if i["kind"] == "venue") == venues_arranged(db, event, NOW)
+
+
+# --- US20 AC 2 (SCRUM-147, D119): a venue edit the booking no longer fits ---
+
+
+async def test_tc_us20_30_a_capacity_drop_leaves_the_venues_not_arranged_until_it_is_restored(
+    client: AsyncClient, db: Session, ready: Event, casey: User, venue: Venue, venue_staff: User
+) -> None:
+    [booking] = db.scalars(select(VenueBooking).where(VenueBooking.event_id == ready.id)).all()
+    bookings_url = f"/api/v1/events/{ready.id}/venue-bookings"
+
+    response = await client.patch(f"/api/v1/venues/{venue.id}", headers=auth(venue_staff), json={"capacity": 30})
+    assert response.status_code == 200
+
+    assert (await client.get(bookings_url, headers=auth(casey))).json()["venues_arranged"] is False
+    assert venues_arranged(db, ready, NOW) is False
+    [item] = [i for i in (await readiness(client, casey, ready)).json()["items"] if i["kind"] == "venue"]
+    assert item == {
+        "kind": "venue",
+        "name": f"SCIS Seminar Room 2-1, {booking.purpose}",
+        "complete": False,
+        "detail": f"Booking {booking.reference} needs review: capacity is now 30, below the 35 expected.",
+    }
+    refused = await confirm(client, casey, ready)
+    assert refused.status_code == 409
+    assert refused.json()["code"] == "EVENT_NOT_READY"
+    assert [i["kind"] for i in refused.json()["outstanding"]] == ["venue"]
+    db.refresh(ready)
+    assert ready.status == EventStatus.APPROVED
+
+    restored = await client.patch(f"/api/v1/venues/{venue.id}", headers=auth(venue_staff), json={"capacity": 40})
+    assert restored.status_code == 200
+
+    assert (await client.get(bookings_url, headers=auth(casey))).json()["venues_arranged"] is True
+    assert venues_arranged(db, ready, NOW) is True
+    assert (await confirm(client, casey, ready)).status_code == 200

@@ -3,6 +3,7 @@ import { formatEventDate, formatEventTimeRange, formatInstantTime } from "../reg
 import type {
   BookingEvaluation,
   BookingFormValues,
+  BookingUnavailability,
   EventVenues,
   NextAction,
   PreparationStatus,
@@ -226,6 +227,24 @@ const NEXT_ACTION_LABELS: Record<NextAction, string> = {
   none: "Nothing to do",
 };
 
+/**
+ * US20 AC 2 (SCRUM-147, D119): why a booking needs review after Venue staff changed its venue, for the coordinator's
+ * and the Organiser's views. One sentence for the capacity and one for the hours; both when both no longer fit.
+ */
+export function venueChangedText(unavailability: BookingUnavailability, booking: { expected_attendees: number }): string {
+  const parts: string[] = [];
+  if (unavailability.capacity != null) {
+    parts.push(`Needs review: the venue's capacity is now ${unavailability.capacity}, below this booking's ${booking.expected_attendees}.`);
+  }
+  if (unavailability.opens_at && unavailability.closes_at) {
+    const hours = `${unavailability.opens_at.slice(0, 5)}–${unavailability.closes_at.slice(0, 5)}`;
+    parts.push(
+      `Needs review: the venue's hours changed to ${hours}, so this booking's setup or turnaround falls outside them.`,
+    );
+  }
+  return parts.join(" ");
+}
+
 /** US24 AC 4 (D71): who acts next on a booking, in words. */
 export function nextActionLabel(action: NextAction): string {
   return NEXT_ACTION_LABELS[action] ?? action;
@@ -250,6 +269,9 @@ export function venuesMissing(venues: EventVenues, audience: "coordinator" | "or
   // US23a (SCRUM-90): a venue that became unavailable for part of its booking.
   const affected = live.filter((b) => b.unavailability?.kind === "venue_unavailable").length;
   if (affected > 0) missing.push(`${affected} needing rearrangement: the venue became unavailable`);
+  // US20 AC 2 (SCRUM-147, D119): a venue whose capacity or hours no longer fit the booking.
+  const changed = live.filter((b) => b.unavailability?.kind === "venue_changed").length;
+  if (changed > 0) missing.push(`${changed} needing review: the venue changed`);
   if (venues.next_action === "choose_primary") {
     missing.push(
       audience === "coordinator"

@@ -91,6 +91,7 @@ CALLS = [
     ("venue_restore_decided", lambda c: dict(booking_id=c.booking.id, booking_reference="VB-2026-000009", event_name="Alumni night", venue_name="SCIS Room", decision="declined", reason="Still testing"), "declined to restore VB-2026-000009 at SCIS Room; it still needs rearrangement. Reason: Still testing", "booking"),
     ("venue_changed", lambda c: dict(event_id=c.event.id, event_name="Alumni night", venue_name="Hall B", starts_at=STARTS, ends_at=ENDS), "it is now at Hall B, Fri 13 Nov 2026, 14:00 SGT", "id"),
     ("venue_period_ended", lambda c: dict(booking_id=c.booking.id, booking_reference="VB-2026-000009", event_name="Alumni night", venue_name="SCIS Room", ended_at=STARTS), "SCIS Room is available again: the period that affected VB-2026-000009 ended early", "booking"),
+    ("venue_booking_needs_review", lambda c: dict(event_id=c.event.id, event_name="Alumni night", venue_name="SCIS Room", reference="VB-2026-000009", starts_at=STARTS, ends_at=ENDS, reason="capacity is now 20, below the 30 expected"), "SCIS Room changed, so VB-2026-000009 (Fri 13 Nov 2026, 14:00 SGT to Fri 13 Nov 2026, 16:00 SGT) needs review: capacity is now 20, below the 30 expected.", "id"),
 ]
 
 

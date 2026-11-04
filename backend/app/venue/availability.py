@@ -184,3 +184,41 @@ def evaluate_booking(db: Session, booking: VenueBooking) -> Evaluation:
     venue = db.get(Venue, booking.venue_id)
     occupied = Window(booking.occupied_starts_at, booking.occupied_ends_at)
     return _evaluate(db, venue, booking.starts_at, occupied, booking.id)
+
+
+@dataclass(frozen=True)
+class VenueChange:
+    """US20 AC 2 (SCRUM-147): what about the venue as it is now no longer fits a booking. `capacity` is set when the
+    booking expects more than the venue holds, `hours` when its stored occupied window falls outside them."""
+
+    capacity: int | None
+    hours: HoursBreach | None
+
+
+def venue_change(venue: Venue, booking: VenueBooking, now: datetime) -> VenueChange | None:
+    """US20 AC 2 (SCRUM-147): whether a capacity or hours edit left this booking needing review. Only a live booking
+    or hold that hasn't ended, judged on the read against the venue's current capacity and hours, so nothing is
+    stored and an edit back clears it (D119). `venue` may be any object with the venue's columns."""
+    # DECISION-PENDING: D119 — flagged on read from the venue's current values, with no new columns.
+    if booking.status not in BLOCKING_STATUSES or booking.ends_at <= now:
+        return None
+    capacity = venue.capacity if booking.expected_attendees > venue.capacity else None
+    hours = hours_breach(venue, booking.starts_at, Window(booking.occupied_starts_at, booking.occupied_ends_at))
+    return VenueChange(capacity, hours) if capacity is not None or hours is not None else None
+
+
+def review_reason(booking: VenueBooking, change: VenueChange) -> str:
+    """US20 AC 2: what no longer fits, as the notice and US18's readiness say it: "capacity is now 30, below the 40
+    expected", "the venue now closes at 18:00", or both."""
+    parts = []
+    if change.capacity is not None:
+        parts.append(f"capacity is now {change.capacity}, below the {booking.expected_attendees} expected")
+    if change.hours is not None:
+        opens, closes = change.hours.opens_at.strftime("%H:%M"), change.hours.closes_at.strftime("%H:%M")
+        if change.hours.fields == ["starts_at"]:
+            parts.append(f"the venue now opens at {opens}")
+        elif change.hours.fields == ["ends_at"]:
+            parts.append(f"the venue now closes at {closes}")
+        else:
+            parts.append(f"the venue's hours are now {opens}–{closes}")
+    return " and ".join(parts)

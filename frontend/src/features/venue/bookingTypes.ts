@@ -93,15 +93,21 @@ export interface BlockSummary {
 }
 
 /**
- * Why a venue needs replacing: Venue staff rejected it, the venue has been deactivated, or (US23a) the venue is
- * unavailable for part of the booking's window ("Needs rearrangement", with the period in `block`).
+ * Why a venue needs replacing: Venue staff rejected it, the venue has been deactivated, (US23a) the venue is
+ * unavailable for part of the booking's window ("Needs rearrangement", with the period in `block`), or (US20 AC 2,
+ * D119) Venue staff changed its capacity or hours and the booking no longer fits ("Needs review": `detail` says which,
+ * capacity first if both, with the venue's `capacity`, or its `opens_at` and `closes_at`).
  */
 export interface BookingUnavailability {
-  kind: "rejected" | "venue_inactive" | "venue_unavailable";
+  kind: "rejected" | "venue_inactive" | "venue_unavailable" | "venue_changed";
   reason: string | null;
   alternative_suggestion: string | null;
   block?: BlockSummary | null;
   flagged_at?: string | null;
+  detail?: "capacity" | "hours" | null;
+  capacity?: number | null;
+  opens_at?: string | null;
+  closes_at?: string | null;
 }
 
 /** A booking as GET /events/{id}/venue-bookings gives it (US24, SCRUM-128). */
