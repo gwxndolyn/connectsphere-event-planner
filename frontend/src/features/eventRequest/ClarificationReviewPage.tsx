@@ -10,6 +10,7 @@ import { EventCancellation } from "../cancellation/EventCancellation";
 import { EventConfirmation } from "./EventConfirmation";
 import { DecisionOutcome, RequestDecisionPanel } from "./RequestDecision";
 import { SafetyOutcome } from "./SafetyOutcome";
+import { TransferRequest } from "./TransferRequest";
 import { SECTIONS, displayValue, sectionLabel, statusLabel } from "./clarificationSections";
 import type {
   Clarification,
@@ -336,6 +337,12 @@ export function ClarificationReviewPage({ userId, actingAs = "coordinator", open
             onChanged={(status) => recordDecision({ ...activeRequest, status })}
           />
         )}
+
+      {/* US10e AC 6 (SCRUM-146): the assigned coordinator asks the Leads to move the event; it renders nothing
+          outside the statuses a Lead can reassign in. */}
+      {screen === "review" && activeRequest && activeRequest.coordinator?.id === userId && (
+        <TransferRequest key={`transfer-${activeRequest.id}`} eventId={activeRequest.id} status={activeRequest.status} />
+      )}
 
       {screen === "sent" && sent && activeRequest && (
         <section className="request-confirmation" aria-labelledby="clarification-sent-title">
