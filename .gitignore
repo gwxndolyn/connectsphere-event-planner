@@ -33,3 +33,5 @@ e2e/.cache/
 
 # Vitest report output
 frontend/.vitest/
+frontend/coverage/
+coverage.xml

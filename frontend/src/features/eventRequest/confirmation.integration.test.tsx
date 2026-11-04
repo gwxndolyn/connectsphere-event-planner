@@ -153,6 +153,33 @@ describe("coordinator confirms an event (US18)", () => {
     expect(callsTo("POST", `/api/v1/event-requests/${request.id}/preparation`)).toHaveLength(1);
   });
 
+  it("marks an ended event in Preparation as completed (TC-US18-47)", async () => {
+    const request = seedReadyEvent({
+      status: "preparation",
+      start_at: "2026-01-01T01:00:00Z",
+      end_at: "2026-01-01T03:00:00Z",
+    });
+    const user = userEvent.setup();
+    await openRequest(user, "Alumni night");
+
+    await user.click(await screen.findByRole("button", { name: "Mark as completed" }));
+
+    expect(await screen.findByRole("heading", { name: "Completed" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Mark as completed" })).not.toBeInTheDocument();
+    expect(callsTo("POST", `/api/v1/event-requests/${request.id}/completion`)).toHaveLength(1);
+  });
+
+  it("explains why an event that hasn't ended can't be completed (TC-US18-48)", async () => {
+    seedReadyEvent({ status: "preparation", start_at: "2099-01-01T01:00:00Z", end_at: "2099-01-01T03:00:00Z" });
+    const user = userEvent.setup();
+    await openRequest(user, "Alumni night");
+
+    await user.click(await screen.findByRole("button", { name: "Mark as completed" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("This event hasn't ended yet");
+    expect(screen.getByRole("heading", { name: "Preparation" })).toBeInTheDocument();
+  });
+
   it("opens a Planning event with the venue panel and the readiness list (D11 widened)", async () => {
     seedReadyEvent({ status: "planning" });
     const user = userEvent.setup();

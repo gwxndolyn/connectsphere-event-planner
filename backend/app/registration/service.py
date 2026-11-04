@@ -53,6 +53,19 @@ def _lock_event(db: Session, event_id: uuid.UUID) -> Event | None:
     return db.scalars(select(Event).where(Event.id == event_id).with_for_update()).one_or_none()
 
 
+
+def _notify_registration(
+    notifier: Notifier, email: str | None, event_id: uuid.UUID, event_name: str | None, change: str
+) -> None:
+    """Registration updates (core feature "Notification System"). After the commit and best effort, like
+    the other notices: a failure is logged and never undoes the registration or withdrawal."""
+    if not email:
+        return
+    try:
+        notifier.registration_changed(email=email, event_id=event_id, event_name=event_name or "", change=change)
+    except Exception:
+        logger.exception("could not notify %s that their registration was %s", email, change)
+
 class RegistrationService:
     def seats_remaining(self, db: Session, event: Event, now: datetime) -> int:
         """Capacity minus occupancy, computed on read (TC-X-02). An unexpired offer holds its seat."""
@@ -412,7 +425,9 @@ class RegistrationService:
             event_name=event.name,
             seats_remaining=self.seats_remaining(db, event, now),
         )
+        notice = (registration.attendee_email, event.id, event.name)
         db.commit()
+        _notify_registration(notifier, *notice, "withdrawn")
         return response
 
     def register(
@@ -494,7 +509,9 @@ class RegistrationService:
                 occurred_at=now,
             )
         )
+        notice = (registration.attendee_email, event.id, event.name)
         db.commit()
+        _notify_registration(notifier, *notice, "registered")
 
         return self._confirmation(db, registration, event)
 

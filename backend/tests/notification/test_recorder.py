@@ -90,6 +90,8 @@ CALLS = [
     ("venue_restore_requested", lambda c: dict(booking_id=c.booking.id, booking_reference="VB-2026-000009", event_name="Alumni night", venue_name="SCIS Room", starts_at=STARTS, ends_at=ENDS), "The coordinator asked to restore VB-2026-000009 at SCIS Room", "booking"),
     ("venue_restore_decided", lambda c: dict(booking_id=c.booking.id, booking_reference="VB-2026-000009", event_name="Alumni night", venue_name="SCIS Room", decision="declined", reason="Still testing"), "declined to restore VB-2026-000009 at SCIS Room; it still needs rearrangement. Reason: Still testing", "booking"),
     ("venue_changed", lambda c: dict(event_id=c.event.id, event_name="Alumni night", venue_name="Hall B", starts_at=STARTS, ends_at=ENDS), "it is now at Hall B, Fri 13 Nov 2026, 14:00 SGT", "id"),
+    # Registration updates (core feature "Notification System").
+    ("registration_changed", lambda c: dict(event_id=c.event.id, event_name="Alumni night", change="registered"), "You are registered for this event.", "id"),
     ("venue_period_ended", lambda c: dict(booking_id=c.booking.id, booking_reference="VB-2026-000009", event_name="Alumni night", venue_name="SCIS Room", ended_at=STARTS), "SCIS Room is available again: the period that affected VB-2026-000009 ended early", "booking"),
 ]
 

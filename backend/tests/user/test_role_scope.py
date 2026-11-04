@@ -262,6 +262,7 @@ ROUTES = [
     ("GET", "/api/v1/event-requests/{request_id}/readiness", {COORDINATOR}),
     ("POST", "/api/v1/event-requests/{request_id}/confirmation", {COORDINATOR}),
     ("POST", "/api/v1/event-requests/{request_id}/preparation", {COORDINATOR}),
+    ("POST", "/api/v1/event-requests/{request_id}/completion", {COORDINATOR}),
     # SCRUM-99 (US30a): the Safety Officer reviews; the Organiser, Coordinator and Lead read the outcome.
     ("GET", "/api/v1/safety-reviews", {SAFETY_OFFICER}),
     ("GET", "/api/v1/safety-reviews/{event_id}", {SAFETY_OFFICER}),

@@ -67,6 +67,7 @@ class ConfirmationService:
             dict.fromkeys(venue.name for booking, venue in sorted(approved, key=lambda pair: not pair[0].is_primary))
         )
         self._fill_final_fields(event, approved, starts_at, ends_at)
+        self._open_registration(event, now)
         event.status = EventStatus.CONFIRMED
         event.confirmed_at = now
         event.confirmed_by_user_id = coordinator.id
@@ -95,6 +96,34 @@ class ConfirmationService:
         result = EventRequestOut.model_validate(event)
         db.commit()
         return result
+
+    def complete(self, db: Session, request_id: uuid.UUID, coordinator: User, now: datetime) -> EventRequestOut:
+        """Core feature "Event Status Management": an event in Preparation is marked Completed by its
+        coordinator once it has ended. Completed is terminal: nothing reopens it."""
+        event = self._assigned(db, request_id, coordinator, lock=True)
+        if event.status != EventStatus.PREPARATION:
+            raise DomainError(409, "COMPLETION_NOT_ALLOWED", status=event.status.value)
+        # DECISION-PENDING: D119 — only after the event's end, so a running event can't be closed early.
+        if event.end_at is None or event.end_at > now:
+            raise DomainError(409, "EVENT_NOT_ENDED", ends_at=event.end_at.isoformat() if event.end_at else None)
+        event.status = EventStatus.COMPLETED
+        db.flush()
+        db.refresh(event, ["coordinator", "decided_by"])
+        result = EventRequestOut.model_validate(event)
+        db.commit()
+        return result
+
+    @staticmethod
+    def _open_registration(event: Event, now: datetime) -> None:
+        """Core feature "Attendee Registration": a request that asked for attendee registration
+        (`registration_required`, US1) opens for registration when it is confirmed, so an event made in the
+        app reaches the attendee board. DECISION-PENDING: D120 — the window opens on confirmation and closes
+        when the event starts; a window or flag the event already holds is kept."""
+        if not event.registration_required or event.registration_enabled:
+            return
+        event.registration_enabled = True
+        event.registration_opens_at = event.registration_opens_at or now
+        event.registration_closes_at = event.registration_closes_at or event.start_at
 
     def _assigned(self, db: Session, request_id: uuid.UUID, coordinator: User, *, lock: bool) -> Event:
         query = select(Event).where(Event.id == request_id)

@@ -325,6 +325,9 @@ export function ClarificationReviewPage({ userId, actingAs = "coordinator", open
       {screen === "review" && activeRequest && canConfirm && (
         <EventConfirmation key={`${activeRequest.id}-${safetyVersion}`} request={activeRequest} onChanged={recordDecision} />
       )}
+      {screen === "review" && activeRequest?.status === "completed" && activeRequest.coordinator?.id === userId && (
+        <EventConfirmation key={`${activeRequest.id}-completed`} request={activeRequest} onChanged={recordDecision} />
+      )}
       {/* US9 (SCRUM-12): the assigned coordinator decides an organiser's cancellation request, or cancels directly. */}
       {screen === "review" &&
         activeRequest &&
