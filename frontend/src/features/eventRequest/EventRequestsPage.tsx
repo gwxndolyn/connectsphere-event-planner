@@ -532,7 +532,7 @@ export function EventRequestsPage({ openId, onOpened }: EventRequestsPageProps =
         </form>
       )}
       {/* US15 (SCRUM-140, D97): a saved draft's agenda, below its details. */}
-      {screen === "form" && activeRequest && <EventAgenda key={activeRequest.id} event={activeRequest} />}
+      {screen === "form" && activeRequest && <EventAgenda key={`agenda-${activeRequest.id}`} event={activeRequest} />}
 
       {screen === "respond" && activeRequest && (
         <form className="request-form" noValidate onSubmit={(event) => void sendResponse(event)}>
@@ -586,7 +586,7 @@ export function EventRequestsPage({ openId, onOpened }: EventRequestsPageProps =
       )}
       {/* US29a (SCRUM-97): an awaiting-clarification request opens here, so its change requests show here too. */}
       {screen === "respond" && activeRequest && <EventChangeRequests event={activeRequest} />}
-      {screen === "respond" && activeRequest && <EventAgenda key={activeRequest.id} event={activeRequest} />}
+      {screen === "respond" && activeRequest && <EventAgenda key={`agenda-${activeRequest.id}`} event={activeRequest} />}
 
       {screen === "responded" && activeRequest && responded && (
         <section className="request-confirmation" aria-labelledby="response-sent-title">
@@ -615,12 +615,12 @@ export function EventRequestsPage({ openId, onOpened }: EventRequestsPageProps =
           <DecisionOutcome request={activeRequest} />
           {VENUES_VISIBLE.includes(activeRequest.status) && <EventVenuesOverview event={activeRequest} />}
           <EventChangeRequests event={activeRequest} />
-          <EventAgenda key={activeRequest.id} event={activeRequest} />
+          <EventAgenda key={`agenda-${activeRequest.id}`} event={activeRequest} />
           <SafetyOutcome request={activeRequest} />
           {/* US9 (SCRUM-12): ask to cancel from approval on, and the cancellation record afterwards. */}
           {CANCELLATION_VISIBLE.includes(activeRequest.status) && (
             <EventCancellation
-              key={activeRequest.id}
+              key={`cancellation-${activeRequest.id}`}
               event={activeRequest}
               role="organiser"
               onChanged={(status) => {

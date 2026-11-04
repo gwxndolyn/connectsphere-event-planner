@@ -289,7 +289,7 @@ export function ClarificationReviewPage({ userId, actingAs = "coordinator", open
 
       {screen === "review" && activeRequest && <DecisionOutcome request={activeRequest} />}
       {screen === "review" && activeRequest && canDecide && (
-        <RequestDecisionPanel key={activeRequest.id} request={activeRequest} onDecided={recordDecision} />
+        <RequestDecisionPanel key={`decision-${activeRequest.id}`} request={activeRequest} onDecided={recordDecision} />
       )}
 
       {/* US22 (SCRUM-113): an approved or planning event can have a venue requested for it (D20). */}
@@ -331,7 +331,7 @@ export function ClarificationReviewPage({ userId, actingAs = "coordinator", open
         activeRequest.coordinator?.id === userId &&
         CANCELLATION_VISIBLE.includes(activeRequest.status) && (
           <EventCancellation
-            key={activeRequest.id}
+            key={`cancellation-${activeRequest.id}`}
             event={activeRequest}
             role="coordinator"
             onChanged={(status) => recordDecision({ ...activeRequest, status })}

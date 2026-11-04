@@ -4,7 +4,7 @@ import { ApiError, DEV_USER_IDS, apiClient, getDevRole, setDevRole, type DevRole
 import { LoginPage } from "./auth/LoginPage";
 import { accountErrorMessage } from "./auth/messages";
 import { SignUpPage } from "./auth/SignUpPage";
-import { rememberRole, startingRole } from "./auth/currentRole";
+import { rememberRole, roleLabel, startingRole } from "./auth/currentRole";
 import { completeProfile, profileFromMetadata, type Profile } from "./auth/signUp";
 import { screensFor } from "./auth/screens";
 import { DEV_AUTH, supabase } from "./auth/supabase";
@@ -269,15 +269,16 @@ function Workspace({ me, role: currentRole, onRoleChange, view, onNavigate, onLo
           />
         ) : role === "coordinator_lead" ? (
           <AssignmentQueuePage key="coordinator_lead" />
-        ) : role === "venue_staff" || role === "tech_support" ? (
+        ) : role === "organiser" ? (
+          <EventRequestsPage key="organiser" openId={openRequestId} onOpened={() => setOpenRequestId(null)} />
+        ) : (
+          // Every other role (Venue staff, Tech support, Safety officer, Attendee) has no Event requests
+          // screen; the organiser's would only get a 403 (SCRUM-145).
           <main className="request-page">
             <p className="request-empty">
-              Event requests aren't part of the {role === "venue_staff" ? "Venue staff" : "Tech support"} role. Switch Acting as
-              to see them.
+              Event requests aren't part of the {roleLabel(role)} role. Switch Acting as to see them.
             </p>
           </main>
-        ) : (
-          <EventRequestsPage key="organiser" openId={openRequestId} onOpened={() => setOpenRequestId(null)} />
         )
       ) : shown === "equipment" ? (
         role === "coordinator" ? (
