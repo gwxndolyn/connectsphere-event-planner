@@ -27,7 +27,7 @@ test("TC-US16B-16: a Lead assigns, the coordinator asks for clarification and th
     (response) => response.url().endsWith("/api/v1/event-requests") && response.request().method() === "GET",
   );
   await page.getByLabel("Acting as").selectOption("coordinator");
-  await expect(page.getByRole("heading", { name: "Requests to review" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Requests to review", exact: true })).toBeVisible();
   await queueLoaded;
   await expect(page.getByRole("button", { name: new RegExp(eventName) })).toHaveCount(0);
 
@@ -41,7 +41,7 @@ test("TC-US16B-16: a Lead assigns, the coordinator asks for clarification and th
 
   // Now the coordinator finds it in the review queue.
   await page.getByLabel("Acting as").selectOption("coordinator");
-  await expect(page.getByRole("heading", { name: "Requests to review" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Requests to review", exact: true })).toBeVisible();
   await page.getByRole("button", { name: new RegExp(eventName) }).click();
   await expect(page.getByRole("heading", { name: "Review request" })).toBeVisible();
   await expect(page.getByText("40", { exact: true })).toBeVisible();

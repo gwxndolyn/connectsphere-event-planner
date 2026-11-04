@@ -78,6 +78,6 @@ test("TC-US10A-26: the Coordinator Lead assigns a submitted request and the orga
 
   // Other roles get no Assign action (AC 6).
   await page.getByLabel("Acting as").selectOption("coordinator");
-  await expect(page.getByRole("heading", { name: "Requests to review" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Requests to review", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: /^Assign/ })).toHaveCount(0);
 });

@@ -85,7 +85,7 @@ test.describe("logged in", () => {
   test("TC-US16A-33: the coordinator lands on the review queue; an attendee on the events board", async ({ page }) => {
     const failed = failedApiCalls(page);
     await logIn(page, COORDINATOR, SEED_PASSWORD!);
-    await expect(page.getByRole("heading", { name: "Requests to review" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Requests to review", exact: true })).toBeVisible();
     await expect(page.getByRole("banner").getByRole("button", { name: "My events" })).toHaveCount(0);
     await page.waitForLoadState("networkidle");
     expect(failed).toEqual([]);
@@ -124,7 +124,7 @@ test.describe("logged in", () => {
 
   test("TC-US16B-23: a two-role user switches from Coordinator to Venue staff, and a refresh keeps it", async ({ page }) => {
     await logIn(page, MULTI_ROLE, SEED_PASSWORD!);
-    await expect(page.getByRole("heading", { name: "Requests to review" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Requests to review", exact: true })).toBeVisible();
 
     await page.getByLabel("Role").selectOption("venue_staff");
 

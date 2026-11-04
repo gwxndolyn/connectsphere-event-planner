@@ -8,14 +8,14 @@ test("Acting as switches between the organiser's requests and the coordinator's 
   await expect(page.getByRole("heading", { name: "My event requests" })).toBeVisible();
 
   await page.getByLabel("Acting as").selectOption("coordinator");
-  await expect(page.getByRole("heading", { name: "Requests to review" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Requests to review", exact: true })).toBeVisible();
   // The queue loaded for a coordinator: no FORBIDDEN or missing-id alert.
   await expect(page.getByRole("alert")).toHaveCount(0);
 
   await page.reload();
   await expect(page.getByLabel("Acting as")).toHaveValue("coordinator");
   await page.getByRole("banner").getByRole("button", { name: "Event requests" }).click();
-  await expect(page.getByRole("heading", { name: "Requests to review" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Requests to review", exact: true })).toBeVisible();
 
   await page.getByLabel("Acting as").selectOption("organiser");
   await expect(page.getByRole("heading", { name: "My event requests" })).toBeVisible();

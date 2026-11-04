@@ -34,7 +34,7 @@ async function openEvent(page: Page) {
   await page.goto("/");
   await page.getByLabel("Acting as").selectOption("coordinator");
   await page.getByRole("banner").getByRole("button", { name: "Event requests" }).click();
-  await expect(page.getByRole("heading", { name: "Requests to review" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Requests to review", exact: true })).toBeVisible();
   await page.getByRole("button", { name: new RegExp(EVENT) }).click();
   await expect(page.getByRole("heading", { name: "Review request" })).toBeVisible();
   return page.getByRole("region", { name: "Venue bookings" });
