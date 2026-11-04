@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { reviewQueueHeading } from "./helpers";
 
 // US16a login, logout and session (SCRUM-105). Runs in the "login" project: a frontend built with
 // VITE_DEV_AUTH unset, so login is required. Test cases: docs/testing/US16a-sign-up-log-in.md.
@@ -85,7 +86,7 @@ test.describe("logged in", () => {
   test("TC-US16A-33: the coordinator lands on the review queue; an attendee on the events board", async ({ page }) => {
     const failed = failedApiCalls(page);
     await logIn(page, COORDINATOR, SEED_PASSWORD!);
-    await expect(page.getByRole("heading", { name: "Requests to review" })).toBeVisible();
+    await expect(reviewQueueHeading(page)).toBeVisible();
     await expect(page.getByRole("banner").getByRole("button", { name: "My events" })).toHaveCount(0);
     await page.waitForLoadState("networkidle");
     expect(failed).toEqual([]);
@@ -124,7 +125,7 @@ test.describe("logged in", () => {
 
   test("TC-US16B-23: a two-role user switches from Coordinator to Venue staff, and a refresh keeps it", async ({ page }) => {
     await logIn(page, MULTI_ROLE, SEED_PASSWORD!);
-    await expect(page.getByRole("heading", { name: "Requests to review" })).toBeVisible();
+    await expect(reviewQueueHeading(page)).toBeVisible();
 
     await page.getByLabel("Role").selectOption("venue_staff");
 

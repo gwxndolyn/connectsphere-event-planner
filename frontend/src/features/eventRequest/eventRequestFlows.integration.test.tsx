@@ -145,6 +145,16 @@ describe("the fake backend follows SCRUM-120's access rules (US16b, TC-US16B-32)
     expect(screen.queryByRole("button", { name: /Unassigned/ })).not.toBeInTheDocument();
   });
 
+  it("tells a Safety officer Event requests aren't theirs, without calling the API (SCRUM-145)", async () => {
+    setDevRole("safety_officer");
+    const user = userEvent.setup();
+    await openEventRequests(user);
+
+    expect(await screen.findByText(/Event requests aren't part of the Safety officer role/)).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(db.calls.filter((call) => /event-requests|change-requests/.test(call.path))).toEqual([]);
+  });
+
   it("refuses Venue staff a request's details and thread (D54)", async () => {
     const request = seedRequest({ status: "under_review", coordinator: { id: COORDINATOR_PERSON.id, name: COORDINATOR_PERSON.name } });
     setDevRole("venue_staff");

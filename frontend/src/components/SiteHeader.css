@@ -108,6 +108,20 @@
   font-size: 13px;
 }
 
+/* Dev mode shows every role's links plus Acting as, wider than a 1280px window (SCRUM-145): let the
+   links wrap onto a second row instead of widening the page. The phone layout below is unchanged. */
+@media (min-width: 641px) {
+  .site-header__bar {
+    flex-wrap: wrap;
+    column-gap: 20px;
+    row-gap: 12px;
+  }
+
+  .site-header__search {
+    min-width: 240px;
+  }
+}
+
 @media (max-width: 640px) {
   .site-header__bar {
     flex-wrap: wrap;

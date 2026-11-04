@@ -1,7 +1,7 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import App from "../../App";
 import { setDevRole } from "../../api/client";
 import { COORDINATOR_ID, callsTo, db, seedRequest, server, startMockBackend } from "../../test/server";
@@ -220,5 +220,23 @@ describe("cancel an event (US9)", () => {
     expect(await cancellation.findByRole("alert")).toHaveTextContent("Check the backend connection");
     expect(cancellation.queryByRole("button", { name: "Cancel event" })).not.toBeInTheDocument();
     expect(cancellation.queryByText("No cancellation requests for this event.")).not.toBeInTheDocument();
+  });
+
+  // SCRUM-145: the Agenda and Cancellation panels are siblings on the organiser's confirmation view, and both
+  // were keyed by the event id, so React warned about a duplicate key.
+  it("shows Agenda and Cancellation on an approved request without a duplicate-key warning", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const user = userEvent.setup();
+      plannedEvent({ status: "approved" });
+      await open(user, "organiser", "Alumni night");
+
+      expect(await screen.findByRole("region", { name: "Agenda" })).toBeInTheDocument();
+      await panel();
+      const messages = errors.mock.calls.map((args) => args.map(String).join(" "));
+      expect(messages.filter((message) => message.includes("same key"))).toEqual([]);
+    } finally {
+      errors.mockRestore();
+    }
   });
 });
