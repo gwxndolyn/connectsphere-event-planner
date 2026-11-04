@@ -15,7 +15,18 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.event.models import DeliveryMode, Event, EventStatus
-from app.seed import EQUIPMENT_EVENT, EVENTS, MULTI_VENUE_EVENT, EventSpec, VENUE_BOOKINGS, VENUES, seed, seed_id, seeded_booking_count
+from app.seed import (
+    EQUIPMENT_EVENT,
+    EVENTS,
+    MULTI_VENUE_EVENT,
+    EventSpec,
+    VENUE_BOOKINGS,
+    VENUES,
+    seed,
+    seed_id,
+    seeded_booking_count,
+    seeded_booking_ids,
+)
 from app.user.models import User, UserRole
 from app.venue.models import LIVE_BOOKING_STATUSES, Venue, VenueBooking, VenueBookingStatus
 from tests.conftest import BACKEND_DIR
@@ -434,6 +445,56 @@ def test_tc_us24_04_the_seed_summary_counts_every_booking_it_seeds(db: Session) 
     # The test database starts empty, so every booking here is one the seed owns.
     # 15 since US20 AC 2 (SCRUM-147) added Venue Change Demo's booking.
     assert db.scalar(select(func.count()).select_from(VenueBooking)) == seeded_booking_count() == 15
+
+
+def seeded_windows(db: Session) -> dict[uuid.UUID, tuple[datetime, datetime, datetime, datetime]]:
+    bookings = db.scalars(select(VenueBooking).where(VenueBooking.id.in_(seeded_booking_ids()))).all()
+    return {b.id: (b.starts_at, b.ends_at, b.occupied_starts_at, b.occupied_ends_at) for b in bookings}
+
+
+def fresh_seed_windows(engine: Engine, now: datetime) -> dict[uuid.UUID, tuple[datetime, datetime, datetime, datetime]]:
+    """What a seed on an empty database places, on a connection of its own that's rolled back."""
+    with engine.connect() as connection:
+        transaction = connection.begin()
+        session = Session(bind=connection, join_transaction_mode="create_savepoint")
+        seed(session, now=now)
+        windows = seeded_windows(session)
+        session.close()
+        transaction.rollback()
+    return windows
+
+
+# SCRUM-149: on main before the fix, reseeding 2, 4 to 10, 14 or 25 days later moved one seeded booking onto
+# another's old window and venue_bookings_no_overlap refused it (Confirmation Demo onto Safety Review Demo, 2 days).
+@pytest.mark.parametrize("days", range(0, 46))
+def test_tc_us24_30_a_reseed_any_number_of_days_later_places_every_booking_as_a_fresh_seed_does(
+    db: Session, engine: Engine, days: int
+) -> None:
+    later = NOW + timedelta(days=days)
+    expected = fresh_seed_windows(engine, later)  # before `db` writes, so the two never wait on each other
+    seed(db, now=NOW)
+
+    seed(db, now=later)
+
+    assert seeded_windows(db) == expected
+    assert len(expected) == seeded_booking_count()
+
+
+def test_tc_us24_31_a_reseed_leaves_a_booking_made_in_the_app_where_it_was(db: Session) -> None:
+    seed(db, now=NOW)
+    event = make_event(db, status=EventStatus.APPROVED)
+    venue = db.get(Venue, seed_id("venue", "lks-library-seminar-3-4"))  # the arranged demos' venue
+    starts_at = datetime.combine((NOW + timedelta(days=60)).date(), time(9), SINGAPORE)
+    booking = make_venue_booking(
+        db, event=event, venue=venue, user=make_user(db, UserRole.COORDINATOR), starts_at=starts_at
+    )
+    before = (booking.id, booking.status, booking.starts_at, booking.ends_at, booking.occupied_starts_at, booking.occupied_ends_at)
+
+    seed(db, now=NOW + timedelta(days=2))
+
+    db.expire_all()
+    after = db.get(VenueBooking, booking.id)
+    assert (after.id, after.status, after.starts_at, after.ends_at, after.occupied_starts_at, after.occupied_ends_at) == before
 
 
 def test_tc_us24_04_online_events_and_ones_without_a_seeded_venue_have_none(db: Session) -> None:

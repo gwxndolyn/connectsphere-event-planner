@@ -31,7 +31,7 @@ reruns start clean.
 import sys
 import uuid
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import delete, select, update
@@ -1333,12 +1333,40 @@ def upsert_multi_venue_event(
     return event
 
 
-def seeded_booking_count() -> int:
+def seeded_booking_ids() -> list[uuid.UUID]:
     """Every booking the seed owns: US2's slot, each in-person event's primary and the multi-venue
     demo event's venues (US24), US18's Confirmation Demo's booking, US30a's Safety Review Demo's, US29b's
-    Change Request Demo's and US20 AC 2's Venue Change Demo's. Bookings made in the app aren't counted."""
-    primaries = sum(1 for spec in [*EVENTS, EQUIPMENT_EVENT] if spec.venue_slug)
-    return len(VENUE_BOOKINGS) + primaries + len(MULTI_VENUE_EVENT.bookings) + 4
+    Change Request Demo's and US20 AC 2's Venue Change Demo's. Bookings made in the app aren't included."""
+    primaries = [f"primary-{spec.slug}" for spec in [*EVENTS, EQUIPMENT_EVENT] if spec.venue_slug]
+    arranged = [CONFIRMATION_EVENT, SAFETY_REVIEW_EVENT, CHANGE_REQUEST_EVENT, VENUE_CHANGE_EVENT]
+    slugs = [
+        *(spec.slug for spec in VENUE_BOOKINGS),
+        *primaries,
+        *(booking.slug for booking in MULTI_VENUE_EVENT.bookings),
+        *(spec.slug for spec in arranged),
+    ]
+    return [seed_id("venue-booking", slug) for slug in slugs]
+
+
+def seeded_booking_count() -> int:
+    return len(seeded_booking_ids())
+
+
+# SCRUM-149: where a reseed parks the seed's bookings before placing them again, one day each.
+PARKING_DAY = date(2000, 1, 1)
+
+
+def park_seeded_bookings(db: Session) -> None:
+    """SCRUM-149: the seed's bookings move with the day it runs, one row at a time, so a booking moving to its
+    new day could land on another's old window before that one has moved, and venue_bookings_no_overlap refuses
+    the reseed (a reseed 2 days after the last moved Confirmation Demo onto Safety Review Demo's slot). Parking
+    each on its own day first, long past, leaves nothing for the new windows to clash with."""
+    bookings = db.scalars(select(VenueBooking).where(VenueBooking.id.in_(seeded_booking_ids()))).all()
+    for index, booking in enumerate(bookings):
+        starts_at = datetime.combine(PARKING_DAY + timedelta(days=index), time(0), SEED_TIMEZONE)
+        booking.starts_at = booking.occupied_starts_at = starts_at
+        booking.ends_at = booking.occupied_ends_at = starts_at + timedelta(hours=1)
+    db.flush()
 
 
 def upsert_venue_block(db: Session, spec: VenueBlockSpec, now: datetime) -> VenueBlock:
@@ -1439,6 +1467,7 @@ def seed(db: Session, now: datetime | None = None) -> None:
     for spec in VENUES:
         upsert_venue(db, spec)
     db.flush()
+    park_seeded_bookings(db)
 
     # US24: each in-person event's venue, as an approved primary booking.
     for spec in EVENTS:
