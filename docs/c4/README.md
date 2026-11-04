@@ -68,48 +68,49 @@ flowchart LR
 ## Level 3 — Components of the REST API
 
 ```mermaid
-flowchart TB
-    subgraph Routers["Routers (HTTP layer) — *router.py"]
-        R_EVT["event / request / edit /<br/>change_decision routers"]
-        R_VEN["venue / booking routers"]
-        R_EQ["equipment router"]
-        R_REG["registration / roster routers"]
-        R_SAF["safety router"]
-        R_AG["agenda router"]
-        R_NOT["notification router"]
-        R_USR["user / auth router"]
+flowchart LR
+    R["<b>Routers</b> (HTTP layer)<br/>event · request · edit · change_decision<br/>venue · booking · equipment<br/>registration · roster · safety<br/>agenda · notification · user<br/><i>*/router.py</i>"]
+    ACC["<b>Access policy</b><br/>get_current_user,<br/>require_user_roles,<br/>coordinator scoping<br/><i>user/dependencies.py, auth.py</i>"]
+    subgraph EV["Event workflow — app/event"]
+        S_REQ["Requests, decisions,<br/>clarifications"]
+        S_ASG["Coordinator<br/>assignment"]
+        S_EDIT["Edits + change<br/>requests/decisions"]
+        S_CONF["Confirmation,<br/>completion, cancellation"]
+        S_IMP["<b>Change impact</b><br/>review_flag_service"]
     end
-    ACC["<b>Access policy</b><br/>user/dependencies.py, user/auth.py<br/>get_current_user, require_user_roles,<br/>coordinator scoping"]
-    subgraph Services["Domain services (business rules)"]
-        S_REQ["Event request workflow<br/>request_service, decision_service,<br/>clarification_service"]
-        S_ASG["Coordinator assignment<br/>assignment_service"]
-        S_EDIT["Event edits + change requests<br/>edit_service, change_request_service,<br/>change_decision_service"]
-        S_IMP["Change impact<br/>review_flag_service"]
-        S_CONF["Confirmation + cancellation<br/>confirmation_service, cancellation_service"]
-        S_SAF["Safety check<br/>safety/service, safety/state"]
-        S_VEN["Venue catalogue + search<br/>venue/service, block_service, calendar_service"]
-        S_BOOK["Venue booking + holds<br/>booking_service, hold_service, primary"]
-        S_AV["<b>Venue availability rules</b><br/>venue/availability.py<br/>occupied window = start−setup … end+turnaround"]
-        S_EQ["Equipment availability + reservation<br/>equipment/service, tech_staff_service"]
-        S_REG["Registration + waitlist<br/>registration/service, roster_service"]
-        S_AG["Agenda sessions<br/>agenda/service"]
+    subgraph VN["Venues — app/venue"]
+        S_VEN["Catalogue, search,<br/>calendar, blocks"]
+        S_BOOK["Bookings, holds,<br/>primary venue"]
+        S_AV["<b>Availability rules</b><br/>start−setup … end+turnaround<br/><i>availability.py</i>"]
     end
-    NOTI["<b>Notification recorder</b><br/>notification/recorder.py → notifications table<br/>(Notifier protocol, swappable)"]
-    CLK["Clock<br/>core/clock.py (injectable now)"]
-    ORM["Models (SQLAlchemy) + Session<br/>*/models.py, core/database.py"]
+    subgraph OT["Other domains"]
+        S_EQ["Equipment + tech staff<br/><i>app/equipment</i>"]
+        S_REG["Registration + waitlist<br/><i>app/registration</i>"]
+        S_SAF["Safety check<br/><i>app/safety</i>"]
+        S_AG["Agenda<br/><i>app/agenda</i>"]
+    end
+    NOTI["<b>Notifier</b><br/>recorder.py → notifications<br/>(protocol, swappable)"]
+    CLK["Clock<br/>core/clock.py"]
+    ORM["SQLAlchemy models + Session<br/>*/models.py, core/database.py"]
     DB[("PostgreSQL")]
 
-    Routers --> ACC
-    Routers --> Services
-    S_BOOK --> S_AV
-    S_VEN --> S_AV
+    R --> ACC
+    R --> EV
+    R --> VN
+    R --> OT
     S_EDIT --> S_IMP
     S_SAF --> S_IMP
     S_CONF --> S_BOOK
     S_CONF --> S_EQ
-    Services --> NOTI
-    Services --> CLK
-    Services --> ORM
+    S_VEN --> S_AV
+    S_BOOK --> S_AV
+    EV --> NOTI
+    VN --> NOTI
+    OT --> NOTI
+    EV --> ORM
+    VN --> ORM
+    OT --> ORM
+    EV -.-> CLK
     NOTI --> ORM
     ORM --> DB
 ```
@@ -134,28 +135,50 @@ flowchart TB
 ## Level 4 — Data model (key tables)
 
 ```mermaid
-erDiagram
-    USERS ||--o{ EVENTS : "organises"
-    USERS ||--o{ EVENTS : "coordinates"
-    EVENTS ||--o{ COORDINATOR_ASSIGNMENTS : "history"
-    EVENTS ||--o{ EVENT_REQUEST_CLARIFICATIONS : "has"
-    EVENTS ||--o{ EVENT_CHANGE_REQUESTS : "has"
-    EVENTS ||--o{ EVENT_AUDIT_ENTRIES : "logs"
-    EVENTS ||--o{ EVENT_REVIEW_FLAGS : "flags"
-    EVENTS ||--o{ EVENT_CANCELLATIONS : "has"
-    EVENTS ||--o{ SAFETY_REVIEWS : "has"
-    EVENTS ||--o{ EVENT_SESSIONS : "agenda"
-    EVENTS ||--o{ VENUE_BOOKINGS : "books"
-    VENUES ||--o{ VENUE_BOOKINGS : "booked by"
-    VENUES ||--o{ VENUE_BLOCKS : "unavailable"
-    EVENTS ||--o{ EQUIPMENT_REQUEST_LINES : "needs"
-    EQUIPMENT_TYPES ||--o{ EQUIPMENT_REQUEST_LINES : "of type"
-    EQUIPMENT_REQUEST_LINES ||--o| EQUIPMENT_RESERVATIONS : "reserved as"
-    EVENTS ||--o{ TECH_STAFF_ASSIGNMENTS : "supported by"
-    EVENTS ||--o{ REGISTRATIONS : "has"
-    REGISTRATIONS ||--o{ REGISTRATION_ANSWERS : "answers"
-    REGISTRATIONS ||--o{ ATTENDANCE_LOG : "audit"
-    USERS ||--o{ NOTIFICATIONS : "receives"
+flowchart TB
+    USERS[("users<br/>roles[]")] -- "organises / coordinates" --> EVENTS[("<b>events</b><br/>status, dates, capacity,<br/>registration flags")]
+    USERS -- receives --> NOTIF[("notifications")]
+    subgraph Workflow["Request and planning workflow"]
+        direction LR
+        CA[("coordinator_<br/>assignments")]
+        CL[("event_request_<br/>clarifications")]
+        CR[("event_change_<br/>requests")]
+        AU[("event_audit_<br/>entries")]
+        RF[("event_review_<br/>flags")]
+        EC[("event_<br/>cancellations")]
+        SR[("safety_<br/>reviews")]
+        SE[("event_<br/>sessions")]
+    end
+    subgraph Venue["Venues"]
+        direction LR
+        VB[("venue_bookings<br/>purpose, is_primary")]
+        V[("venues<br/>setup / turnaround")]
+        BL[("venue_blocks")]
+    end
+    subgraph Equip["Equipment"]
+        direction LR
+        EL[("equipment_<br/>request_lines")]
+        ET[("equipment_<br/>types")]
+        ER[("equipment_<br/>reservations")]
+        TS[("tech_staff_<br/>assignments")]
+    end
+    subgraph Reg["Registration"]
+        direction LR
+        RG[("registrations")]
+        RA[("registration_<br/>answers")]
+        AL[("attendance_<br/>log")]
+    end
+    EVENTS --> Workflow
+    EVENTS -- "1 : n" --> VB
+    V -- "1 : n" --> VB
+    V -- "1 : n" --> BL
+    EVENTS -- "1 : n" --> EL
+    ET --> EL
+    EL -- "1 : 0..1" --> ER
+    EVENTS --> TS
+    EVENTS -- "1 : n" --> RG
+    RG --> RA
+    RG --> AL
 ```
 
 Full column-level definitions: [`claude_instructions.md` §2](../../claude_instructions.md#2-data-model-supabase--postgres).

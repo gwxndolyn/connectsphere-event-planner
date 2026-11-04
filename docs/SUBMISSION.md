@@ -5,11 +5,11 @@ one second late is a 10% penalty.
 
 | Folder | Deliverable | Source | Status |
 | --- | --- | --- | --- |
-| `1 - Product Backlog` | Full final backlog, all stories | Jira export (CSV/PDF) + `SPM T4 Master Backlog.xlsx` as PDF | **To do:** fix statuses first (see below), then export |
-| `2 - System Design` | C4 model | [`docs/c4/README.md`](c4/README.md) (as built) + High Level Design docx as PDF | **To do:** update HLD §4–6 from Next.js/Vercel to FastAPI + React, or attach `docs/c4` and note the stack change |
-| `3 - Test Cases` | Traceable test cases, unit/integration/E2E | Master Backlog *Test Cases* tab (PDF), [`docs/testing/TRACEABILITY.md`](testing/TRACEABILITY.md), `docs/testing/US*.md` + screenshots | **To do:** mark the 22 "Not run" rows (Sprint 1–2 stories) Pass; add rows for the new IDs below |
-| `4 - Sprint Meetings` | Per sprint: backlog/goal, estimation, end board, burndown, retro; Sprint 4 recordings of planning, review, retro, one standup | Sprint Planning docs, Sprint Review, Sprint Retrospective, Jira board + burndown screenshots | **To do:** see gaps below |
-| `5 - Slide Deck` | IS212 Week 11 template, as PDF | `IS212 Week 11 Slide Template.pptx` | **To do:** every slide is still blank |
+| `1 - Product Backlog` | Full final backlog, all stories | Master Backlog (statuses fixed, Change Log sheet) xlsx + PDF | Done 4 Nov; **to do:** add a Jira CSV export |
+| `2 - System Design` | C4 model | [`docs/c4/README.md`](c4/README.md) (as built) PDF + High Level Design v0.6 | Done 4 Nov |
+| `3 - Test Cases` | Traceable test cases, unit/integration/E2E | Test Cases tab PDF, [`docs/testing/TRACEABILITY.md`](testing/TRACEABILITY.md), `docs/testing/US*.md` + screenshots | Done; **to do:** run the 22 manual UI cases and mark them |
+| `4 - Sprint Meetings` | Per sprint: backlog/goal, estimation, end board, burndown, retro; Sprint 4 recordings | Sprint tabs, planning docs, reviews, retros, burndowns from merge dates | Done; **to do:** recording links, Jira board screenshots |
+| `5 - Slide Deck` | IS212 Week 11 template, as PDF | `G8T4_Slide_Deck.pptx` | Filled 4 Nov; **to do:** team review of red items, export PDF from PowerPoint |
 | `6 - Code` | All code, README with run steps, tests, CI scripts | `git archive` of `main` (excludes `node_modules`, `.venv`) | Ready once this branch merges |
 | `7 - README` | README with Git link; instructors given repo access | [`README.md`](../README.md) | **To do:** add both instructors as collaborators |
 
