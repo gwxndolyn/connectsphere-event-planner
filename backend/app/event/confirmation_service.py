@@ -103,7 +103,7 @@ class ConfirmationService:
         event = self._assigned(db, request_id, coordinator, lock=True)
         if event.status != EventStatus.PREPARATION:
             raise DomainError(409, "COMPLETION_NOT_ALLOWED", status=event.status.value)
-        # DECISION-PENDING: D119 — only after the event's end, so a running event can't be closed early.
+        # DECISION-PENDING: D120 — only after the event's end, so a running event can't be closed early.
         if event.end_at is None or event.end_at > now:
             raise DomainError(409, "EVENT_NOT_ENDED", ends_at=event.end_at.isoformat() if event.end_at else None)
         event.status = EventStatus.COMPLETED
@@ -117,7 +117,7 @@ class ConfirmationService:
     def _open_registration(event: Event, now: datetime) -> None:
         """Core feature "Attendee Registration": a request that asked for attendee registration
         (`registration_required`, US1) opens for registration when it is confirmed, so an event made in the
-        app reaches the attendee board. DECISION-PENDING: D120 — the window opens on confirmation and closes
+        app reaches the attendee board. DECISION-PENDING: D121 — the window opens on confirmation and closes
         when the event starts; a window or flag the event already holds is kept."""
         if not event.registration_required or event.registration_enabled:
             return

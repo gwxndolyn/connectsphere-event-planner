@@ -646,7 +646,7 @@ async def test_tc_us18_44_confirming_opens_registration_when_the_request_asked_f
     db.refresh(ready)
     assert ready.registration_enabled is True
     assert ready.registration_opens_at == NOW
-    assert ready.registration_closes_at == STARTS  # closes when the event starts (D120)
+    assert ready.registration_closes_at == STARTS  # closes when the event starts (D121)
     attendee = make_attendee(db)
     board = await client.get("/api/v1/events/available", headers={"X-Attendee-Id": str(attendee.id)})
     assert str(ready.id) in [row["id"] for row in board.json()["events"]]

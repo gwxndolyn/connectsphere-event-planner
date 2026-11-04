@@ -34,9 +34,9 @@ one second late is a 10% penalty.
 
 | Gap | Core feature | Fix | Tests |
 | --- | --- | --- | --- |
-| Nothing ever set an event to **Completed** | F6 Event Status Management | `POST /api/v1/event-requests/{id}/completion` + "Mark as completed" button (D119) | TC-US18-47 … 51, 2 Vitest |
-| An event created in the app never reached the **attendee board** (`registration_enabled` was only set by the seed) | F18 Attendee Registration | Confirming opens registration when the request asked for it (D120) | TC-US18-44 … 46 |
-| No notice when an attendee **registers or withdraws** | F20 Notification System | `Notifier.registration_changed`, recorded in the inbox (D121) | TC-US3-19 … 21, TC-US7-27 … 29, TC-US31-02 row |
+| Nothing ever set an event to **Completed** | F6 Event Status Management | `POST /api/v1/event-requests/{id}/completion` + "Mark as completed" button (D120) | TC-US18-47 … 51, 2 Vitest |
+| An event created in the app never reached the **attendee board** (`registration_enabled` was only set by the seed) | F18 Attendee Registration | Confirming opens registration when the request asked for it (D121) | TC-US18-44 … 46 |
+| No notice when an attendee **registers or withdraws** | F20 Notification System | `Notifier.registration_changed`, recorded in the inbox (D122) | TC-US3-19 … 21, TC-US7-27 … 29, TC-US31-02 row |
 | Coverage not reported in CI (DoD criterion 7) | CI | `pytest --cov` and `vitest --coverage` in CI with job summaries and HTML artifacts | — |
 
 ### Software (known, not fixed — raise in the deck as known shortcomings or fix if time allows)
@@ -48,7 +48,7 @@ one second late is a 10% penalty.
 - The coordinator's own critical edits notify no one; attendees aren't told of significant changes (D105).
 - Organisers can't use venue search.
 - Several decisions still marked `DECISION-PENDING` in `claude_instructions.md` (D4–D6, D15, D22, D53, D87–D91,
-  D102–D107 rows still say pending although §1a says decided 3 Nov, D113–D121).
+  D102–D107 rows still say pending although §1a says decided 3 Nov, D113–D122).
 
 ## Numbers for slide 10 (as of this branch)
 

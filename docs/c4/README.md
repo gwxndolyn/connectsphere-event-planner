@@ -198,7 +198,7 @@ stateDiagram-v2
     planning --> confirmed: readiness complete again (US18)
     confirmed --> planning: significant change approved (US29b) / venue unavailable (US23a)
     confirmed --> preparation: start preparation, safety approved (US18 AC 6)
-    preparation --> completed: event has ended (D119)
+    preparation --> completed: event has ended (D120)
     approved --> cancelled: US9
     planning --> cancelled: US9
     confirmed --> cancelled: US9
