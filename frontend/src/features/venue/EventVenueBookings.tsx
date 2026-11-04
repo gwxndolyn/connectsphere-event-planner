@@ -11,6 +11,7 @@ import {
   holdCountdown,
   preparationLabel,
   primaryErrorMessage,
+  venueChangedText,
 } from "./bookingApi";
 import type { EventVenueBooking, EventVenues, VenueBookingCreated } from "./bookingTypes";
 import { tagLabel } from "./tags";
@@ -45,6 +46,11 @@ function live(booking: EventVenueBooking): boolean {
 /** US23a (SCRUM-90) AC 3: the venue became unavailable for part of this booking's or hold's window. */
 function needsRearrangement(booking: EventVenueBooking): boolean {
   return booking.unavailability?.kind === "venue_unavailable";
+}
+
+/** US20 AC 2 (SCRUM-147, D119): the venue's capacity or hours no longer fit it, so a hold can't be confirmed. */
+function venueChanged(booking: EventVenueBooking): boolean {
+  return booking.unavailability?.kind === "venue_changed";
 }
 
 /**
@@ -327,6 +333,10 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
                     {booking.unavailability?.kind === "venue_inactive" && (
                       <span className="venue-booking-row__decision">This venue is no longer available.</span>
                     )}
+                    {/* US20 AC 2 (SCRUM-147, D119): Venue staff changed the capacity or hours; nothing changed here. */}
+                    {booking.unavailability?.kind === "venue_changed" && (
+                      <span className="venue-booking-row__decision">{venueChangedText(booking.unavailability, booking)}</span>
+                    )}
                     {/* US23a (SCRUM-90) AC 3, 4: the venue became unavailable; the coordinator rearranges it. */}
                     {block && !block.ended_early_at && (
                       <span className="venue-booking-row__decision">
@@ -384,7 +394,7 @@ export function EventVenueBookings({ event }: EventVenueBookingsProps) {
                   {booking.status === "held" && declining !== booking.id && (
                     <>
                       {/* US23a: a hold the venue's unavailability overlaps can't be confirmed, only declined. */}
-                      {!needsRearrangement(booking) && (
+                      {!needsRearrangement(booking) && !venueChanged(booking) && (
                         <button
                           type="button"
                           className="request-button request-button--primary"

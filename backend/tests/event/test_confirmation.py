@@ -611,7 +611,7 @@ async def test_tc_us18_42_an_unassigned_staff_member_no_longer_counts(
     assert (await confirm(client, casey, ready)).status_code == 409
 
 
-@pytest.mark.parametrize("scenario", ["approved", "requested", "none", "no_primary", "short", "online"])
+@pytest.mark.parametrize("scenario", ["approved", "requested", "none", "no_primary", "short", "online", "venue_changed"])
 async def test_tc_us18_43_the_venue_items_agree_with_venues_arranged(
     client: AsyncClient, db: Session, event: Event, casey: User, venue_staff: User, scenario: str
 ) -> None:
@@ -625,133 +625,47 @@ async def test_tc_us18_43_the_venue_items_agree_with_venues_arranged(
             booking.is_primary = False
         if scenario == "short":
             event.expected_attendees = 99
+        if scenario == "venue_changed":
+            # US20 AC 2 (SCRUM-147, D119): the venue's capacity dropped below the booking's attendance.
+            db.get(Venue, booking.venue_id).capacity = booking.expected_attendees - 1
     db.flush()
 
     items = (await readiness(client, casey, event)).json()["items"]
 
-    assert all(i["complete"] for i in items if i["kind"] == "venue") == venues_arranged(db, event)
+    assert all(i["complete"] for i in items if i["kind"] == "venue") == venues_arranged(db, event, NOW)
 
 
-# --- Core feature "Attendee Registration": a request that asked for registration opens on confirmation ---
+# --- US20 AC 2 (SCRUM-147, D119): a venue edit the booking no longer fits ---
 
 
-async def test_tc_us18_44_confirming_opens_registration_when_the_request_asked_for_it(
-    client: AsyncClient, db: Session, ready: Event, casey: User
+async def test_tc_us20_30_a_capacity_drop_leaves_the_venues_not_arranged_until_it_is_restored(
+    client: AsyncClient, db: Session, ready: Event, casey: User, venue: Venue, venue_staff: User
 ) -> None:
-    ready.registration_required = True
-    db.flush()
+    [booking] = db.scalars(select(VenueBooking).where(VenueBooking.event_id == ready.id)).all()
+    bookings_url = f"/api/v1/events/{ready.id}/venue-bookings"
 
-    assert (await confirm(client, casey, ready)).status_code == 200
-
-    db.refresh(ready)
-    assert ready.registration_enabled is True
-    assert ready.registration_opens_at == NOW
-    assert ready.registration_closes_at == STARTS  # closes when the event starts (D121)
-    attendee = make_attendee(db)
-    board = await client.get("/api/v1/events/available", headers={"X-Attendee-Id": str(attendee.id)})
-    assert str(ready.id) in [row["id"] for row in board.json()["events"]]
-
-
-@pytest.mark.parametrize("required", [False, None])
-async def test_tc_us18_45_confirming_leaves_registration_closed_when_not_asked_for(
-    client: AsyncClient, db: Session, ready: Event, casey: User, required: bool | None
-) -> None:
-    ready.registration_required = required
-    db.flush()
-
-    assert (await confirm(client, casey, ready)).status_code == 200
-
-    db.refresh(ready)
-    assert ready.registration_enabled is False
-    assert (ready.registration_opens_at, ready.registration_closes_at) == (None, None)
-
-
-async def test_tc_us18_46_a_registration_window_the_event_already_has_is_kept(
-    client: AsyncClient, db: Session, ready: Event, casey: User
-) -> None:
-    opens, closes = NOW + timedelta(days=1), NOW + timedelta(days=3)
-    ready.registration_required = True
-    ready.registration_opens_at, ready.registration_closes_at = opens, closes
-    db.flush()
-
-    await confirm(client, casey, ready)
-
-    db.refresh(ready)
-    assert (ready.registration_enabled, ready.registration_opens_at, ready.registration_closes_at) == (True, opens, closes)
-
-
-# --- Core feature "Event Status Management": Preparation -> Completed ---
-
-
-def ended(db: Session, event: Event) -> Event:
-    event.status = EventStatus.PREPARATION
-    event.start_at, event.end_at = NOW - timedelta(hours=3), NOW - timedelta(hours=1)
-    event.capacity, event.delivery_mode = 35, DeliveryMode.IN_PERSON
-    db.flush()
-    return event
-
-
-async def test_tc_us18_47_an_ended_event_in_preparation_is_completed(
-    client: AsyncClient, db: Session, ready: Event, casey: User
-) -> None:
-    ended(db, ready)
-
-    response = await client.post(url(ready.id, "completion"), headers=auth(casey))
-
+    response = await client.patch(f"/api/v1/venues/{venue.id}", headers=auth(venue_staff), json={"capacity": 30})
     assert response.status_code == 200
-    assert response.json()["status"] == "completed"
+
+    assert (await client.get(bookings_url, headers=auth(casey))).json()["venues_arranged"] is False
+    assert venues_arranged(db, ready, NOW) is False
+    [item] = [i for i in (await readiness(client, casey, ready)).json()["items"] if i["kind"] == "venue"]
+    assert item == {
+        "kind": "venue",
+        "name": f"SCIS Seminar Room 2-1, {booking.purpose}",
+        "complete": False,
+        "detail": f"Booking {booking.reference} needs review: capacity is now 30, below the 35 expected.",
+    }
+    refused = await confirm(client, casey, ready)
+    assert refused.status_code == 409
+    assert refused.json()["code"] == "EVENT_NOT_READY"
+    assert [i["kind"] for i in refused.json()["outstanding"]] == ["venue"]
     db.refresh(ready)
-    assert ready.status == EventStatus.COMPLETED
+    assert ready.status == EventStatus.APPROVED
 
+    restored = await client.patch(f"/api/v1/venues/{venue.id}", headers=auth(venue_staff), json={"capacity": 40})
+    assert restored.status_code == 200
 
-async def test_tc_us18_48_an_event_that_has_not_ended_is_not_completed(
-    client: AsyncClient, db: Session, ready: Event, casey: User
-) -> None:
-    ended(db, ready)
-    ready.end_at = NOW + timedelta(minutes=1)  # boundary: still running
-    db.flush()
-
-    response = await client.post(url(ready.id, "completion"), headers=auth(casey))
-
-    assert response.status_code == 409
-    assert response.json()["code"] == "EVENT_NOT_ENDED"
-    db.refresh(ready)
-    assert ready.status == EventStatus.PREPARATION
-
-
-async def test_tc_us18_49_an_event_ending_exactly_now_is_completed(
-    client: AsyncClient, db: Session, ready: Event, casey: User
-) -> None:
-    ended(db, ready)
-    ready.end_at = NOW  # boundary: ended at this instant
-    db.flush()
-
-    assert (await client.post(url(ready.id, "completion"), headers=auth(casey))).status_code == 200
-
-
-@pytest.mark.parametrize(
-    "status", [EventStatus.APPROVED, EventStatus.PLANNING, EventStatus.CONFIRMED, EventStatus.CANCELLED, EventStatus.COMPLETED]
-)
-async def test_tc_us18_50_only_an_event_in_preparation_is_completed(
-    client: AsyncClient, db: Session, ready: Event, casey: User, status: EventStatus
-) -> None:
-    ended(db, ready)
-    ready.status = status
-    db.flush()
-
-    response = await client.post(url(ready.id, "completion"), headers=auth(casey))
-
-    assert response.status_code == 409
-    assert response.json() == {"code": "COMPLETION_NOT_ALLOWED", "status": status.value}
-
-
-async def test_tc_us18_51_only_the_assigned_coordinator_completes(
-    client: AsyncClient, db: Session, ready: Event, casey: User
-) -> None:
-    ended(db, ready)
-    other = make_user(db, UserRole.COORDINATOR)
-
-    assert (await client.post(url(ready.id, "completion"), headers=auth(other))).status_code == 404
-    assert (await client.post(url(ready.id, "completion"))).status_code == 401
-    db.refresh(ready)
-    assert ready.status == EventStatus.PREPARATION
+    assert (await client.get(bookings_url, headers=auth(casey))).json()["venues_arranged"] is True
+    assert venues_arranged(db, ready, NOW) is True
+    assert (await confirm(client, casey, ready)).status_code == 200

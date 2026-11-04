@@ -119,6 +119,8 @@ class FakeNotifier:
         self.restore_decisions: list[dict[str, object]] = []
         self.venue_changes: list[dict[str, object]] = []
         self.periods_ended: list[dict[str, object]] = []
+        # US20 AC 2 (SCRUM-147): a venue edit left a live future booking needing review (one per booking and person).
+        self.booking_reviews: list[dict[str, object]] = []
         self.confirmations: list[dict[str, object]] = []
         self.safety_reviews: list[dict[str, object]] = []
         self.safety_changes: list[dict[str, object]] = []
@@ -390,6 +392,11 @@ class FakeNotifier:
         if self.fail:
             raise RuntimeError("mail server unavailable")
         self.periods_ended.append(call)
+
+    def venue_booking_needs_review(self, **call: object) -> None:
+        if self.fail:
+            raise RuntimeError("mail server unavailable")
+        self.booking_reviews.append(call)
 
 
 @pytest.fixture

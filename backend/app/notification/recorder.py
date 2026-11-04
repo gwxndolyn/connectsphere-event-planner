@@ -866,6 +866,40 @@ class RecordingNotifier:
             booking_id=booking_id,
         )
 
+    # --- US20 AC 2 (SCRUM-147): a venue edit leaves a booking needing review ---
+
+    def venue_booking_needs_review(
+        self,
+        *,
+        email: str,
+        event_id: uuid.UUID,
+        event_name: str,
+        venue_name: str,
+        reference: str,
+        starts_at: datetime,
+        ends_at: datetime,
+        reason: str,
+    ) -> None:
+        self._delegate.venue_booking_needs_review(
+            email=email,
+            event_id=event_id,
+            event_name=event_name,
+            venue_name=venue_name,
+            reference=reference,
+            starts_at=starts_at,
+            ends_at=ends_at,
+            reason=reason,
+        )
+        self._record(
+            "venue_booking_needs_review",
+            email=email,
+            event_name=event_name,
+            message=(
+                f"{venue_name} changed, so {reference} ({_when(starts_at)} to {_when(ends_at)}) needs review: {reason}."
+            ),
+            event_id=event_id,
+        )
+
 
 # The notifier the app uses: the logging stand-in, plus a row for each recipient (US31).
 recording_notifier = RecordingNotifier(LoggingNotifier())

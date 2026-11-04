@@ -192,8 +192,9 @@ def get_readiness(
     request_id: uuid.UUID,
     coordinator: Coordinator,
     db: Session = Depends(get_db),
+    now: datetime = Depends(get_now),
 ) -> ReadinessOut:
-    return confirmation_service.readiness(db, request_id, coordinator)
+    return confirmation_service.readiness(db, request_id, coordinator, now)
 
 
 @router.post("/{request_id}/confirmation", response_model=EventRequestOut)

@@ -1,3 +1,4 @@
+import logging
 import uuid
 from collections.abc import Callable
 from types import SimpleNamespace
@@ -11,8 +12,9 @@ from sqlalchemy.orm import Session
 
 from app.core.exceptions import DomainError
 from app.event.models import Event
+from app.notification.service import Notifier
 from app.user.models import User, UserRole
-from app.venue.availability import Window, hours_breach
+from app.venue.availability import VenueChange, Window, hours_breach, review_reason, venue_change
 from app.venue.models import (
     ACCESSIBILITY_FEATURES,
     FACILITIES,
@@ -26,6 +28,8 @@ from app.venue.models import (
     occupied_window,
 )
 from app.venue.schemas import VenueOut, VenueSearchCriteria, VenueSearchOut, VenueWrite
+
+logger = logging.getLogger(__name__)
 
 # DECISION-PENDING: D49 — US16b (SCRUM-119) made Venue Staff a real role, retiring D19's
 # operations_manager stand-in.
@@ -65,6 +69,15 @@ BUFFERS_CONFLICT_MESSAGE = (
     "its opening hours. Change the times, or ask the coordinators to change or withdraw those requests."
 )
 NO_OVERLAP = "venue_bookings_no_overlap"
+# US20 AC 2 (SCRUM-147): the edits that can leave a booking needing review (D119).
+REVIEW_FIELDS = ("capacity", "opens_at", "closes_at")
+
+
+def _reasons(change: VenueChange | None) -> set[str]:
+    """US20 AC 2: which of capacity and hours no longer fit, for telling whether an edit added a reason."""
+    if change is None:
+        return set()
+    return {reason for reason, present in (("capacity", change.capacity), ("hours", change.hours)) if present is not None}
 
 
 def has_approved_future_bookings(db: Session, venue_id: uuid.UUID, now: datetime) -> bool:
@@ -346,9 +359,10 @@ class VenueService:
         db.refresh(venue)
         return VenueOut.model_validate(venue)
 
-    def update(self, db: Session, venue_id: uuid.UUID, body: VenueWrite, now: datetime) -> VenueOut:
+    def update(self, db: Session, venue_id: uuid.UUID, body: VenueWrite, now: datetime, notifier: Notifier) -> VenueOut:
         """Changes only the fields sent, on active or inactive venues alike (staff may fix details
-        before reactivating). Validates the venue as it would be after the edit."""
+        before reactivating). Validates the venue as it would be after the edit. US20 AC 2 (SCRUM-147): a capacity
+        or hours change tells Venue staff and the coordinators of the bookings it now leaves needing review."""
         venue = self._locked(db, venue_id)
         changes = body.model_dump(exclude_unset=True)
         # Every column is NOT NULL, so null is never a valid edit.
@@ -364,6 +378,9 @@ class VenueService:
         if buffer_edits and has_approved_future_bookings(db, venue.id, now):
             raise DomainError(409, "VENUE_BUFFERS_LOCKED", fields=buffer_edits, message=BUFFERS_LOCKED_MESSAGE)
         recomputed = self._recompute_windows(db, venue, cleaned, buffer_edits, now) if buffer_edits else {}
+        review_edits = [field for field in REVIEW_FIELDS if field in changes and cleaned[field] != current[field]]
+        # Read before the edit: a booking that already needed review isn't told again.
+        needed_review = self._needing_review(db, venue.id, SimpleNamespace(**current), now) if review_edits else {}
 
         for field in changes:
             setattr(venue, field, cleaned[field])
@@ -379,7 +396,77 @@ class VenueService:
                 booking.occupied_starts_at, booking.occupied_ends_at = starts_at, ends_at
         self._commit(db, buffer_edits)
         db.refresh(venue)
-        return VenueOut.model_validate(venue)
+        result = VenueOut.model_validate(venue)
+        if review_edits:
+            self._notify_review(db, notifier, venue, needed_review, now)
+        return result
+
+    def _needing_review(
+        self, db: Session, venue_id: uuid.UUID, values: object, now: datetime
+    ) -> dict[uuid.UUID, tuple[VenueBooking, VenueChange]]:
+        """US20 AC 2: the venue's live bookings and holds that haven't ended and that `values` (the venue's columns,
+        before or after the edit) no longer fit, by id, with what doesn't fit (D119)."""
+        live = db.scalars(
+            select(VenueBooking).where(
+                VenueBooking.venue_id == venue_id,
+                VenueBooking.status.in_(BLOCKING_STATUSES),
+                VenueBooking.ends_at > now,
+            )
+        ).all()
+        changes = {booking.id: (booking, venue_change(values, booking, now)) for booking in live}
+        return {booking_id: (booking, change) for booking_id, (booking, change) in changes.items() if change is not None}
+
+    def _notify_review(
+        self,
+        db: Session,
+        notifier: Notifier,
+        venue: Venue,
+        needed_review: dict[uuid.UUID, tuple[VenueBooking, VenueChange]],
+        now: datetime,
+    ) -> None:
+        """US20 AC 2: every active Venue staff member and the event's assigned coordinator hear of each booking the
+        edit newly left needing review, or gave a reason it didn't have (capacity or hours; Calvin's #138 review),
+        once each. After the commit and best effort: a failure is logged and the edit stands. A booking whose reasons
+        are the same as before the edit isn't told again, even if the numbers in them moved."""
+        try:
+            flagged = self._needing_review(db, venue.id, venue, now)
+            fresh = sorted(
+                (
+                    pair
+                    for booking_id, pair in flagged.items()
+                    if _reasons(pair[1]) - _reasons(needed_review[booking_id][1] if booking_id in needed_review else None)
+                ),
+                key=lambda pair: (pair[0].starts_at, pair[0].reference),
+            )
+            if not fresh:
+                return
+            staff = db.scalars(
+                select(User).where(User.roles.any(UserRole.VENUE_STAFF), User.is_active.is_(True)).order_by(User.email)
+            ).all()
+            for booking, change in fresh:
+                event = db.get(Event, booking.event_id)
+                coordinator = db.get(User, event.coordinator_id) if event.coordinator_id is not None else None
+                emails = [member.email for member in staff]
+                if coordinator is not None and coordinator.is_active:
+                    emails.append(coordinator.email)
+                else:
+                    logger.warning("no active coordinator to tell that booking %s needs review", booking.id)
+                for email in dict.fromkeys(emails):
+                    try:
+                        notifier.venue_booking_needs_review(
+                            email=email,
+                            event_id=event.id,
+                            event_name=event.name or event.request_reference or str(event.id),
+                            venue_name=venue.name,
+                            reference=booking.reference,
+                            starts_at=booking.starts_at,
+                            ends_at=booking.ends_at,
+                            reason=review_reason(booking, change),
+                        )
+                    except Exception:
+                        logger.exception("could not tell %s that booking %s needs review", email, booking.id)
+        except Exception:
+            logger.exception("could not tell anyone which bookings at venue %s need review", venue.id)
 
     def set_active(self, db: Session, venue_id: uuid.UUID, active: bool) -> VenueOut:
         """Deactivate or reactivate. Idempotent. A deactivated venue leaves non-staff lists and US2's

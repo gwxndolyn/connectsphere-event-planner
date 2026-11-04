@@ -303,6 +303,19 @@ class Notifier(Protocol):
         ended_at: datetime,
     ) -> None: ...
 
+    def venue_booking_needs_review(
+        self,
+        *,
+        email: str,
+        event_id: uuid.UUID,
+        event_name: str,
+        venue_name: str,
+        reference: str,
+        starts_at: datetime,
+        ends_at: datetime,
+        reason: str,
+    ) -> None: ...
+
     def cancellation_rejected(
         self, *, email: str, event_id: uuid.UUID, event_name: str, reason: str, rejection_reason: str
     ) -> None: ...
@@ -877,6 +890,32 @@ class LoggingNotifier:
             event_name,
             booking_id,
             ended_at.isoformat(),
+        )
+
+    def venue_booking_needs_review(
+        self,
+        *,
+        email: str,
+        event_id: uuid.UUID,
+        event_name: str,
+        venue_name: str,
+        reference: str,
+        starts_at: datetime,
+        ends_at: datetime,
+        reason: str,
+    ) -> None:
+        # US20 AC 2 (SCRUM-147): Venue staff and the event's coordinator hear that a capacity or hours edit left a live
+        # future booking needing review. Nothing about the booking changed (D119).
+        logger.info(
+            "venue booking needs review: %s, %s at %s %s to %s for %r (%s): %s",
+            email,
+            reference,
+            venue_name,
+            starts_at.isoformat(),
+            ends_at.isoformat(),
+            event_name,
+            event_id,
+            reason,
         )
 
 

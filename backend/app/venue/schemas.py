@@ -134,13 +134,20 @@ class BlockSummaryOut(BaseModel):
 class BookingUnavailabilityOut(BaseModel):
     """US24 AC 4 (D71): why a venue needs replacing: Venue staff rejected it (with their reason and
     alternative, if given), or the venue has been deactivated. US23a (SCRUM-90): or the venue is unavailable
-    for part of its window ("Needs rearrangement", `block` says when and why)."""
+    for part of its window ("Needs rearrangement", `block` says when and why). US20 AC 2 (SCRUM-147, D119): or Venue
+    staff changed the venue's capacity or hours and the booking no longer fits ("Needs review"): `detail` says which,
+    capacity first if both, with the venue's `capacity` when that's short and its `opens_at` / `closes_at` when the
+    occupied window falls outside them."""
 
-    kind: Literal["rejected", "venue_inactive", "venue_unavailable"]
+    kind: Literal["rejected", "venue_inactive", "venue_unavailable", "venue_changed"]
     reason: str | None = None
     alternative_suggestion: str | None = None
     block: BlockSummaryOut | None = None
     flagged_at: datetime | None = None
+    detail: Literal["capacity", "hours"] | None = None
+    capacity: int | None = None
+    opens_at: time | None = None
+    closes_at: time | None = None
 
 
 class VenueBookingOut(BaseModel):

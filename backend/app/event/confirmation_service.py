@@ -20,6 +20,7 @@ from app.notification.service import Notifier
 from app.safety.models import CHANGE_AREAS
 from app.safety.state import latest_review, safety_state
 from app.user.models import User
+from app.venue.availability import review_reason, venue_change
 from app.venue.models import LIVE_BOOKING_STATUSES, Venue, VenueBooking, VenueBookingStatus
 
 logger = logging.getLogger(__name__)
@@ -36,11 +37,11 @@ class ConfirmationService:
     """SCRUM-85 (US18): the assigned coordinator confirms an event once its arrangements are ready, then
     moves it on to Preparation."""
 
-    def readiness(self, db: Session, request_id: uuid.UUID, coordinator: User) -> ReadinessOut:
+    def readiness(self, db: Session, request_id: uuid.UUID, coordinator: User, now: datetime) -> ReadinessOut:
         event = self._assigned(db, request_id, coordinator, lock=False)
         if event.status not in WORKING_STATUSES:
             raise DomainError(409, "CONFIRMATION_NOT_ALLOWED", status=event.status.value)
-        return self._readiness(db, event, lock=False)[0]
+        return self._readiness(db, event, now, lock=False)[0]
 
     def confirm(
         self, db: Session, request_id: uuid.UUID, coordinator: User, now: datetime, notifier: Notifier
@@ -50,7 +51,7 @@ class ConfirmationService:
             raise DomainError(409, "CONFIRMATION_NOT_ALLOWED", status=event.status.value)
         # AC 1, 5: no override. The bookings and lines are locked with the event, so a Venue staff
         # decision can't land between this check and the status change.
-        readiness, approved = self._readiness(db, event, lock=True)
+        readiness, approved = self._readiness(db, event, now, lock=True)
         if not readiness.ready:
             raise DomainError(
                 409,
@@ -135,7 +136,7 @@ class ConfirmationService:
         return event
 
     def _readiness(
-        self, db: Session, event: Event, *, lock: bool
+        self, db: Session, event: Event, now: datetime, *, lock: bool
     ) -> tuple[ReadinessOut, list[tuple[VenueBooking, Venue]]]:
         """AC 1, 2: the venues arranged (US24's rule, D72), the equipment approved and reserved, technical
         support assigned and the safety check approved. Also returns the approved bookings, which
@@ -150,7 +151,7 @@ class ConfirmationService:
             bookings_query = bookings_query.with_for_update(of=VenueBooking)
         bookings = [(booking, venue) for booking, venue in db.execute(bookings_query).all()]
 
-        items = self._venue_items(event, bookings)
+        items = self._venue_items(event, bookings, now)
         equipment_item, approved_lines = self._equipment_item(db, event, lock)
         items.append(equipment_item)
         items.append(self._technical_support_item(db, approved_lines))
@@ -182,7 +183,9 @@ class ConfirmationService:
         approved_bookings = [(b, v) for b, v in bookings if b.status == VenueBookingStatus.APPROVED]
         return ReadinessOut(ready=all(item.complete for item in items), items=items), approved_bookings
 
-    def _venue_items(self, event: Event, bookings: list[tuple[VenueBooking, Venue]]) -> list[ReadinessItemOut]:
+    def _venue_items(
+        self, event: Event, bookings: list[tuple[VenueBooking, Venue]], now: datetime
+    ) -> list[ReadinessItemOut]:
         """One item per live booking, then what US24's `venues_arranged` (D72) also asks of the set: one
         primary, and allocations that hold the expected attendance (D67). Rejected and withdrawn bookings
         aren't required. An online event needs no venue."""
@@ -198,8 +201,13 @@ class ConfirmationService:
             # US23a (SCRUM-90, D113): a live booking a venue unavailability period overlaps keeps its status, so it
             # is outstanding here until it is rearranged, approved or not, as venues_arranged also says.
             flagged = booking.rearrangement_block_id is not None
+            # US20 AC 2 (SCRUM-147, D119): so is one whose venue's capacity or hours no longer fit it, by the rule the
+            # booking's `venue_changed` and venues_arranged read.
+            change = venue_change(venue, booking, now)
             if flagged:
                 detail = f"Booking {booking.reference} needs rearrangement: the venue has become unavailable."
+            elif change is not None:
+                detail = f"Booking {booking.reference} needs review: {review_reason(booking, change)}."
             elif approved:
                 detail = f"Booking {booking.reference} is approved."
             else:
@@ -208,7 +216,7 @@ class ConfirmationService:
                 ReadinessItemOut(
                     kind="venue",
                     name=f"{venue.name}, {booking.purpose}",
-                    complete=approved and not flagged,
+                    complete=approved and not flagged and change is None,
                     detail=detail,
                 )
             )

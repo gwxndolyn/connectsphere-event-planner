@@ -282,7 +282,7 @@ async def test_tc_us23a_08_the_booking_reads_needs_rearrangement_and_isnt_arrang
     approved = booking(
         db, event, venue, coordinator, status=VenueBookingStatus.APPROVED, decided_by_user_id=staff.id, is_primary=True
     )
-    assert venues_arranged(db, event)
+    assert venues_arranged(db, event, NOW)
 
     await mark(client, staff, venue, reason="safety", note="Ceiling inspection")
 
@@ -295,7 +295,7 @@ async def test_tc_us23a_08_the_booking_reads_needs_rearrangement_and_isnt_arrang
     assert datetime.fromisoformat(unavailability["flagged_at"]) == NOW
     assert response.json()["venues_arranged"] is False
     db.expire_all()
-    assert not venues_arranged(db, event)
+    assert not venues_arranged(db, event, NOW)
 
 
 async def test_tc_us23a_08_the_organiser_reads_it_too(

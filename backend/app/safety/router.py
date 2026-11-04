@@ -33,13 +33,15 @@ Reader = Annotated[
 
 
 @router.get("", response_model=SafetyQueueOut)
-def queue(_: SafetyOfficer, db: Session = Depends(get_db)) -> SafetyQueueOut:
-    return safety_service.queue(db)
+def queue(_: SafetyOfficer, db: Session = Depends(get_db), now: datetime = Depends(get_now)) -> SafetyQueueOut:
+    return safety_service.queue(db, now)
 
 
 @router.get("/{event_id}", response_model=SafetyReviewDetailOut)
-def detail(event_id: uuid.UUID, _: SafetyOfficer, db: Session = Depends(get_db)) -> SafetyReviewDetailOut:
-    return safety_service.detail(db, event_id)
+def detail(
+    event_id: uuid.UUID, _: SafetyOfficer, db: Session = Depends(get_db), now: datetime = Depends(get_now)
+) -> SafetyReviewDetailOut:
+    return safety_service.detail(db, event_id, now)
 
 
 @router.post("/{event_id}", status_code=201, response_model=SafetyReviewInternalOut)
