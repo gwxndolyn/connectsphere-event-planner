@@ -282,7 +282,7 @@ async def test_tc_us23b_07_approving_the_replacement_replaces_the_original(
     assert (old["venue"]["name"], old["decided_by_user_id"]) == ("Hall A", str(staff.id))
     assert datetime.fromisoformat(old["starts_at"]) == START
     db.expire_all()
-    assert venues_arranged(db, event)
+    assert venues_arranged(db, event, NOW)
 
 
 async def test_tc_us23b_07_a_replaced_booking_frees_its_window(
@@ -588,7 +588,7 @@ async def test_tc_us23b_11_venue_staff_confirm_and_the_booking_is_restored(
     assert (original.rearrangement_block_id, original.rearrangement_flagged_at) == (None, None)
     assert [(call["email"], call["decision"]) for call in notifier.restore_decisions] == [(coordinator.email, "confirmed")]
     db.expire_all()
-    assert venues_arranged(db, event)
+    assert venues_arranged(db, event, NOW)
 
 
 async def test_tc_us23b_11_a_period_recorded_meanwhile_refuses_the_restore(

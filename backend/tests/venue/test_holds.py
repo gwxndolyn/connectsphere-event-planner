@@ -200,7 +200,7 @@ async def test_tc_us25_10_a_hold_is_not_one_of_the_events_venues(
     listed = await bookings(client, coordinator, event)
 
     assert (listed["venues_arranged"], listed["primary_booking_id"], listed["allocated_attendees"]) == (False, None, 0)
-    assert venues_arranged(db, event) is False
+    assert venues_arranged(db, event, NOW) is False
 
 
 # --- AC 5: confirming, then approval before the expiry ---

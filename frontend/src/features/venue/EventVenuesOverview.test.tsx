@@ -190,6 +190,37 @@ describe("EventVenuesOverview (US24, TC-US24-24)", () => {
     expect(row).toHaveTextContent("The coordinator will arrange a replacement.");
   });
 
+  it("TC-US20-28: tells the Organiser a venue needs review after Venue staff changed its capacity or hours (US20 AC 2)", async () => {
+    read.mockResolvedValue(
+      venues({
+        bookings: [
+          booking({
+            expected_attendees: 300,
+            unavailability: {
+              kind: "venue_changed", reason: null, alternative_suggestion: null, detail: "capacity", capacity: 250, opens_at: null, closes_at: null,
+            },
+            next_action: "coordinator_to_rebook",
+          }),
+          {
+            ...BREAKOUT_A,
+            unavailability: {
+              kind: "venue_changed", reason: null, alternative_suggestion: null, detail: "hours", capacity: null, opens_at: "09:00:00", closes_at: "18:00:00",
+            },
+            next_action: "coordinator_to_rebook",
+          },
+        ],
+      }),
+    );
+    render(<EventVenuesOverview event={EVENT} />);
+
+    expect(await screen.findByRole("listitem", { name: /^Main hall/ })).toHaveTextContent(
+      "Needs review: the venue's capacity is now 250, below this booking's 300. The coordinator will review it.",
+    );
+    expect(venueRow(/^Breakout A/)).toHaveTextContent(
+      "Needs review: the venue's hours changed to 09:00–18:00, so this booking's setup or turnaround falls outside them.",
+    );
+  });
+
   it("TC-US24-29: shows an approved venue's preparation status, read-only", async () => {
     render(<EventVenuesOverview event={EVENT} />);
 

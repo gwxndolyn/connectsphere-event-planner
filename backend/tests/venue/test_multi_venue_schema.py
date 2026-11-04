@@ -432,7 +432,8 @@ def test_tc_us24_04_the_seed_summary_counts_every_booking_it_seeds(db: Session) 
     seed(db, now=NOW)
 
     # The test database starts empty, so every booking here is one the seed owns.
-    assert db.scalar(select(func.count()).select_from(VenueBooking)) == seeded_booking_count() == 14
+    # 15 since US20 AC 2 (SCRUM-147) added Venue Change Demo's booking.
+    assert db.scalar(select(func.count()).select_from(VenueBooking)) == seeded_booking_count() == 15
 
 
 def test_tc_us24_04_online_events_and_ones_without_a_seeded_venue_have_none(db: Session) -> None:
