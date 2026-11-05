@@ -90,7 +90,7 @@ class EventRequestService:
         query = select(Event).where(Event.status.in_(statuses))
         if not reviewer.holds(UserRole.COORDINATOR_LEAD):
             query = query.where(Event.coordinator_id == reviewer.id)
-        events = db.scalars(query.order_by(Event.submitted_at.desc(), Event.id)).all()
+        events = db.scalars(query.order_by(Event.submitted_at.desc().nulls_last(), Event.id)).all()
         return [EventRequestOut.model_validate(event) for event in events]
 
     def get(self, db: Session, request_id: uuid.UUID, reader: User) -> EventRequestOut:

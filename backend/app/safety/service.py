@@ -53,7 +53,7 @@ class SafetyService:
         events = db.scalars(
             select(Event)
             .where(Event.status.in_(REVIEWABLE_STATUSES), Event.safety_approved_at.is_(None))
-            .order_by(Event.submitted_at.desc(), Event.id)
+            .order_by(Event.submitted_at.desc().nulls_last(), Event.id)
         ).all()
         rows = []
         for event in events:

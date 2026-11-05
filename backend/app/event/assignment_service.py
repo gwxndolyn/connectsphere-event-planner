@@ -55,7 +55,7 @@ class AssignmentService:
         events = db.scalars(
             select(Event)
             .where(Event.status == EventStatus.SUBMITTED, Event.coordinator_id.is_(None))
-            .order_by(Event.submitted_at.desc(), Event.id)
+            .order_by(Event.submitted_at.desc().nulls_last(), Event.id)
         ).all()
         return [UnassignedRequestOut.model_validate(event) for event in events]
 
