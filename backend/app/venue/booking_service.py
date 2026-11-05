@@ -263,8 +263,8 @@ def _validate(values: dict[str, object], now: datetime) -> dict[str, object]:
 def _schedule_errors(event: Event, starts_at: datetime, ends_at: datetime) -> dict[str, str]:
     """US24 AC 1: a booking's own window falls within the event's schedule; setup and turnaround may
     run outside it. Nothing to check for an event with no schedule yet."""
-    # DECISION-PENDING: D65 — start_at to end_at once set; before that, a preferred day between the
-    # preferred times (Singapore time).
+    # DECISION-PENDING: D65 — start_at to end_at once set (approving sets them, D123); before that, as on an
+    # event approved before SCRUM-84 was reopened, a preferred day between the preferred times (Singapore time).
     errors: dict[str, str] = {}
     if event.start_at is not None and event.end_at is not None:
         span = f"{_local(event.start_at)} to {_local(event.end_at)}"
@@ -1043,7 +1043,7 @@ class VenueBookingService:
             logger.exception("could not notify coordinators about venue booking %s", booking.id)
 
     def pending(self, db: Session, now: datetime, notifier: Notifier) -> list[VenueBookingOut]:
-        """Venue Staff's review queue (AC 4): Requested bookings, oldest first. A confirmed hold carries its
+        """Venue Staff's review queue (AC 4): Requested bookings, newest first (SCRUM-150). A confirmed hold carries its
         expiry, the time to approve it by (US25 AC 5)."""
         expire_lapsed_holds(db, now, notifier)
         rows = db.execute(
@@ -1051,7 +1051,7 @@ class VenueBookingService:
             .join(Event, Event.id == VenueBooking.event_id)
             .join(Venue, Venue.id == VenueBooking.venue_id)
             .where(VenueBooking.status == VenueBookingStatus.REQUESTED)
-            .order_by(VenueBooking.created_at, VenueBooking.id)
+            .order_by(VenueBooking.created_at.desc(), VenueBooking.id)
         )
         return [_out(booking, event, venue, now) for booking, event, venue in rows]
 

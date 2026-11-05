@@ -43,6 +43,21 @@ describe("edit an event in planning (US12)", () => {
     expect(screen.getByText(/Only events in planning can be edited. This one is confirmed./)).toBeInTheDocument();
   });
 
+  it("TC-US12-28: a Preparation event is listed as Preparation and opens read-only (SCRUM-150)", async () => {
+    const user = userEvent.setup();
+    seedCoordinatedEvent({ name: "Preparation Showcase", status: "preparation" });
+
+    render(<App />);
+    await user.click(within(screen.getByRole("banner")).getByRole("button", { name: "Events" }));
+    const row = await screen.findByRole("button", { name: /Preparation Showcase/ });
+    expect(within(row).getByText("Preparation")).toBeInTheDocument();
+
+    await user.click(row);
+    await screen.findByRole("heading", { name: "Preparation Showcase" });
+    expect(screen.getByRole("button", { name: "Edit" })).toBeDisabled();
+    expect(screen.getByText(/Only events in planning can be edited. This one is preparation./)).toBeInTheDocument();
+  });
+
   it("TC-US12-22: a non-critical change saves and shows at once, sending only what changed (AC 2)", async () => {
     const user = userEvent.setup();
     seedCoordinatedEvent();

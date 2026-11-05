@@ -114,6 +114,26 @@ async def test_tc_us12_03_the_coordinator_lists_their_events_with_whether_each_i
     ]
 
 
+async def test_tc_us12_27_a_preparation_event_stays_listed_read_only(
+    client: AsyncClient, db: Session, coordinator: User
+) -> None:
+    """SCRUM-150: confirming then starting preparation (US18) must not drop the event from Events."""
+    event = planning_event(db, coordinator, EventStatus.PREPARATION)
+
+    listed = await client.get("/api/v1/me/coordinated-events", headers=auth(coordinator))
+    details = await client.get(url(event), headers=auth(coordinator))
+    saved = await client.patch(url(event), headers=auth(coordinator), json={"purpose": "Changed"})
+
+    assert [(row["id"], row["status"], row["editable"]) for row in listed.json()["events"]] == [
+        (str(event.id), "preparation", False)
+    ]
+    assert (details.status_code, details.json()["editable"]) == (200, False)
+    assert (saved.status_code, saved.json()) == (409, {"code": "EVENT_NOT_EDITABLE", "status": "preparation"})
+    db.refresh(event)
+    assert event.purpose == "Hands-on design practice"
+    assert audit_count(db, event) == 0
+
+
 async def test_tc_us12_04_only_the_assigned_coordinator_reaches_the_event(
     client: AsyncClient, db: Session, coordinator: User
 ) -> None:

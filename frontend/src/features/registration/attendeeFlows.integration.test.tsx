@@ -40,6 +40,24 @@ async function openMyEvents(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe("events board", () => {
+  it("re-reads the board on returning to it, without a reload (SCRUM-150)", async () => {
+    const user = userEvent.setup();
+    seedEvent({ name: "Tech Talk: Agile at Scale" });
+    render(<App />);
+    expect(await card("Tech Talk")).toBeInTheDocument();
+    const loads = callsTo("GET", "/api/v1/events/available").length;
+
+    await openMyEvents(user);
+    seedEvent({ name: "Design Sprint Bootcamp" });
+    await user.click(header().getByRole("button", { name: "Browse events" }));
+
+    expect(await card("Design Sprint Bootcamp")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Tech Talk/ })).toBeInTheDocument();
+    // Mount loaded once, not twice; opening My events and returning to the board each re-read it.
+    expect(loads).toBe(1);
+    expect(callsTo("GET", "/api/v1/events/available")).toHaveLength(3);
+  });
+
   it("lists events from the API with their seat state, sending X-Attendee-Id (TC-US3-01)", async () => {
     seedEvent({ name: "Tech Talk: Agile at Scale", capacity: 40 });
     const bootcamp = seedEvent({ name: "Design Sprint Bootcamp", capacity: 2, waitlist_enabled: true });

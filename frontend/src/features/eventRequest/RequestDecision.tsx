@@ -10,6 +10,8 @@ function decisionError(error: unknown): string {
       return "Give the organiser a reason for rejecting this request.";
     case "REQUEST_NOT_DECIDABLE":
       return "This request can only be approved or rejected while it's under review.";
+    case "PREFERRED_DATES_PASSED":
+      return "Every preferred date for this request has passed, so it can't be approved. Ask the organiser for new dates with a clarification request.";
     case "SELF_DECISION_NOT_ALLOWED":
       return "You can't decide a request you created.";
     case "NOT_FOUND":

@@ -13,6 +13,7 @@ from app.equipment.models import (
     TechStaffAssignment,
 )
 from app.event.assignment_service import MISSING_NAME, MISSING_REFERENCE
+from app.event.final_fields import fill_final_fields
 from app.event.models import DeliveryMode, Event, EventStatus
 from app.event.request_schemas import EventRequestOut, ReadinessItemOut, ReadinessOut
 from app.event.review_flag_service import event_flags, is_open
@@ -27,7 +28,8 @@ logger = logging.getLogger(__name__)
 
 # US18 AC 5: only an event still being arranged can be confirmed. Cancelled, Rejected and an
 # already Confirmed event are refused, and so is anything not yet approved. DECISION-PENDING: D86 —
-# Approved counts as well as Planning, because nothing moves an approved request on to Planning (D53).
+# Approved counts as well as Planning: approving moves a request to Planning (D53), but events approved
+# before that (and the seeded ones) are still Approved.
 CONFIRMABLE_STATUSES = (EventStatus.APPROVED, EventStatus.PLANNING)
 # The statuses an event's coordinator works it in, so the readiness list shows in each (widens D11).
 WORKING_STATUSES = (EventStatus.APPROVED, EventStatus.PLANNING, EventStatus.CONFIRMED, EventStatus.PREPARATION)
@@ -67,7 +69,14 @@ class ConfirmationService:
         venues = list(
             dict.fromkeys(venue.name for booking, venue in sorted(approved, key=lambda pair: not pair[0].is_primary))
         )
-        self._fill_final_fields(event, approved, starts_at, ends_at)
+        # An event approved into Planning already holds its date (D123) and keeps it; an older Approved one
+        # takes its bookings' span.
+        fill_final_fields(
+            event,
+            starts_at=starts_at,
+            ends_at=ends_at,
+            capacity=event.expected_attendees or max((b.expected_attendees for b, _ in approved), default=0),
+        )
         self._open_registration(event, now)
         event.status = EventStatus.CONFIRMED
         event.confirmed_at = now
@@ -75,7 +84,8 @@ class ConfirmationService:
         db.flush()
         db.refresh(event, ["coordinator", "decided_by"])
         result = EventRequestOut.model_validate(event)
-        notice = (event.created_by_user_id, event.request_reference, event.name, starts_at, ends_at, venues)
+        # The event's own times, so the notice and the event page agree (TC-US17-24).
+        notice = (event.created_by_user_id, event.request_reference, event.name, event.start_at, event.end_at, venues)
         db.commit()
 
         self._notify(db, notifier, event.id, *notice)
@@ -332,23 +342,6 @@ class ConfirmationService:
         if latest is not None:
             return "Sent for another safety review."
         return "Waiting for the Safety Officer's approval."
-
-    def _fill_final_fields(
-        self,
-        event: Event,
-        approved: list[tuple[VenueBooking, Venue]],
-        starts_at: datetime | None,
-        ends_at: datetime | None,
-    ) -> None:
-        """A request has no date, capacity or delivery mode of its own (events_final_fields_required), so
-        a confirmed event takes them from what was arranged: its approved bookings' span and its expected
-        attendance. Anything the event already holds is kept. The venue is read from the bookings (D70),
-        so `venue_name` isn't written."""
-        event.start_at = event.start_at or starts_at
-        event.end_at = event.end_at or ends_at
-        if event.capacity is None:
-            event.capacity = event.expected_attendees or max((b.expected_attendees for b, _ in approved), default=0)
-        event.delivery_mode = event.delivery_mode or DeliveryMode.IN_PERSON
 
     def _notify(
         self,
