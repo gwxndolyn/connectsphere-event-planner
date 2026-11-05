@@ -63,12 +63,15 @@ async def test_tc_us10a_06_queue_rows_carry_what_the_lead_needs_newest_first(
     older.preferred_dates = [(NOW + timedelta(days=9)).date()]
     newer = make_request(db, organiser)
     newer.submitted_at = NOW
+    undated = make_request(db, organiser)
+    undated.submitted_at = None  # like the seed's rows: last, not first
     db.flush()
 
     response = await client.get(UNASSIGNED, headers=auth(lead))
 
     rows = response.json()["event_requests"]
-    assert [row["id"] for row in rows] == [str(newer.id), str(older.id)]  # newest first (SCRUM-150)
+    # Newest first, no submission time last (SCRUM-150)
+    assert [row["id"] for row in rows] == [str(newer.id), str(older.id), str(undated.id)]
     first = rows[1]
     assert first["name"] == "Older request"
     assert first["organiser"]["id"] == str(organiser.id)

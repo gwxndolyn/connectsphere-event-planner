@@ -171,6 +171,8 @@ async def test_tc_us8_15_review_queue_lists_submitted_requests_newest_first(
     newer = make_request(db, organiser, EventStatus.UNDER_REVIEW, coordinator=coordinator)
     older = make_request(db, organiser, EventStatus.AWAITING_CLARIFICATION, coordinator=coordinator)
     older.submitted_at = NOW - timedelta(days=3)
+    undated = make_request(db, organiser, EventStatus.UNDER_REVIEW, coordinator=coordinator)
+    undated.submitted_at = None  # like the seed's rows: last, not first
     hidden = [make_request(db, organiser, EventStatus.DRAFT), make_event(db)]
     db.flush()
 
@@ -178,7 +180,8 @@ async def test_tc_us8_15_review_queue_lists_submitted_requests_newest_first(
 
     assert response.status_code == 200
     ids = [request["id"] for request in response.json()["event_requests"]]
-    assert ids.index(str(newer.id)) < ids.index(str(older.id))  # newest first (SCRUM-150)
+    # Newest first, no submission time last (SCRUM-150)
+    assert ids.index(str(newer.id)) < ids.index(str(older.id)) < ids.index(str(undated.id))
     assert not {str(event.id) for event in hidden} & set(ids)
 
 

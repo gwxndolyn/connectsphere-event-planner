@@ -183,8 +183,12 @@ async def test_tc_us30a_50_the_queue_lists_the_newest_submission_first(
     newer.submitted_at = event.submitted_at + timedelta(days=1)
     db.flush()
     book(db, newer, make_venue(db), casey, venue_staff, starts_at=STARTS + timedelta(days=1))
+    undated = make_request(db, organiser, EventStatus.APPROVED, coordinator=casey)
+    undated.submitted_at = None  # like the seed's rows: last, not first
+    db.flush()
+    book(db, undated, make_venue(db), casey, venue_staff, starts_at=STARTS + timedelta(days=2))
 
-    assert [row["event_id"] for row in await queue(client, officer)] == [str(newer.id), str(event.id)]
+    assert [row["event_id"] for row in await queue(client, officer)] == [str(newer.id), str(event.id), str(undated.id)]
 
 
 async def test_tc_us30a_49_an_online_event_with_no_booking_is_queued_without_breaking_the_queue(
