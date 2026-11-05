@@ -373,6 +373,21 @@ describe("Coordinator Lead: reassign an event (US10e)", () => {
     return screen.findByRole("region", { name: "Request details" });
   }
 
+  it("TC-US17-23: shows a just-approved event in Planning with who approved it (SCRUM-84)", async () => {
+    seedAssigned({
+      name: "Careers fair",
+      status: "planning",
+      decided_at: "2026-10-02T03:00:00Z",
+      decided_by: { id: COORDINATOR_PERSON.id, name: COORDINATOR_PERSON.name },
+    });
+    const user = userEvent.setup();
+
+    const detail = await openDetail(user, "Careers fair");
+
+    expect(within(detail).getByText("planning", { selector: ".request-status" })).toBeInTheDocument();
+    expect(within(detail).getByRole("status", { name: "Decision" })).toHaveTextContent("Approved by Casey Tan on");
+  });
+
   it("TC-US10E-25: moves the event to a different coordinator with a reason, and the history shows both", async () => {
     db.otherCoordinators.push(DANA);
     seedAssigned({ name: "Careers fair" });

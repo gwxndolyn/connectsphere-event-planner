@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.exceptions import DomainError
 from app.event.assignment_service import MISSING_NAME, MISSING_REFERENCE
+from app.event.final_fields import fill_final_fields, preferred_window
 from app.event.models import Event, EventStatus
 from app.event.self_decision import refuse_self_decision
 from app.event.request_schemas import EventRequestOut, RequestRejectWrite
@@ -22,8 +23,13 @@ class RequestDecisionService:
     def approve(
         self, db: Session, coordinator: User, request_id: uuid.UUID, now: datetime, notifier: Notifier
     ) -> EventRequestOut:
+        """AC 2 (corrected): an approved request moves to Planning (the customer's lifecycle, CS2-8 and CS3-1)
+        and takes the date, capacity and delivery mode Planning needs from its preferences (D123), in the
+        same flush as the status, or events_final_fields_required refuses it."""
         event = self._lock_decidable(db, request_id, coordinator)
-        return self._decide(db, notifier, coordinator, event, EventStatus.APPROVED, None, now)
+        starts_at, ends_at = preferred_window(event)
+        fill_final_fields(event, starts_at=starts_at, ends_at=ends_at, capacity=event.expected_attendees)
+        return self._decide(db, notifier, coordinator, event, EventStatus.PLANNING, "approved", None, now)
 
     def reject(
         self,
@@ -40,7 +46,7 @@ class RequestDecisionService:
         if not reason:
             raise DomainError(422, "MISSING_REQUIRED_FIELD", fields=["reason"])
         self._check_decidable(event)
-        return self._decide(db, notifier, coordinator, event, EventStatus.REJECTED, reason, now)
+        return self._decide(db, notifier, coordinator, event, EventStatus.REJECTED, "rejected", reason, now)
 
     def _lock_decidable(self, db: Session, request_id: uuid.UUID, coordinator: User) -> Event:
         event = self._lock_assigned(db, request_id, coordinator)
@@ -62,9 +68,9 @@ class RequestDecisionService:
         return event
 
     def _check_decidable(self, event: Event) -> None:
-        # DECISION-PENDING: D53 — approve leaves the request Approved and reject Rejected; neither moves
-        # it on to Planning, which no AC times. AC 1, 6: only Under Review. Awaiting Clarification waits for the organiser's answer; Approved,
-        # Rejected and Cancelled are already decided; the request is left unchanged.
+        # DECISION-PENDING: D53 — approve moves the request to Planning and reject to Rejected. AC 1, 6: only
+        # Under Review. Awaiting Clarification waits for the organiser's answer; Planning or later, Approved
+        # (from before SCRUM-84 was reopened), Rejected and Cancelled are already decided; the request is left unchanged.
         if event.status != EventStatus.UNDER_REVIEW:
             raise DomainError(409, "REQUEST_NOT_DECIDABLE", status=event.status.value)
 
@@ -75,6 +81,7 @@ class RequestDecisionService:
         coordinator: User,
         event: Event,
         status: EventStatus,
+        decision: RequestDecision,
         reason: str | None,
         now: datetime,
     ) -> EventRequestOut:
@@ -87,7 +94,6 @@ class RequestDecisionService:
         db.flush()
         db.refresh(event, ["decided_by"])
         result = EventRequestOut.model_validate(event)
-        decision: RequestDecision = "approved" if status == EventStatus.APPROVED else "rejected"
         notice = (event.id, event.created_by_user_id, event.request_reference, event.name)
         db.commit()
 

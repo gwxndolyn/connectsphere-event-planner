@@ -1,5 +1,6 @@
 import type { EventRequest, UnassignedRequest } from "./types";
 import { statusLabel } from "./clarificationSections";
+import { DecisionOutcome } from "./RequestDecision";
 import "./eventRequests.css";
 import "./assignments.css";
 
@@ -41,6 +42,8 @@ export function LeadRequestDetail({ request, onAssign, onReassign, onHistory }: 
         <strong>{request.name || "Untitled event request"}</strong>
         <span className={`request-status request-status--${request.status}`}>{statusLabel(request.status)}</span>
       </div>
+      {/* SCRUM-84: who approved or rejected it and when, e.g. "Approved by Casey Tan" on a request now in Planning. */}
+      {"decided_at" in request && <DecisionOutcome request={request} />}
       <dl className="assign-detail">
         {rows.map(([label, text]) => (
           <div key={label}>

@@ -37,6 +37,8 @@ describe("coordinator decides a request (US17)", () => {
     await user.click(decision().getByRole("button", { name: "Approve request" }));
 
     expect(await screen.findByRole("status", { name: "Decision" })).toHaveTextContent(/Approved by Casey Tan on/);
+    // SCRUM-84 (reopened): approving moves the request to Planning.
+    expect(screen.getByText("planning", { selector: ".request-status" })).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Decision" })).not.toBeInTheDocument();
     const [call] = callsTo("POST", `/api/v1/event-requests/${request.id}/approve`);
     expect(call.headers.get("X-User-Id")).toBe("coordinator-id");
@@ -97,6 +99,26 @@ describe("coordinator decides a request (US17)", () => {
 });
 
 describe("organiser sees the outcome (US17 AC 5)", () => {
+  it("shows an approved request in Planning, with who approved it and when", async () => {
+    setDevRole("organiser");
+    seedRequest({
+      name: "Alumni night",
+      status: "planning",
+      coordinator: CASEY,
+      decided_at: "2026-10-02T03:00:00Z",
+      decided_by: CASEY,
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("banner")).getByRole("button", { name: "Event requests" }));
+
+    // Their list shows it in Planning; the request itself, who approved it and when.
+    expect(await screen.findByText("planning", { selector: ".request-status" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Alumni night/ }));
+
+    expect(await screen.findByRole("status", { name: "Decision" })).toHaveTextContent("Approved by Casey Tan on Fri, Oct 2, 11:00 AM");
+  });
+
   it("shows who rejected the request, when and why", async () => {
     setDevRole("organiser");
     seedRequest({
