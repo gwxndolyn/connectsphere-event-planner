@@ -88,6 +88,8 @@ US1, US8 and US10 move the same event request through one status lifecycle, so S
 | CR-06 | A Safety Officer checks events | US30a/b (SCRUM-99, 100) |
 
 US23a/b, US24, US25 and US30a/b are in Sprint 4 in Jira.
+
+**Sprint 4 roles:** Gwendolyn is PO and Chloe is SM; Calvin, Matthew and Nicholas are developers (also in the README's Team Members).
  
 ---
  
