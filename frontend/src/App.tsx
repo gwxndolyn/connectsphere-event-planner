@@ -212,6 +212,15 @@ function Workspace({ me, role: currentRole, onRoleChange, view, onNavigate, onLo
   // A screen saved by someone else on this browser falls back to this user's home screen.
   const shown = views.includes(view) ? view : views[0];
   const registry = useEventRegistry(views.includes("discovery"));
+  // SCRUM-150: re-read the board and My events each time one is opened, so changes made since show without
+  // a browser reload. The hook's own load covers mount, so only a change of screen refreshes.
+  const refreshRegistry = registry.refresh;
+  const lastShown = useRef(shown);
+  useEffect(() => {
+    if (lastShown.current === shown) return;
+    lastShown.current = shown;
+    if (shown === "discovery" || shown === "my-events") void refreshRegistry();
+  }, [shown, refreshRegistry]);
   const [search, setSearch] = useState("");
   const [devRole, setDevRoleState] = useState<DevRole>(getDevRole);
   const role = currentRole ? (currentRole as DevRole | "attendee") : devRole;

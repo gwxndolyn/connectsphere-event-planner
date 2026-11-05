@@ -175,6 +175,22 @@ async def test_tc_us30a_04_a_planning_event_is_in_the_queue_too(
     assert [row["event_id"] for row in await queue(client, officer)] == [str(event.id)]
 
 
+async def test_tc_us30a_50_the_queue_lists_the_newest_submission_first(
+    client: AsyncClient, db: Session, organiser: User, casey: User, venue_staff: User, officer: User, event: Event
+) -> None:
+    """SCRUM-150: newest first, like the other staff queues."""
+    newer = make_request(db, organiser, EventStatus.APPROVED, coordinator=casey)
+    newer.submitted_at = event.submitted_at + timedelta(days=1)
+    db.flush()
+    book(db, newer, make_venue(db), casey, venue_staff, starts_at=STARTS + timedelta(days=1))
+    undated = make_request(db, organiser, EventStatus.APPROVED, coordinator=casey)
+    undated.submitted_at = None  # like the seed's rows: last, not first
+    db.flush()
+    book(db, undated, make_venue(db), casey, venue_staff, starts_at=STARTS + timedelta(days=2))
+
+    assert [row["event_id"] for row in await queue(client, officer)] == [str(newer.id), str(event.id), str(undated.id)]
+
+
 async def test_tc_us30a_49_an_online_event_with_no_booking_is_queued_without_breaking_the_queue(
     client: AsyncClient, db: Session, organiser: User, casey: User, event: Event, officer: User
 ) -> None:

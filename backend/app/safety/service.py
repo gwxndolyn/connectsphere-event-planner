@@ -49,11 +49,11 @@ class SafetyService:
 
     def queue(self, db: Session, now: datetime) -> SafetyQueueOut:
         """AC 1: events whose venue bookings are approved and equipment lines reserved, with no safety
-        decision yet (or one sent back after a rejection). Oldest submission first."""
+        decision yet (or one sent back after a rejection). Newest submission first (SCRUM-150)."""
         events = db.scalars(
             select(Event)
             .where(Event.status.in_(REVIEWABLE_STATUSES), Event.safety_approved_at.is_(None))
-            .order_by(Event.submitted_at, Event.id)
+            .order_by(Event.submitted_at.desc().nulls_last(), Event.id)
         ).all()
         rows = []
         for event in events:

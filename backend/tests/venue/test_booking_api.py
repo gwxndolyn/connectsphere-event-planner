@@ -594,7 +594,7 @@ async def test_tc_us22_12_new_request_shows_in_both_lists(
         assert [row["id"] for row in listed.json()["bookings"]] == [created["id"]]
 
 
-async def test_tc_us22_12_pending_list_holds_requested_only_oldest_first(
+async def test_tc_us22_12_pending_list_holds_requested_only_newest_first(
     client: AsyncClient, db: Session, coordinator: User, staff: User, event: Event, venue: Venue
 ) -> None:
     other = make_venue(db, name="Hall B")
@@ -612,7 +612,7 @@ async def test_tc_us22_12_pending_list_holds_requested_only_oldest_first(
 
     response = await client.get(PENDING_URL, headers=auth(staff))
 
-    assert [row["id"] for row in response.json()["bookings"]] == [str(older.id), str(newer.id)]
+    assert [row["id"] for row in response.json()["bookings"]] == [str(newer.id), str(older.id)]  # newest first (SCRUM-150)
 
 
 async def test_tc_us22_12_event_list_shows_every_status_by_start(

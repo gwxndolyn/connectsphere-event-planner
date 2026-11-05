@@ -17,8 +17,8 @@
 | Work | Tests |
 | --- | --- |
 | `event_change_requests`, `event_audit_entries` (migration `20261108_1200_us12_event_edits`) | `backend/tests/event/test_event_edits.py` (TC-US12-19) |
-| `GET /api/v1/me/coordinated-events`, `GET` / `PATCH /api/v1/events/{id}`, `GET /api/v1/events/{id}/history`; seeded **Event Planning Demo** | `backend/tests/event/test_event_edits.py` (TC-US12-01 to 18, 20) |
-| **Events** screen for the coordinator: list, details, Edit, changes awaiting approval, History | `frontend/src/features/eventEdit/eventEdit.integration.test.tsx` (TC-US12-21 to 25); `e2e/tests/event-edit.spec.ts` (TC-US12-20 to 23) |
+| `GET /api/v1/me/coordinated-events`, `GET` / `PATCH /api/v1/events/{id}`, `GET /api/v1/events/{id}/history`; seeded **Event Planning Demo** | `backend/tests/event/test_event_edits.py` (TC-US12-01 to 18, 20, 27) |
+| **Events** screen for the coordinator: list, details, Edit, changes awaiting approval, History | `frontend/src/features/eventEdit/eventEdit.integration.test.tsx` (TC-US12-21 to 25, 28); `e2e/tests/event-edit.spec.ts` (TC-US12-20 to 23) |
 
 ## Decisions for this story
 
@@ -59,6 +59,8 @@
 | TC-US12-24 | 4 | Frontend | The API refuses the end time | "Nothing was saved."; End time marked with the API's message; form stays open |
 | TC-US12-25 | 5 | Frontend | Two saves, then History | Rows newest first with who (name and id), previous and new values |
 | TC-US12-26 | — | A seeded database | Seed at 00:21, 07:00 and 15:30 SGT | Event Planning Demo runs 10:00 to 12:00 SGT, 21 days ahead, every time |
+| TC-US12-27 | 1 | A Preparation event of theirs (SCRUM-150) | They list their events, open it, then save | Listed with `editable: false`; opens with `editable: false`; the save is `409 EVENT_NOT_EDITABLE` with `status: preparation`; nothing written |
+| TC-US12-28 | 1 | Frontend: a Preparation event (SCRUM-150) | Open Events, then the event | Its row reads Preparation; Edit disabled with the reason |
 
 ## Evidence
 

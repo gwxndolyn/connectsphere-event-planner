@@ -106,6 +106,7 @@ export function displayValue(field: string, value: unknown): string {
 const STATUS_LABELS: Record<string, string> = {
   planning: "Planning",
   confirmed: "Confirmed",
+  preparation: "Preparation",
   cancelled: "Cancelled",
   completed: "Completed",
   pending_approval: "Pending approval",

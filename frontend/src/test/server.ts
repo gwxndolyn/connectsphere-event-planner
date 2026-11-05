@@ -1891,7 +1891,8 @@ const handlers = [
     const role = userRole(request);
     if (!role) return error(401, "UNAUTHENTICATED");
     if (role !== "venue_staff") return error(403, "FORBIDDEN");
-    const pending = db.bookings.filter((b) => b.status === "requested").sort((a, b) => a.created_at.localeCompare(b.created_at));
+    // Newest first, like the API (SCRUM-150).
+    const pending = db.bookings.filter((b) => b.status === "requested").sort((a, b) => b.created_at.localeCompare(a.created_at));
     return HttpResponse.json({ bookings: pending });
   }),
 
