@@ -165,7 +165,7 @@ async def test_tc_us8_14_invalid_body_leaves_the_request_unchanged(
     assert stored(db, event) == []
 
 
-async def test_tc_us8_15_review_queue_lists_submitted_requests_oldest_first(
+async def test_tc_us8_15_review_queue_lists_submitted_requests_newest_first(
     client: AsyncClient, db: Session, organiser: User, coordinator: User
 ) -> None:
     newer = make_request(db, organiser, EventStatus.UNDER_REVIEW, coordinator=coordinator)
@@ -178,7 +178,7 @@ async def test_tc_us8_15_review_queue_lists_submitted_requests_oldest_first(
 
     assert response.status_code == 200
     ids = [request["id"] for request in response.json()["event_requests"]]
-    assert ids.index(str(older.id)) < ids.index(str(newer.id))
+    assert ids.index(str(newer.id)) < ids.index(str(older.id))  # newest first (SCRUM-150)
     assert not {str(event.id) for event in hidden} & set(ids)
 
 

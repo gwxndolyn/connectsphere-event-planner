@@ -55,7 +55,7 @@ async def test_tc_us10a_05_submitting_leaves_the_request_unassigned_and_queued(
     assert [row["id"] for row in queue.json()["event_requests"]] == [request_id]
 
 
-async def test_tc_us10a_06_queue_rows_carry_what_the_lead_needs_oldest_first(
+async def test_tc_us10a_06_queue_rows_carry_what_the_lead_needs_newest_first(
     client: AsyncClient, db: Session, organiser: User, lead: User
 ) -> None:
     older = make_request(db, organiser)
@@ -68,8 +68,8 @@ async def test_tc_us10a_06_queue_rows_carry_what_the_lead_needs_oldest_first(
     response = await client.get(UNASSIGNED, headers=auth(lead))
 
     rows = response.json()["event_requests"]
-    assert [row["id"] for row in rows] == [str(older.id), str(newer.id)]
-    first = rows[0]
+    assert [row["id"] for row in rows] == [str(newer.id), str(older.id)]  # newest first (SCRUM-150)
+    first = rows[1]
     assert first["name"] == "Older request"
     assert first["organiser"]["id"] == str(organiser.id)
     assert first["organiser"]["email"] == organiser.email
