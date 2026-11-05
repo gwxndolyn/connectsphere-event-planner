@@ -2725,8 +2725,16 @@ const handlers = [
       const reason = ((body ?? {}) as { reason?: string | null }).reason?.trim() ?? "";
       if (action === "reject" && !reason) return error(422, "MISSING_REQUIRED_FIELD", { fields: ["reason"] });
       if (found.status !== "under_review") return error(409, "REQUEST_NOT_DECIDABLE", { status: found.status });
+      // Approving moves it to Planning with the earliest preferred date at the preferred times, Singapore time (D53, D123).
+      const day = [...(found.preferred_dates ?? [])].sort()[0];
+      const at = (clock: string | null | undefined) =>
+        day && clock ? new Date(`${day}T${clock.slice(0, 5)}:00+08:00`).toISOString() : null;
+      if (action === "approve") {
+        found.start_at = found.start_at ?? at(found.preferred_start_time);
+        found.end_at = found.end_at ?? at(found.preferred_end_time);
+      }
       Object.assign(found, {
-        status: action === "approve" ? "approved" : "rejected",
+        status: action === "approve" ? "planning" : "rejected",
         decided_at: "2026-10-02T03:00:00Z",
         decided_by: found.coordinator,
         rejection_reason: action === "reject" ? reason : null,

@@ -263,8 +263,8 @@ def _validate(values: dict[str, object], now: datetime) -> dict[str, object]:
 def _schedule_errors(event: Event, starts_at: datetime, ends_at: datetime) -> dict[str, str]:
     """US24 AC 1: a booking's own window falls within the event's schedule; setup and turnaround may
     run outside it. Nothing to check for an event with no schedule yet."""
-    # DECISION-PENDING: D65 — start_at to end_at once set; before that, a preferred day between the
-    # preferred times (Singapore time).
+    # DECISION-PENDING: D65 — start_at to end_at once set (approving sets them, D123); before that, as on an
+    # event approved before SCRUM-84 was reopened, a preferred day between the preferred times (Singapore time).
     errors: dict[str, str] = {}
     if event.start_at is not None and event.end_at is not None:
         span = f"{_local(event.start_at)} to {_local(event.end_at)}"

@@ -43,7 +43,11 @@ test("TC-US17-16: the assigned coordinator approves and the organiser sees it (A
 
   await page.getByRole("region", { name: "Decision" }).getByRole("button", { name: "Approve request" }).click();
   await expect(page.getByRole("status", { name: "Decision" })).toContainText("Approved by Casey Tan");
+  // SCRUM-84 (reopened): approving moves the request to Planning.
+  await expect(page.locator(".clarify-summary .request-status")).toHaveText("planning");
 
+  await page.getByLabel("Acting as").selectOption("organiser");
+  await expect(page.getByRole("button", { name: new RegExp(eventName) }).locator(".request-status")).toHaveText("planning");
   await expect(await organiserOutcome(page, eventName)).toContainText("Approved by Casey Tan");
 });
 
