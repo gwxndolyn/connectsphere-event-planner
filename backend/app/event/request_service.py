@@ -82,16 +82,15 @@ class EventRequestService:
         return [EventRequestOut.model_validate(event) for event in events]
 
     def list_for_review(self, db: Session, reviewer: User) -> list[EventRequestOut]:
-        """The review queue: submitted requests still at the request stage (D11), oldest submission
-        first so nothing waits behind newer work. A Lead sees every one; a coordinator only those
-        assigned to them (D48)."""
+        """The review queue: submitted requests still at the request stage (D11), newest submission
+        first (SCRUM-150). A Lead sees every one; a coordinator only those assigned to them (D48)."""
         statuses = SUBMITTED_REQUEST_STATUSES
         if not reviewer.holds(UserRole.COORDINATOR_LEAD):
             statuses = SUBMITTED_REQUEST_STATUSES + COORDINATOR_EVENT_STATUSES
         query = select(Event).where(Event.status.in_(statuses))
         if not reviewer.holds(UserRole.COORDINATOR_LEAD):
             query = query.where(Event.coordinator_id == reviewer.id)
-        events = db.scalars(query.order_by(Event.submitted_at, Event.id)).all()
+        events = db.scalars(query.order_by(Event.submitted_at.desc(), Event.id)).all()
         return [EventRequestOut.model_validate(event) for event in events]
 
     def get(self, db: Session, request_id: uuid.UUID, reader: User) -> EventRequestOut:

@@ -1,5 +1,5 @@
 // Shapes from backend/app/event/edit_schemas.py (US12, SCRUM-15). Instants are ISO strings with an offset.
-export type EventStatus = "planning" | "confirmed" | "cancelled" | "completed";
+export type EventStatus = "planning" | "confirmed" | "preparation" | "cancelled" | "completed";
 
 export interface CoordinatedEvent {
   id: string;

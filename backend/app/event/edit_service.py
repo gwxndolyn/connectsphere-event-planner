@@ -30,7 +30,14 @@ from app.event.request_service import is_assigned_coordinator
 from app.user.models import User
 
 # Past the request stage: an event its coordinator can open (AC 1). The request stage is the request routes'.
-COORDINATED_STATUSES = (EventStatus.PLANNING, EventStatus.CONFIRMED, EventStatus.CANCELLED, EventStatus.COMPLETED)
+# SCRUM-150: Preparation too, read-only like Confirmed (edits stay Planning-only, see edit()).
+COORDINATED_STATUSES = (
+    EventStatus.PLANNING,
+    EventStatus.CONFIRMED,
+    EventStatus.PREPARATION,
+    EventStatus.CANCELLED,
+    EventStatus.COMPLETED,
+)
 
 # DECISION-PENDING: D87 — which fields are critical (the ticket doesn't list them): the schedule, the
 # event's size and its format. Everything else is non-critical. The venue is booked through US22, not here.

@@ -1043,7 +1043,7 @@ class VenueBookingService:
             logger.exception("could not notify coordinators about venue booking %s", booking.id)
 
     def pending(self, db: Session, now: datetime, notifier: Notifier) -> list[VenueBookingOut]:
-        """Venue Staff's review queue (AC 4): Requested bookings, oldest first. A confirmed hold carries its
+        """Venue Staff's review queue (AC 4): Requested bookings, newest first (SCRUM-150). A confirmed hold carries its
         expiry, the time to approve it by (US25 AC 5)."""
         expire_lapsed_holds(db, now, notifier)
         rows = db.execute(
@@ -1051,7 +1051,7 @@ class VenueBookingService:
             .join(Event, Event.id == VenueBooking.event_id)
             .join(Venue, Venue.id == VenueBooking.venue_id)
             .where(VenueBooking.status == VenueBookingStatus.REQUESTED)
-            .order_by(VenueBooking.created_at, VenueBooking.id)
+            .order_by(VenueBooking.created_at.desc(), VenueBooking.id)
         )
         return [_out(booking, event, venue, now) for booking, event, venue in rows]
 

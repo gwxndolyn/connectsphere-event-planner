@@ -59,7 +59,7 @@ function EvaluationSummary({ evaluation }: { evaluation: EvaluationState | undef
 }
 
 /**
- * US22 AC 4: Venue Staff's queue of Requested bookings, oldest first as the API returns them.
+ * US22 AC 4: Venue Staff's queue of Requested bookings, newest first as the API returns them (SCRUM-150).
  * US4 (SCRUM-8): each shows the event's timing and needs (AC 1) and is approved or rejected as a whole
  * (AC 7). A refused approval (the venue is booked, held or blocked, AC 3) is explained on the row and
  * the request stays here, to be rejected; there's no override. US13 (SCRUM-116, AC 4): each row shows

@@ -51,11 +51,11 @@ class AssignmentService:
     """SCRUM-13 (US10a): the Event Coordinator Lead gives a submitted request one coordinator."""
 
     def list_unassigned(self, db: Session) -> list[UnassignedRequestOut]:
-        """Submitted requests nobody owns yet, oldest first (AC 1). Assigned requests leave it (AC 5)."""
+        """Submitted requests nobody owns yet, newest first (SCRUM-150). Assigned requests leave it (AC 5)."""
         events = db.scalars(
             select(Event)
             .where(Event.status == EventStatus.SUBMITTED, Event.coordinator_id.is_(None))
-            .order_by(Event.submitted_at, Event.id)
+            .order_by(Event.submitted_at.desc(), Event.id)
         ).all()
         return [UnassignedRequestOut.model_validate(event) for event in events]
 
