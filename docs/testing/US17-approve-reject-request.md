@@ -8,7 +8,7 @@
 
 **Tests:**
 
-- Backend: `backend/tests/event/test_event_request_decisions.py` (TC-US17-01 to 15, 18 to 24)
+- Backend: `backend/tests/event/test_event_request_decisions.py` (TC-US17-01 to 15, 18 to 27)
 - Frontend: `frontend/src/features/eventRequest/requestDecision.integration.test.tsx` (the real `App` against the MSW fake backend: what the screens offer, send and show)
 - E2E: `e2e/tests/event-request-decision.spec.ts` (TC-US17-16, 17). Each test submits its own uniquely named request, which the seeded Lead assigns to the seeded coordinator, Casey Tan
 
@@ -24,8 +24,8 @@
 ## Decisions
 
 - **D53: what deciding does.** Approve → Planning, with the event's start, end, capacity and delivery mode filled in the same write (`events_final_fields_required`); reject → Rejected. The recorded decision and the organiser's notice still say "approved". Only the assigned coordinator (D48), only from Under Review, never on a request they created (D51). A rejection's reason is required, trimmed and up to 1,000 characters; an approval takes none
-- **D123: the event's date at approval.** The earliest preferred date, at the preferred start and end times, Singapore time; capacity is the expected attendance and delivery mode in person. Anything the event already holds is kept
-- **Order of checks:** not yours, unassigned, a draft or unknown → `404`; you created it → `403 SELF_DECISION_NOT_ALLOWED`; reject without a reason → `422`; not Under Review → `409 REQUEST_NOT_DECIDABLE` with the status. On any refusal nothing changes and nobody is notified
+- **D123: the event's date at approval.** The earliest preferred date whose preferred start is still ahead, at the preferred start and end times, Singapore time (a request can wait in review past its first option, PR #142 review). If every preferred date has passed, approving is refused with `409 PREFERRED_DATES_PASSED`; the request stays Under Review and the coordinator asks the organiser for new dates with a clarification; capacity is the expected attendance and delivery mode in person. Anything the event already holds is kept
+- **Order of checks:** not yours, unassigned, a draft or unknown → `404`; you created it → `403 SELF_DECISION_NOT_ALLOWED`; reject without a reason → `422`; not Under Review → `409 REQUEST_NOT_DECIDABLE` with the status; approving with every preferred date passed → `409 PREFERRED_DATES_PASSED`. On any refusal nothing changes and nobody is notified
 - **Not backfilled:** events approved or rejected before US17 (the seed, tests) have no recorded decision, so their outcome isn't shown. Events approved before this fix (and the seeded ones) stay `approved`; every rule that accepts Planning still accepts them
 
 ## Test cases
@@ -56,3 +56,6 @@
 | TC-US17-22 | 2 | Confirming an event approved into Planning keeps the times set at approval (US18) | Auto pytest |
 | TC-US17-23 | 5 | The Lead's Assigned tab lists a just-approved request in Planning with its decider and time | Auto pytest |
 | TC-US17-24 | 2 | The confirmation notice gives the event's own start and end, not its bookings' span, so the notice and the event page agree (US18 AC 4) | Auto pytest |
+| TC-US17-25 | 2 | D123's rule on its own: with no preferred dates or a missing preferred time there is no date | Auto pytest |
+| TC-US17-26 | 2 | A preferred date that has passed (or today's, once its start has) is skipped; the next one becomes the event's date (D123, PR #142 review) | Auto pytest |
+| TC-US17-27 | 2 | With every preferred date passed, approving is `409 PREFERRED_DATES_PASSED`: unchanged, nobody told, rejecting still works; the screen says to ask for new dates | Auto pytest + frontend integration |
