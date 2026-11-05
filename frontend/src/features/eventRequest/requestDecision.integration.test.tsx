@@ -81,6 +81,38 @@ describe("coordinator decides a request (US17)", () => {
     expect(screen.queryByRole("region", { name: "Decision" })).not.toBeInTheDocument();
   });
 
+  it("TC-US17-27: says to ask for new dates when every preferred date has passed", async () => {
+    const request = seedRequest({ name: "Alumni night", status: "under_review", coordinator: CASEY });
+    server.use(
+      http.post(`http://api.test/api/v1/event-requests/${request.id}/approve`, () =>
+        HttpResponse.json({ code: "PREFERRED_DATES_PASSED" }, { status: 409 }),
+      ),
+    );
+    const user = userEvent.setup();
+    await openRequest(user, "Alumni night");
+
+    await user.click(decision().getByRole("button", { name: "Approve request" }));
+
+    expect(await decision().findByRole("alert")).toHaveTextContent("Ask the organiser for new dates with a clarification request.");
+    expect(decision().getByRole("button", { name: "Reject request" })).toBeInTheDocument();
+  });
+
+  it.each([
+    ["SELF_DECISION_NOT_ALLOWED", 403, "You can't decide a request you created."],
+    ["NOT_FOUND", 404, "This request isn't assigned to you, so you can't decide it."],
+  ])("explains a %s refusal (AC 1, D51)", async (code, status, message) => {
+    const request = seedRequest({ name: "Alumni night", status: "under_review", coordinator: CASEY });
+    server.use(
+      http.post(`http://api.test/api/v1/event-requests/${request.id}/approve`, () => HttpResponse.json({ code }, { status })),
+    );
+    const user = userEvent.setup();
+    await openRequest(user, "Alumni night");
+
+    await user.click(decision().getByRole("button", { name: "Approve request" }));
+
+    expect(await decision().findByRole("alert")).toHaveTextContent(message);
+  });
+
   it("shows the API's refusal and leaves the panel in place (AC 6)", async () => {
     const request = seedRequest({ name: "Alumni night", status: "under_review", coordinator: CASEY });
     server.use(

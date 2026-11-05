@@ -454,11 +454,50 @@ async def test_tc_us17_24_the_confirmation_notice_gives_the_events_own_times(
     )
 
 
-def test_tc_us17_19_the_date_rule_leaves_out_what_a_request_does_not_hold() -> None:
-    """D123's rule on its own: without preferred dates there is no date, and a missing time leaves only that end
-    unset. A submitted request always holds them (REQUIRED_FIELDS), so the API never meets these."""
+def test_tc_us17_25_the_date_rule_needs_every_preference() -> None:
+    """D123's rule on its own: without preferred dates, or a preferred time, there is no date to plan for. A
+    submitted request always holds them (REQUIRED_FIELDS), so the API never meets these."""
     no_dates = Event(preferred_dates=None, preferred_start_time=PREFERRED_START, preferred_end_time=PREFERRED_END)
     no_end = Event(preferred_dates=[PREFERRED_DATE], preferred_start_time=PREFERRED_START, preferred_end_time=None)
 
-    assert preferred_window(no_dates) == (None, None)
-    assert preferred_window(no_end) == (APPROVED_START, None)
+    assert preferred_window(no_dates, NOW) == (None, None)
+    assert preferred_window(no_end, NOW) == (None, None)
+
+
+async def test_tc_us17_26_a_preferred_date_that_has_passed_is_skipped(
+    client: AsyncClient, db: Session, organiser: User, coordinator: User
+) -> None:
+    """PR #142 review: a request can wait in review past its first option. NOW is 1 Oct, 09:00: 28 Sep has
+    passed, and so has 1 Oct at 08:00, so 20 Oct is the first date that can still be planned and booked."""
+    event = assigned_request(db, organiser, coordinator)
+    event.preferred_dates = [date(2026, 9, 28), date(2026, 10, 1), date(2026, 10, 20)]
+    event.preferred_start_time, event.preferred_end_time = time(8, 0), time(10, 0)
+    db.flush()
+
+    response = await approve(client, coordinator, event.id)
+
+    assert response.status_code == 200
+    db.refresh(event)
+    assert (event.status, event.start_at, event.end_at) == (
+        EventStatus.PLANNING,
+        datetime(2026, 10, 20, 8, 0, tzinfo=SGT),
+        datetime(2026, 10, 20, 10, 0, tzinfo=SGT),
+    )
+
+
+async def test_tc_us17_27_approving_is_refused_once_every_preferred_date_has_passed(
+    client: AsyncClient, db: Session, organiser: User, coordinator: User, notifier: FakeNotifier
+) -> None:
+    event = assigned_request(db, organiser, coordinator)
+    event.preferred_dates = [date(2026, 9, 28), date(2026, 9, 30)]
+    db.flush()
+
+    response = await approve(client, coordinator, event.id)
+
+    assert response.status_code == 409
+    assert response.json() == {"code": "PREFERRED_DATES_PASSED"}
+    unchanged(db, event, EventStatus.UNDER_REVIEW)
+    assert (event.start_at, event.capacity) == (None, None)
+    assert notifier.request_decisions == []
+    # Rejecting doesn't need a date, so it still works.
+    assert (await reject(client, coordinator, event.id)).status_code == 200

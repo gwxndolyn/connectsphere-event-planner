@@ -27,7 +27,11 @@ class RequestDecisionService:
         and takes the date, capacity and delivery mode Planning needs from its preferences (D123), in the
         same flush as the status, or events_final_fields_required refuses it."""
         event = self._lock_decidable(db, request_id, coordinator)
-        starts_at, ends_at = preferred_window(event)
+        starts_at, ends_at = preferred_window(event, now)
+        if starts_at is None and event.start_at is None:
+            # D123: every preferred date has passed, so there is no date to plan for. The request stays Under
+            # Review; the coordinator asks the organiser for new dates (a clarification on the schedule).
+            raise DomainError(409, "PREFERRED_DATES_PASSED")
         fill_final_fields(event, starts_at=starts_at, ends_at=ends_at, capacity=event.expected_attendees)
         return self._decide(db, notifier, coordinator, event, EventStatus.PLANNING, "approved", None, now)
 

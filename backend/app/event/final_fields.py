@@ -7,16 +7,19 @@ from app.event.models import DeliveryMode, Event
 EVENT_TIMEZONE = ZoneInfo("Asia/Singapore")
 
 
-def preferred_window(event: Event) -> tuple[datetime | None, datetime | None]:
-    """DECISION-PENDING: D123 — the event's date at approval: its earliest preferred date, at its preferred
-    start and end times, Singapore time (the customer's CS1: one date per request). None where a
-    preference is missing; a submitted request always holds them (REQUIRED_FIELDS)."""
-    if not event.preferred_dates:
+def preferred_window(event: Event, now: datetime) -> tuple[datetime | None, datetime | None]:
+    """DECISION-PENDING: D123 — the event's date at approval: its earliest preferred date whose preferred start
+    is still ahead, at its preferred start and end times, Singapore time (the customer's CS1: one date per
+    request). A request can wait in review past its first option, and a date gone by can't be booked (PR #142
+    review). None, None when every date has passed or a preference is missing; a submitted request always
+    holds them (REQUIRED_FIELDS)."""
+    if not event.preferred_dates or event.preferred_start_time is None or event.preferred_end_time is None:
         return None, None
-    day = min(event.preferred_dates)
-    starts_at = datetime.combine(day, event.preferred_start_time, tzinfo=EVENT_TIMEZONE) if event.preferred_start_time else None
-    ends_at = datetime.combine(day, event.preferred_end_time, tzinfo=EVENT_TIMEZONE) if event.preferred_end_time else None
-    return starts_at, ends_at
+    for day in sorted(event.preferred_dates):
+        starts_at = datetime.combine(day, event.preferred_start_time, tzinfo=EVENT_TIMEZONE)
+        if starts_at > now:
+            return starts_at, datetime.combine(day, event.preferred_end_time, tzinfo=EVENT_TIMEZONE)
+    return None, None
 
 
 def fill_final_fields(event: Event, *, starts_at: datetime | None, ends_at: datetime | None, capacity: int | None) -> None:
