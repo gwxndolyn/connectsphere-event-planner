@@ -97,11 +97,13 @@ Every step lands in the relevant people's **Notifications**.
 
 | Member | Sprint roles (PO / SM rotate each sprint) |
 | --- | --- |
-| Calvin Ng | SM Sprint 2, PO Sprint 4 |
+| Calvin Ng | SM Sprint 2; developer Sprint 4 |
 | Chloe Goh | PO Sprint 1, SM Sprint 4 |
-| Gwendolyn Leong | SM Sprint 1; repository owner |
-| Matthew Leong | PO Sprint 2, SM Sprint 3 |
-| Nicholas Lo | PO Sprint 3 |
+| Gwendolyn Leong | SM Sprint 1, PO Sprint 4; repository owner |
+| Matthew Leong | PO Sprint 2, SM Sprint 3; developer Sprint 4 |
+| Nicholas Lo | PO Sprint 3; developer Sprint 4 |
+
+**Sprint 4:** Gwendolyn Leong (PO), Chloe Goh (SM); Calvin Ng, Matthew Leong and Nicholas Lo are developers.
 
 ## Product Backlog / Board Link
 
