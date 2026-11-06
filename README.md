@@ -122,13 +122,13 @@ The multi.role user switches role with the **Role** menu in the header.
 
 | Member | Sprint roles (PO / SM rotate each sprint) |
 | --- | --- |
-| Calvin Ng | SM Sprint 2; developer Sprint 4 |
+| Calvin Ng | PO Sprint 2, SM Sprint 3 |
 | Chloe Goh | PO Sprint 1, SM Sprint 4 |
-| Gwendolyn Leong | SM Sprint 1, PO Sprint 4; repository owner |
-| Matthew Leong | PO Sprint 2, SM Sprint 3; developer Sprint 4 |
-| Nicholas Lo | PO Sprint 3; developer Sprint 4 |
+| Gwendolyn Leong | SM Sprint 1; repository owner |
+| Matthew Leong | SM Sprint 2, PO Sprint 4 |
+| Nicholas Lo | PO Sprint 3 |
 
-**Sprint 4:** Gwendolyn Leong (PO), Chloe Goh (SM); Calvin Ng, Matthew Leong and Nicholas Lo are developers.
+**Sprint 4:** Matthew Leong (PO), Chloe Goh (SM); Calvin Ng, Gwendolyn Leong and Nicholas Lo are developers.
 
 ## Product Backlog / Board Link
 
