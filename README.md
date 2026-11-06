@@ -114,7 +114,7 @@ These accounts are created by `python -m app.seed` (`SEEDED_LOGIN_EMAILS` in
 | Attendee | Mei Tan | `mei.tan.2024@smu.edu.sg` |
 | Attendee | Sofia Lim | `sofia.lim.2024@smu.edu.sg` |
 
-Password for all accounts: is212connectSphere
+**Password:** all accounts share one password, `SEED_AUTH_PASSWORD`. For IS212 instructors: please refer to the `.env` file attached in our submission.
 
 The multi.role user switches role with the **Role** menu in the header.
 
