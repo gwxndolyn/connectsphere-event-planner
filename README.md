@@ -93,6 +93,31 @@ switch in the header to change role:
 
 Every step lands in the relevant people's **Notifications**.
 
+## Demo logins
+
+These accounts are created by `python -m app.seed` (`SEEDED_LOGIN_EMAILS` in
+[`backend/app/seed.py`](backend/app/seed.py)). They are demo accounts only, and they all share one password.
+
+| Role | Name | Email (username) |
+| --- | --- | --- |
+| Event Organiser | Olivia Organiser | `event.organiser@smu.edu.sg` |
+| Event Coordinator | Casey Tan | `event.coordinator@smu.edu.sg` |
+| Coordinator Lead | Lena Lim | `lead.one@smu.edu.sg` |
+| Coordinator Lead | Leo Lee | `lead.two@smu.edu.sg` |
+| Venue Staff | Vera Goh | `venue.staff@smu.edu.sg` |
+| Technical Support | Terry Ong | `tech.support@smu.edu.sg` |
+| Technical Support | Priya Nair | `tech.support2@smu.edu.sg` |
+| Safety Officer | Sam Koh | `safety.officer@smu.edu.sg` |
+| Coordinator + Venue Staff (two roles) | Morgan Lau | `multi.role@smu.edu.sg` |
+| Attendee | Arjun Rao | `arjun.rao.2024@smu.edu.sg` |
+| Attendee | Calvin Ng | `calvin.ng.2024@smu.edu.sg` |
+| Attendee | Mei Tan | `mei.tan.2024@smu.edu.sg` |
+| Attendee | Sofia Lim | `sofia.lim.2024@smu.edu.sg` |
+
+Password for all accounts: is212connectSphere
+
+The multi.role user switches role with the **Role** menu in the header.
+
 ## Team Members
 
 | Member | Sprint roles (PO / SM rotate each sprint) |
