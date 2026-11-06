@@ -93,17 +93,42 @@ switch in the header to change role:
 
 Every step lands in the relevant people's **Notifications**.
 
+## Demo logins
+
+These accounts are created by `python -m app.seed` (`SEEDED_LOGIN_EMAILS` in
+[`backend/app/seed.py`](backend/app/seed.py)). They are demo accounts only, and they all share one password.
+
+| Role | Name | Email (username) |
+| --- | --- | --- |
+| Event Organiser | Olivia Organiser | `event.organiser@smu.edu.sg` |
+| Event Coordinator | Casey Tan | `event.coordinator@smu.edu.sg` |
+| Coordinator Lead | Lena Lim | `lead.one@smu.edu.sg` |
+| Coordinator Lead | Leo Lee | `lead.two@smu.edu.sg` |
+| Venue Staff | Vera Goh | `venue.staff@smu.edu.sg` |
+| Technical Support | Terry Ong | `tech.support@smu.edu.sg` |
+| Technical Support | Priya Nair | `tech.support2@smu.edu.sg` |
+| Safety Officer | Sam Koh | `safety.officer@smu.edu.sg` |
+| Coordinator + Venue Staff (two roles) | Morgan Lau | `multi.role@smu.edu.sg` |
+| Attendee | Arjun Rao | `arjun.rao.2024@smu.edu.sg` |
+| Attendee | Calvin Ng | `calvin.ng.2024@smu.edu.sg` |
+| Attendee | Mei Tan | `mei.tan.2024@smu.edu.sg` |
+| Attendee | Sofia Lim | `sofia.lim.2024@smu.edu.sg` |
+
+**Password:** all accounts share one password, `SEED_AUTH_PASSWORD`. For IS212 instructors: please refer to the `.env` file attached in our submission.
+
+The multi.role user switches role with the **Role** menu in the header.
+
 ## Team Members
 
 | Member | Sprint roles (PO / SM rotate each sprint) |
 | --- | --- |
-| Calvin Ng | SM Sprint 2; developer Sprint 4 |
+| Calvin Ng | PO Sprint 2, SM Sprint 3 |
 | Chloe Goh | PO Sprint 1, SM Sprint 4 |
-| Gwendolyn Leong | SM Sprint 1, PO Sprint 4; repository owner |
-| Matthew Leong | PO Sprint 2, SM Sprint 3; developer Sprint 4 |
-| Nicholas Lo | PO Sprint 3; developer Sprint 4 |
+| Gwendolyn Leong | SM Sprint 1; repository owner |
+| Matthew Leong | SM Sprint 2, PO Sprint 4 |
+| Nicholas Lo | PO Sprint 3 |
 
-**Sprint 4:** Gwendolyn Leong (PO), Chloe Goh (SM); Calvin Ng, Matthew Leong and Nicholas Lo are developers.
+**Sprint 4:** Matthew Leong (PO), Chloe Goh (SM); Calvin Ng, Gwendolyn Leong and Nicholas Lo are developers.
 
 ## Product Backlog / Board Link
 
